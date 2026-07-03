@@ -1,0 +1,1712 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>iRent AI &#x667A;&#x6167;&#x71DF;&#x904B;&#x4E2D;&#x63A7;&#x53F0;</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --ink: #17202a;
+      --muted: #687386;
+      --line: #dfe4ea;
+      --green: #168a54;
+      --orange: #d67712;
+      --red: #c92a2a;
+      --blue: #2368c4;
+      --teal: #0f766e;
+      --shadow: 0 12px 32px rgba(21, 31, 45, .10);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "Noto Sans TC", Arial, sans-serif;
+      color: var(--ink);
+      background: var(--bg);
+    }
+
+    button, select {
+      font: inherit;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 260px 1fr;
+    }
+
+    .sidebar {
+      background: #111827;
+      color: #f8fafc;
+      padding: 22px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 22px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-height: 52px;
+    }
+
+    .brand-mark {
+      width: 42px;
+      height: 42px;
+      border-radius: 8px;
+      display: grid;
+      place-items: center;
+      background: linear-gradient(145deg, #24c45e, #0c63c7);
+      font-weight: 800;
+      letter-spacing: 0;
+    }
+
+    .brand small {
+      display: block;
+      color: #a8b3c7;
+      margin-top: 2px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 8px;
+    }
+
+    .nav button {
+      width: 100%;
+      border: 0;
+      border-radius: 8px;
+      padding: 12px 13px;
+      background: transparent;
+      color: #cbd5e1;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+    }
+
+    .nav button.active {
+      color: #ffffff;
+      background: #263244;
+    }
+
+    .sidebar-note {
+      margin-top: auto;
+      border: 1px solid #344256;
+      border-radius: 8px;
+      padding: 14px;
+      color: #dbe4ef;
+      line-height: 1.5;
+      background: #1b2535;
+    }
+
+    main {
+      min-width: 0;
+      padding: 22px;
+    }
+
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      margin-bottom: 18px;
+    }
+
+    h1 {
+      font-size: 28px;
+      margin: 0 0 5px;
+      letter-spacing: 0;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      margin: 0;
+    }
+
+    .actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+    }
+
+    .btn {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: var(--panel);
+      color: var(--ink);
+      cursor: pointer;
+      min-height: 42px;
+    }
+
+    .btn.primary {
+      border-color: #0f6b3d;
+      background: #0f6b3d;
+      color: white;
+    }
+
+    .btn.warn {
+      border-color: #b54708;
+      color: #8a3900;
+      background: #fff8ed;
+    }
+
+    .btn.line {
+      border-color: #4a154b;
+      background: #4a154b;
+      color: white;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .metric {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: var(--shadow);
+      min-height: 104px;
+    }
+
+    .metric .label {
+      color: var(--muted);
+      margin-bottom: 12px;
+    }
+
+    .metric strong {
+      display: block;
+      font-size: 30px;
+      line-height: 1;
+    }
+
+    .metric.red strong { color: var(--red); }
+    .metric.orange strong { color: var(--orange); }
+    .metric.green strong { color: var(--green); }
+    .metric.blue strong { color: var(--blue); }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.35fr) minmax(330px, .65fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+
+    .panel-head {
+      padding: 15px 16px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .panel-head h2 {
+      font-size: 18px;
+      margin: 0;
+    }
+
+    .filters {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    select {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      min-height: 38px;
+      padding: 0 10px;
+    }
+
+    .incident-list {
+      display: grid;
+      max-height: 560px;
+      overflow: auto;
+    }
+
+    .incident {
+      display: grid;
+      grid-template-columns: 12px 1fr auto;
+      gap: 12px;
+      padding: 15px 16px;
+      border-bottom: 1px solid var(--line);
+      cursor: pointer;
+      background: white;
+    }
+
+    .incident:hover,
+    .incident.active {
+      background: #f1f7ff;
+    }
+
+    .severity {
+      width: 12px;
+      height: 100%;
+      min-height: 74px;
+      border-radius: 999px;
+    }
+
+    .severity.high { background: var(--red); }
+    .severity.medium { background: var(--orange); }
+    .severity.low { background: var(--green); }
+
+    .incident h3 {
+      margin: 0 0 7px;
+      font-size: 17px;
+    }
+
+    .incident p {
+      margin: 3px 0;
+      color: var(--muted);
+    }
+
+    .score {
+      align-self: start;
+      min-width: 74px;
+      text-align: center;
+      border-radius: 8px;
+      padding: 8px;
+      background: #eef2f7;
+    }
+
+    .score strong {
+      display: block;
+      font-size: 22px;
+    }
+
+    .detail {
+      padding: 16px;
+    }
+
+    .photo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+
+    .photo {
+      min-height: 130px;
+      border-radius: 8px;
+      border: 1px solid var(--line);
+      background:
+        linear-gradient(135deg, rgba(0, 0, 0, .18), rgba(255,255,255,.18)),
+        linear-gradient(35deg, #d4dde8 0%, #f7f8fa 44%, #969fa9 45%, #cbd2db 56%, #eef1f4 100%);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .photo.interior {
+      background:
+        radial-gradient(circle at 72% 64%, #d14a32 0 6px, transparent 7px),
+        linear-gradient(160deg, #2f3a49 0 38%, #e2e8f0 39% 48%, #64748b 49% 100%);
+    }
+
+    .photo::after {
+      content: attr(data-label);
+      position: absolute;
+      left: 10px;
+      bottom: 10px;
+      color: white;
+      background: rgba(17, 24, 39, .72);
+      padding: 5px 8px;
+      border-radius: 6px;
+      font-size: 13px;
+    }
+
+    .kv {
+      display: grid;
+      gap: 9px;
+      margin: 14px 0;
+    }
+
+    .kv div {
+      display: flex;
+      justify-content: space-between;
+      gap: 14px;
+      border-bottom: 1px dashed var(--line);
+      padding-bottom: 8px;
+    }
+
+    .kv span:first-child { color: var(--muted); }
+
+    .summary {
+      border-radius: 8px;
+      border: 1px solid #cfe1f7;
+      background: #f4f9ff;
+      padding: 13px;
+      line-height: 1.55;
+      color: #183b63;
+    }
+
+    .timeline {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+      padding-left: 10px;
+      border-left: 3px solid #d9e2ef;
+    }
+
+    .timeline-item {
+      display: grid;
+      gap: 3px;
+      padding-left: 10px;
+    }
+
+    .timeline-item strong {
+      font-size: 14px;
+    }
+
+    .timeline-item span {
+      color: var(--muted);
+      font-size: 13px;
+      line-height: 1.4;
+    }
+
+    .flow-progress {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 8px;
+      margin: 14px 0;
+    }
+
+    .flow-step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px 8px;
+      min-height: 66px;
+      background: #f8fafc;
+      color: var(--muted);
+      display: grid;
+      align-content: center;
+      gap: 4px;
+      text-align: center;
+    }
+
+    .flow-step.done {
+      border-color: #b9ddca;
+      background: #f0fbf5;
+      color: #0f6b3d;
+    }
+
+    .flow-step.current {
+      border-color: #9dc0ef;
+      background: #f1f7ff;
+      color: #184f91;
+    }
+
+    .flow-step strong {
+      font-size: 13px;
+    }
+
+    .flow-step span {
+      font-size: 12px;
+    }
+
+    .review-panel {
+      border: 1px solid #cfe1f7;
+      border-radius: 8px;
+      background: #f8fbff;
+      padding: 13px;
+      display: grid;
+      gap: 9px;
+      margin-top: 14px;
+    }
+
+    .review-panel.pass {
+      border-color: #b9ddca;
+      background: #f0fbf5;
+    }
+
+    .review-panel.fail,
+    .review-panel.uncertain {
+      border-color: #f0c38c;
+      background: #fff8ed;
+    }
+
+    .review-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .review-grid div {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: white;
+      padding: 9px;
+    }
+
+    .review-grid span {
+      color: var(--muted);
+      display: block;
+      font-size: 13px;
+      margin-bottom: 4px;
+    }
+
+    .secondary-actions {
+      margin-top: 10px;
+      text-align: right;
+    }
+
+    .btn.subtle {
+      min-height: 34px;
+      padding: 6px 9px;
+      color: var(--muted);
+      background: transparent;
+    }
+
+    .comment-box {
+      display: grid;
+      gap: 8px;
+      margin-top: 14px;
+    }
+
+    .comment-box textarea {
+      width: 100%;
+      min-height: 84px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      resize: vertical;
+      font: inherit;
+    }
+
+    .comment-list {
+      display: grid;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .comment-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 10px;
+      background: #fff;
+    }
+
+    .comment-item p {
+      margin: 4px 0 0;
+      color: var(--muted);
+      line-height: 1.45;
+    }
+
+    .detail-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 14px;
+    }
+
+    .view {
+      display: none;
+    }
+
+    .view.active {
+      display: block;
+    }
+
+    .map-layout {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 360px;
+      gap: 18px;
+    }
+
+    .map {
+      min-height: 640px;
+      position: relative;
+      overflow: hidden;
+      background:
+        linear-gradient(90deg, rgba(255,255,255,.56) 1px, transparent 1px) 0 0 / 72px 72px,
+        linear-gradient(rgba(255,255,255,.62) 1px, transparent 1px) 0 0 / 72px 72px,
+        linear-gradient(135deg, #d7ecdf, #dfe9f3 52%, #f6ead6);
+      border-radius: 8px;
+    }
+
+    .road {
+      position: absolute;
+      background: rgba(255,255,255,.72);
+      border: 1px solid rgba(120, 130, 145, .22);
+      transform-origin: left center;
+    }
+
+    .road.r1 { left: -30px; top: 140px; width: 780px; height: 34px; transform: rotate(-9deg); }
+    .road.r2 { left: 110px; top: -30px; width: 36px; height: 760px; transform: rotate(8deg); }
+    .road.r3 { left: 360px; top: -20px; width: 34px; height: 760px; transform: rotate(-15deg); }
+    .road.r4 { left: 0; top: 440px; width: 900px; height: 38px; transform: rotate(5deg); }
+
+    .pin {
+      position: absolute;
+      width: 38px;
+      height: 38px;
+      border: 3px solid white;
+      border-radius: 50% 50% 50% 10%;
+      transform: rotate(-45deg);
+      box-shadow: 0 8px 18px rgba(17,24,39,.22);
+      cursor: pointer;
+    }
+
+    .pin::after {
+      content: "";
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: white;
+      position: absolute;
+      left: 10px;
+      top: 10px;
+    }
+
+    .pin.high { background: var(--red); }
+    .pin.medium { background: var(--orange); }
+    .pin.low { background: var(--green); }
+
+    .pin.active {
+      outline: 4px solid rgba(35, 104, 196, .24);
+    }
+
+    .tasks {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .task-col {
+      padding: 14px;
+      min-height: 520px;
+    }
+
+    .task-col h2 {
+      font-size: 17px;
+      margin: 0 0 12px;
+    }
+
+    .task-card {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 13px;
+      margin-bottom: 10px;
+      background: #fff;
+    }
+
+    .task-card strong {
+      display: block;
+      margin-bottom: 6px;
+    }
+
+    .task-card p {
+      color: var(--muted);
+      margin: 4px 0;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 26px;
+      border-radius: 999px;
+      padding: 0 9px;
+      font-size: 13px;
+      background: #eef2f7;
+      color: #314154;
+      margin-top: 8px;
+    }
+
+    .analytics-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(340px, .8fr);
+      gap: 18px;
+    }
+
+    .bar-list {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .bar-row {
+      display: grid;
+      grid-template-columns: 120px 1fr 44px;
+      gap: 12px;
+      align-items: center;
+    }
+
+    .bar-track {
+      height: 20px;
+      border-radius: 999px;
+      background: #edf1f5;
+      overflow: hidden;
+    }
+
+    .bar {
+      height: 100%;
+      border-radius: 999px;
+      background: linear-gradient(90deg, #0f766e, #2368c4);
+    }
+
+    .health-list {
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+    }
+
+    .health {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 13px;
+      display: grid;
+      gap: 10px;
+    }
+
+    .health-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .health-meter {
+      height: 9px;
+      border-radius: 999px;
+      background: #edf1f5;
+      overflow: hidden;
+    }
+
+    .health-meter div {
+      height: 100%;
+      background: linear-gradient(90deg, #168a54, #d67712);
+    }
+
+    .line-grid {
+      display: grid;
+      grid-template-columns: minmax(0, .9fr) minmax(360px, 1.1fr);
+      gap: 18px;
+      align-items: start;
+    }
+
+    .line-card {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .line-status {
+      border: 1px solid #e4c7eb;
+      border-radius: 8px;
+      background: #fbf5ff;
+      padding: 14px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .line-status strong {
+      color: #4a154b;
+    }
+
+    .webhook-row {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .webhook-input {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 0 12px;
+      color: var(--ink);
+      background: white;
+    }
+
+    .line-message {
+      width: 100%;
+      min-height: 270px;
+      resize: vertical;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 13px;
+      color: var(--ink);
+      background: #fbfcfe;
+      line-height: 1.55;
+    }
+
+    .line-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .log-list {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      max-height: 560px;
+      overflow: auto;
+    }
+
+    .log-item {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 12px;
+      background: #fff;
+      display: grid;
+      gap: 6px;
+    }
+
+    .log-item p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.45;
+      white-space: pre-line;
+    }
+
+    .toast-stack {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      display: grid;
+      gap: 10px;
+      z-index: 10;
+      width: min(360px, calc(100vw - 36px));
+    }
+
+    .toast {
+      border-radius: 8px;
+      border: 1px solid #b9d4ff;
+      background: #ffffff;
+      box-shadow: var(--shadow);
+      padding: 13px;
+      animation: pop .22s ease-out;
+    }
+
+    .toast strong { display: block; margin-bottom: 4px; }
+    .toast p { margin: 0; color: var(--muted); }
+
+    @keyframes pop {
+      from { transform: translateY(8px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+
+    @media (max-width: 1080px) {
+      .app { grid-template-columns: 1fr; }
+      .sidebar {
+        position: sticky;
+        top: 0;
+        z-index: 5;
+        flex-direction: row;
+        align-items: center;
+        overflow-x: auto;
+      }
+      .brand { min-width: 220px; }
+      .nav { display: flex; }
+      .nav button { min-width: 130px; }
+      .sidebar-note { display: none; }
+      .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .grid, .map-layout, .analytics-grid, .line-grid { grid-template-columns: 1fr; }
+      .tasks { grid-template-columns: 1fr; }
+    }
+
+    @media (max-width: 680px) {
+      main { padding: 14px; }
+      .topbar { align-items: stretch; flex-direction: column; }
+      .actions { justify-content: stretch; }
+      .actions .btn { flex: 1; }
+      .metrics { grid-template-columns: 1fr; }
+      .incident { grid-template-columns: 10px 1fr; }
+      .score { grid-column: 2; text-align: left; }
+      .detail-actions { grid-template-columns: 1fr; }
+      .line-actions, .webhook-row { grid-template-columns: 1fr; }
+      .panel-head { align-items: stretch; flex-direction: column; }
+      .filters { flex-wrap: wrap; }
+      .map { min-height: 520px; }
+      .bar-row { grid-template-columns: 92px 1fr 38px; }
+      .flow-progress, .review-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">iR</div>
+        <div>
+          <strong>iRent Ops AI</strong>
+          <small>Incident to Action</small>
+        </div>
+      </div>
+      <nav class="nav" aria-label="主選單">
+        <button class="active" data-view="dashboard">Dashboard <span id="navIncidentCount">6</span></button>
+        <button data-view="map">地圖模式 <span>Live</span></button>
+        <button data-view="tasks">任務派發 <span id="navTaskCount">4</span></button>
+        <button data-view="line">Slack 通知 <span id="navLineCount">0</span></button>
+        <button data-view="analytics">營運分析 <span>30d</span></button>
+      </nav>
+      <div class="sidebar-note">
+        AI 辨識結果會先轉成 Incident，再依優先分數建立任務、推播通知，最後由人員回報並更新車輛狀態。
+      </div>
+    </aside>
+
+    <main>
+      <div class="topbar">
+        <div>
+          <h1>iRent AI &#x667A;&#x6167;&#x71DF;&#x904B;&#x4E2D;&#x63A7;&#x53F0;</h1>
+          <p class="subtitle">把「AI 有看到問題」變成「營運已經開始處理」。</p>
+        </div>
+        <div class="actions">
+          <button class="btn line" id="notifyBtn">查看 Slack 通知</button>
+          <button class="btn primary" id="simulateBtn">模擬新增 Incident</button>
+        </div>
+      </div>
+
+      <section class="metrics" aria-label="即時指標">
+        <div class="metric blue">
+          <div class="label">目前車輛</div>
+          <strong id="fleetCount">18</strong>
+        </div>
+        <div class="metric red">
+          <div class="label">高優先異常</div>
+          <strong id="highCount">0</strong>
+        </div>
+        <div class="metric orange">
+          <div class="label">中度異常</div>
+          <strong id="mediumCount">0</strong>
+        </div>
+        <div class="metric green">
+          <div class="label">正常車輛</div>
+          <strong id="normalCount">0</strong>
+        </div>
+
+        <div class="metric blue">
+          <div class="label">AI &#x81EA;&#x52D5;&#x7D50;&#x6848;&#x7387;</div>
+          <strong id="autoCloseRate">0%</strong>
+        </div>
+        <div class="metric orange">
+          <div class="label">&#x4EBA;&#x5DE5;&#x5BE9;&#x6838;&#x6E1B;&#x5C11;&#x4EF6;&#x6578;</div>
+          <strong id="manualReviewReduced">0</strong>
+        </div>
+        <div class="metric green">
+          <div class="label">&#x5E73;&#x5747;&#x8655;&#x7406;&#x6642;&#x9593;&#x7BC0;&#x7701;</div>
+          <strong id="avgTimeSaved">0&#x5206;</strong>
+        </div>
+      </section>
+
+      <section class="view active" id="dashboard">
+        <div class="grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>即時 Incident 佇列</h2>
+              <div class="filters">
+                <select id="severityFilter" aria-label="嚴重度篩選">
+                  <option value="all">全部</option>
+                  <option value="high">高優先</option>
+                  <option value="medium">中度</option>
+                  <option value="low">正常/低</option>
+                </select>
+                <select id="typeFilter" aria-label="類型篩選">
+                  <option value="all">所有類型</option>
+                  <option value="damage">車損</option>
+                  <option value="cleaning">髒污</option>
+                  <option value="normal">正常</option>
+                </select>
+              </div>
+            </div>
+            <div class="incident-list" id="incidentList"></div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>事件處理面板</h2>
+            </div>
+            <div class="detail" id="detailPanel"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="map">
+        <div class="map-layout">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>地圖模式</h2>
+              <span class="pill">站點即時風險分布</span>
+            </div>
+            <div class="map" id="mapCanvas">
+              <div class="road r1"></div>
+              <div class="road r2"></div>
+              <div class="road r3"></div>
+              <div class="road r4"></div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>站點詳情</h2>
+            </div>
+            <div class="detail" id="mapDetail"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="tasks">
+        <div class="tasks">
+          <section class="panel task-col">
+            <h2>待建立任務</h2>
+            <div id="todoTasks"></div>
+          </section>
+          <section class="panel task-col">
+            <h2>已派工</h2>
+            <div id="assignedTasks"></div>
+          </section>
+          <section class="panel task-col">
+            <h2>已完成</h2>
+            <div id="doneTasks"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="line">
+        <div class="line-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Slack 頻道通知</h2>
+              <span class="pill">GenAI Message Builder</span>
+            </div>
+            <div class="line-card">
+              <div class="line-status">
+                <strong id="lineGroupStatus">Slack 尚未連結</strong>
+                <span class="subtitle">事件成立後，系統會用 GenAI 產生客服能直接理解的短訊，送到 Slack 頻道。</span>
+              </div>
+              <div class="kv">
+                <div><span>目前事件</span><strong id="lineIncidentName">-</strong></div>
+                <div><span>通知對象</span><strong id="lineGroupName">iRent Ops Alerts</strong></div>
+                <div><span>訊息狀態</span><strong id="lineMessageState">待產生</strong></div>
+              </div>
+              <textarea class="line-message" id="lineMessage" aria-label="Slack 頻道通知訊息"></textarea>
+              <div class="line-actions">
+                <button class="btn primary" id="generateLineBtn">GenAI 產生訊息</button>
+                <button class="btn" id="copyLineBtn">複製訊息</button>
+              </div>
+            </div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>通知紀錄</h2>
+              <span class="pill">Slack Webhook Log</span>
+            </div>
+            <div class="log-list" id="lineLog"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="analytics">
+        <div class="analytics-grid">
+          <section class="panel">
+            <div class="panel-head">
+              <h2>近 30 天車損熱區</h2>
+              <span class="pill">維修預測</span>
+            </div>
+            <div class="bar-list" id="damageBars"></div>
+          </section>
+          <section class="panel">
+            <div class="panel-head">
+              <h2>Fleet Health</h2>
+              <span class="pill">乾淨度 40% + 車損 40% + 租借 20%</span>
+            </div>
+            <div class="health-list" id="healthList"></div>
+          </section>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+  <script>
+    const state = {
+      selectedId: "INC-302",
+      incidents: [
+        { id: "INC-302", plate: "ABC-1234", station: "台北101站", type: "damage", label: "新增右後門刮傷", severity: "high", confidence: 96, time: "08:32", nextBooking: 28, hotStation: true, x: 69, y: 24, assignee: "待客服確認", status: "todo", score: 0 },
+        { id: "INC-303", plate: "XYZ-8888", station: "中山站", type: "cleaning", label: "車內後座垃圾", severity: "high", confidence: 91, time: "08:36", nextBooking: 18, hotStation: true, x: 43, y: 39, assignee: "王先生 600m", status: "assigned", score: 0 },
+        { id: "INC-304", plate: "KKB-5200", station: "松山機場", type: "cleaning", label: "飲料杯與地墊髒污", severity: "medium", confidence: 88, time: "08:41", nextBooking: 52, hotStation: true, x: 76, y: 57, assignee: "林小姐 1.1km", status: "assigned", score: 0 },
+        { id: "INC-305", plate: "RNT-7788", station: "台北車站", type: "damage", label: "疑似保桿擦傷", severity: "medium", confidence: 83, time: "08:47", nextBooking: 74, hotStation: true, x: 31, y: 26, assignee: "待客服確認", status: "todo", score: 0 },
+        { id: "INC-306", plate: "QAZ-2468", station: "士林站", type: "normal", label: "照片通過檢查", severity: "low", confidence: 94, time: "08:52", nextBooking: 140, hotStation: false, x: 22, y: 63, assignee: "無需處理", status: "done", score: 0 },
+        { id: "INC-307", plate: "TPE-1688", station: "信義安和站", type: "cleaning", label: "一般灰塵", severity: "low", confidence: 79, time: "08:58", nextBooking: 126, hotStation: false, x: 58, y: 72, assignee: "排入例行清潔", status: "todo", score: 0 }
+      ],
+      damageHotspots: [
+        ["右後門", 12],
+        ["前保桿", 9],
+        ["左後輪弧", 7],
+        ["後保桿", 5],
+        ["車頂", 2]
+      ],
+      lineGroup: "iRent Ops Alerts",
+      slackConnected: false,
+      comments: {},
+      timelines: {},
+      slackNotifications: [],
+      maintenanceReports: {},
+      opsMetrics: { autoCloseRate: "0%", manualReviewReduced: 0, avgTimeSaved: "0?" },
+      currentLineMessage: "",
+      lineLogs: []
+    };
+
+    const severityText = { high: "高優先", medium: "中度", low: "正常/低" };
+    const typeText = { damage: "車損", cleaning: "清潔", normal: "正常" };
+    let apiOnline = false;
+    let saveTimer = null;
+
+    function exportSharedState() {
+      return {
+        incidents: state.incidents,
+        damageHotspots: state.damageHotspots,
+        lineGroup: state.lineGroup,
+        lineLogs: state.lineLogs
+      };
+    }
+
+    async function loadSharedState() {
+      try {
+        const response = await fetch("/api/state", { cache: "no-store" });
+        if (!response.ok) return false;
+        apiOnline = true;
+        const data = await response.json();
+        if (data && Object.keys(data).length) {
+          Object.assign(state, data);
+          state.currentLineMessage = "";
+        }
+        return true;
+      } catch (error) {
+        apiOnline = false;
+        return false;
+      }
+    }
+
+    async function apiPost(path, payload) {
+      const response = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+      const data = await response.json();
+      if (!response.ok || data.ok === false) throw new Error(data.error || "API failed");
+      if (data.state) {
+        Object.assign(state, data.state);
+        state.currentLineMessage = "";
+        renderAll();
+      }
+      return data;
+    }
+
+    function calculateScore(item) {
+      let score = 0;
+      if (item.type === "damage") score += 60;
+      if (item.type === "cleaning") score += 20;
+      if (item.nextBooking <= 30) score += 30;
+      if (item.hotStation) score += 20;
+      if (item.confidence >= 90) score += 15;
+      if (item.severity === "medium") score += 8;
+      return Math.min(score, 100);
+    }
+
+    function enrichScores() {
+      state.incidents.forEach(item => item.score = calculateScore(item));
+      state.incidents.sort((a, b) => b.score - a.score);
+    }
+
+    function selectedIncident() {
+      return state.incidents.find(item => item.id === state.selectedId) || state.incidents[0];
+    }
+
+    function renderMetrics() {
+      const high = state.incidents.filter(i => i.severity === "high" && i.status !== "done" && i.status !== "resolved").length;
+      const medium = state.incidents.filter(i => i.severity === "medium" && i.status !== "done" && i.status !== "resolved").length;
+      const normal = 18 - high - medium;
+      document.getElementById("highCount").textContent = high;
+      document.getElementById("mediumCount").textContent = medium;
+      document.getElementById("normalCount").textContent = normal;
+      document.getElementById("navIncidentCount").textContent = state.incidents.filter(i => i.status !== "done" && i.status !== "resolved").length;
+      document.getElementById("navTaskCount").textContent = state.incidents.filter(i => i.status !== "done" && i.status !== "resolved" && i.type !== "normal").length;
+      document.getElementById("navLineCount").textContent = state.lineLogs.length;
+      document.getElementById("autoCloseRate").textContent = state.opsMetrics?.autoCloseRate || "0%";
+      document.getElementById("manualReviewReduced").textContent = state.opsMetrics?.manualReviewReduced ?? 0;
+      document.getElementById("avgTimeSaved").textContent = state.opsMetrics?.avgTimeSaved || "0?";
+    }
+
+    function renderIncidentList() {
+      const severityFilter = document.getElementById("severityFilter").value;
+      const typeFilter = document.getElementById("typeFilter").value;
+      const list = document.getElementById("incidentList");
+      const filtered = state.incidents.filter(item => {
+        const severityOk = severityFilter === "all" || item.severity === severityFilter;
+        const typeOk = typeFilter === "all" || item.type === typeFilter;
+        return severityOk && typeOk;
+      });
+      list.innerHTML = filtered.map(item => `
+        <article class="incident ${item.id === state.selectedId ? "active" : ""}" data-id="${item.id}">
+          <div class="severity ${item.severity}"></div>
+          <div>
+            <h3>${item.plate}</h3>
+            <p>${item.station} · ${typeText[item.type]} · ${item.label}</p>
+            <p>AI Confidence ${item.confidence}% · ${item.time} · ${severityText[item.severity]}</p>
+          </div>
+          <div class="score"><strong>${item.score}</strong>Priority</div>
+        </article>
+      `).join("");
+      list.querySelectorAll(".incident").forEach(node => {
+        node.addEventListener("click", () => {
+          state.selectedId = node.dataset.id;
+          renderAll();
+        });
+      });
+    }
+
+    function aiSummary(item) {
+      if (item.type === "damage") {
+        return `${item.plate} 在 ${item.station} 回報 ${item.label}，AI 信心度 ${item.confidence}%。建議先由客服比對租前照片與最近租客紀錄，確認後再建立檢修或求償流程。`;
+      }
+      if (item.type === "cleaning") {
+        return `${item.plate} 在 ${item.station} 偵測到 ${item.label}，下一位預約約 ${item.nextBooking} 分鐘後。建議立即派最近清潔人員處理，完成後回傳照片更新車況。`;
+      }
+      return `${item.plate} 的還車照片已通過檢查，目前可維持上架營運。系統仍會保留紀錄，供後續趨勢分析使用。`;
+    }
+
+    function genAiLineMessage(item, trigger = "manual") {
+      const action = item.type === "damage"
+        ? "請客服先比對租前照片與最近租客紀錄，確認是否建立 Inspection Task 或求償流程。"
+        : item.type === "cleaning"
+          ? "請派最近清潔人員前往處理，完成後回傳照片並更新車輛狀態。"
+          : "目前可維持上架營運，系統已保留檢查紀錄供後續追蹤。";
+      const headline = item.type === "damage"
+        ? "疑似新增車損"
+        : item.type === "cleaning"
+          ? "車內清潔異常"
+          : "車況檢查通過";
+      const triggerText = trigger === "auto" ? "AI 自動建立 Incident" : trigger === "dispatch" ? "任務派發更新" : "人工產生通知";
+      return [
+        `*${headline}* | ${item.plate}`,
+        `事件: ${item.label}`,
+        `位置: ${item.station}`,
+        `AI Confidence: ${item.confidence}%`,
+        `Priority Score: ${item.score}`,
+        `下一位預約: 約 ${item.nextBooking} 分鐘後`,
+        `目前狀態: ${taskStatusText(item.status)}`,
+        `負責對象: ${item.assignee}`,
+        `觸發來源: ${triggerText}`,
+        `建議動作: ${action}`
+      ].join("\n");
+    }
+
+    function escapeHtml(text) {
+      return String(text)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    function latestReport(item) {
+      const reports = state.maintenanceReports[item.id] || [];
+      return reports[reports.length - 1] || null;
+    }
+
+    function needsHumanReview(item) {
+      return Boolean(item.aiReviewResult && (item.aiReviewResult !== "pass" || Number(item.aiReviewConfidence || 0) < 90));
+    }
+
+    function statusLabel(item) {
+      if (item.autoClosed) return "Auto Closed";
+      if (needsHumanReview(item)) return "Need Human Review";
+      if (item.status === "resolved" || item.status === "done") return "Closed";
+      if (item.status === "assigned") return "Auto Dispatch";
+      return "AI Detect";
+    }
+
+    function flowProgressHtml(item) {
+      const reports = state.maintenanceReports[item.id] || [];
+      const hasDispatch = item.status !== "todo" || Boolean(item.assignedTeam);
+      const hasUpload = reports.length > 0;
+      const hasReview = Boolean(item.aiReviewResult);
+      const isClosed = item.status === "resolved" || item.status === "done";
+      const steps = [
+        ["AI Detect", true],
+        ["Auto Dispatch", hasDispatch],
+        ["Team Upload", hasUpload],
+        ["AI Review", hasReview],
+        ["Closed", isClosed]
+      ];
+      const nextIndex = hasReview && !isClosed ? 3 : steps.findIndex(([, done]) => !done);
+      const currentIndex = nextIndex === -1 ? steps.length - 1 : nextIndex;
+      return `
+        <div class="flow-progress" aria-label="Incident flow">
+          ${steps.map(([label, done], index) => {
+            const isCurrent = index === currentIndex && !isClosed;
+            const stepState = done && !isCurrent ? "Done" : isCurrent && needsHumanReview(item) ? "Need Human Review" : isCurrent ? "Current" : "Pending";
+            return `
+            <div class="flow-step ${done && !isCurrent ? "done" : isCurrent ? "current" : ""}">
+              <strong>${label}</strong>
+              <span>${stepState}</span>
+            </div>
+          `}).join("")}
+        </div>
+      `;
+    }
+
+    function reviewPanelHtml(item) {
+      const report = latestReport(item);
+      const result = item.aiReviewResult || report?.ai_review_result || "pending";
+      const confidence = item.aiReviewConfidence ?? report?.ai_review_confidence ?? "-";
+      const summary = item.aiReviewSummary || report?.ai_review_summary || "等待小隊上傳完修照片後自動執行 AI Review。";
+      const outcome = item.autoClosed ? "Auto Closed" : needsHumanReview(item) ? "Need Human Review" : "Waiting for Team Upload";
+      return `
+        <div class="review-panel ${escapeHtml(result)}">
+          <strong>AI Review</strong>
+          <div class="review-grid">
+            <div><span>result</span><strong>${escapeHtml(result)}</strong></div>
+            <div><span>confidence</span><strong>${escapeHtml(confidence)}${confidence === "-" ? "" : "%"}</strong></div>
+          </div>
+          <div class="summary">${escapeHtml(summary)}</div>
+          <span class="pill">${outcome}</span>
+        </div>
+      `;
+    }
+
+    function renderDetailClean() {
+      const item = selectedIncident();
+      const photoClass = item.type === "cleaning" ? "photo interior" : "photo";
+      const showHumanClose = needsHumanReview(item);
+      document.getElementById("detailPanel").innerHTML = `
+        <div class="photo-grid">
+          <div class="${photoClass}" data-label="AI Detect"></div>
+          <div class="photo" data-label="Team Upload"></div>
+        </div>
+        <div class="kv">
+          <div><span>Incident</span><strong>${escapeHtml(item.id)}</strong></div>
+          <div><span>車號</span><strong>${escapeHtml(item.plate)}</strong></div>
+          <div><span>站點</span><strong>${escapeHtml(item.station)}</strong></div>
+          <div><span>AI 偵測</span><strong>${escapeHtml(item.label)}</strong></div>
+          <div><span>Priority Score</span><strong>${item.score}</strong></div>
+          <div><span>Status</span><strong>${statusLabel(item)}</strong></div>
+          <div><span>Auto Dispatch</span><strong>${escapeHtml(item.assignee)}</strong></div>
+        </div>
+        <div class="summary">${escapeHtml(aiSummary(item))}</div>
+        <h3>流程進度</h3>
+        ${flowProgressHtml(item)}
+        <h3>小隊回報</h3>
+        <div class="comment-box">
+          <input id="reportPhoto" type="file" accept="image/*">
+          <textarea id="reportNote" placeholder="備註，例如：已清潔後座並補拍照片。若仍有異常，AI Review 會轉人工確認。"></textarea>
+          <button class="btn primary" id="reportBtn">提交回報</button>
+        </div>
+        ${reviewPanelHtml(item)}
+        <div class="detail-actions">
+          <button class="btn primary" id="dispatchBtn">重新派工</button>
+          ${showHumanClose ? `<button class="btn warn" id="completeBtn">人工確認結案</button>` : ""}
+        </div>
+        <div class="secondary-actions">
+          <button class="btn subtle" id="reopenBtn">Reopen Incident</button>
+        </div>
+      `;
+      document.getElementById("dispatchBtn").addEventListener("click", dispatchSelected);
+      if (showHumanClose) document.getElementById("completeBtn").addEventListener("click", completeSelected);
+      document.getElementById("reopenBtn").addEventListener("click", reopenSelected);
+      document.getElementById("reportBtn").addEventListener("click", submitMaintenanceReport);
+    }
+
+    function renderDetail() {
+      const item = selectedIncident();
+      const photoClass = item.type === "cleaning" ? "photo interior" : "photo";
+      const timeline = state.timelines[item.id] || [];
+      const comments = state.comments[item.id] || [];
+      document.getElementById("detailPanel").innerHTML = `
+        <div class="photo-grid">
+          <div class="${photoClass}" data-label="AI 偵測照片"></div>
+          <div class="photo" data-label="租前比對"></div>
+        </div>
+        <div class="kv">
+          <div><span>Incident</span><strong>${item.id}</strong></div>
+          <div><span>車號</span><strong>${item.plate}</strong></div>
+          <div><span>位置</span><strong>${item.station}</strong></div>
+          <div><span>事件</span><strong>${item.label}</strong></div>
+          <div><span>Priority Score</span><strong>${item.score}</strong></div>
+          <div><span>派工狀態</span><strong>${taskStatusText(item.status)}</strong></div>
+          <div><span>負責人</span><strong>${item.assignee}</strong></div>
+        </div>
+        <div class="summary">${aiSummary(item)}</div>
+        <h3>Incident Timeline</h3>
+        <div class="timeline">
+          ${timeline.length ? timeline.map(event => `
+            <div class="timeline-item">
+              <strong>${escapeHtml(event.title)}</strong>
+              <span>${escapeHtml(event.created_at)} · ${escapeHtml(event.body || "")}</span>
+            </div>
+          `).join("") : `<div class="timeline-item"><strong>尚無紀錄</strong><span>等待伺服器同步</span></div>`}
+        </div>
+        <h3>客服留言</h3>
+        <div class="comment-list">
+          ${comments.length ? comments.map(comment => `
+            <article class="comment-item">
+              <strong>${escapeHtml(comment.author)} · ${escapeHtml(comment.created_at)}</strong>
+              <p>${escapeHtml(comment.body)}</p>
+            </article>
+          `).join("") : `<p class="subtitle">目前尚無留言。</p>`}
+        </div>
+        <div class="comment-box">
+          <textarea id="commentText" placeholder="輸入客服留言，送出後會寫入 SQLite 並自動通知 Slack"></textarea>
+          <button class="btn primary" id="commentBtn">新增客服留言</button>
+        </div>
+        <h3>&#x5C0F;&#x968A;&#x56DE;&#x5831;</h3>
+        <div class="comment-box">
+          <input id="reportPhoto" type="file" accept="image/*">
+          <select id="reportResult" aria-label="&#x8655;&#x7406;&#x7D50;&#x679C;">
+            <option value="pass">&#x8655;&#x7406;&#x5B8C;&#x6210;&#xFF0C;&#x7167;&#x7247;&#x901A;&#x904E;</option>
+            <option value="fail">&#x4ECD;&#x6709;&#x7570;&#x5E38;</option>
+          </select>
+          <textarea id="reportNote" placeholder="&#x5099;&#x8A3B;&#xFF0C;&#x4F8B;&#x5982;&#xFF1A;&#x5DF2;&#x6E05;&#x6F54;&#x5F8C;&#x5EA7;&#x4E26;&#x88DC;&#x62CD;&#x7167;&#x7247;"></textarea>
+          <button class="btn primary" id="reportBtn">&#x63D0;&#x4EA4;&#x56DE;&#x5831;</button>
+        </div>
+        <div class="detail-actions">
+          <button class="btn primary" id="dispatchBtn">&#x91CD;&#x65B0;&#x6D3E;&#x5DE5;</button>
+          <button class="btn line" id="progressBtn">&#x4EFB;&#x52D9;&#x958B;&#x59CB;</button>
+          <button class="btn warn" id="completeBtn">&#x4EBA;&#x5DE5;&#x78BA;&#x8A8D;&#x7D50;&#x6848;</button>
+          <button class="btn" id="reopenBtn">Reopen Incident</button>
+        </div>
+      `;
+      document.getElementById("dispatchBtn").addEventListener("click", dispatchSelected);
+      document.getElementById("progressBtn").addEventListener("click", startSelectedTask);
+      document.getElementById("completeBtn").addEventListener("click", completeSelected);
+      document.getElementById("reopenBtn").addEventListener("click", reopenSelected);
+      document.getElementById("commentBtn").addEventListener("click", addComment);
+      document.getElementById("reportBtn").addEventListener("click", submitMaintenanceReport);
+    }
+
+    function taskStatusText(status) {
+      return status === "assigned" ? "Auto Dispatch"
+        : status === "waiting_review" ? "Need Human Review"
+        : status === "resolved" || status === "done" ? "Closed"
+        : "AI Detect";
+    }
+
+    function renderMap() {
+      const map = document.getElementById("mapCanvas");
+      map.querySelectorAll(".pin").forEach(pin => pin.remove());
+      state.incidents.forEach(item => {
+        const pin = document.createElement("button");
+        pin.className = `pin ${item.severity} ${item.id === state.selectedId ? "active" : ""}`;
+        pin.style.left = `${item.x}%`;
+        pin.style.top = `${item.y}%`;
+        pin.title = `${item.plate} ${item.label}`;
+        pin.setAttribute("aria-label", `${item.plate} ${item.label}`);
+        pin.addEventListener("click", () => {
+          state.selectedId = item.id;
+          renderAll();
+        });
+        map.appendChild(pin);
+      });
+      const item = selectedIncident();
+      document.getElementById("mapDetail").innerHTML = `
+        <div class="photo-grid">
+          <div class="${item.type === "cleaning" ? "photo interior" : "photo"}" data-label="現場照片"></div>
+          <div class="photo" data-label="站點紀錄"></div>
+        </div>
+        <div class="kv">
+          <div><span>車號</span><strong>${item.plate}</strong></div>
+          <div><span>站點</span><strong>${item.station}</strong></div>
+          <div><span>異常</span><strong>${item.label}</strong></div>
+          <div><span>最近租客</span><strong>已可查詢</strong></div>
+          <div><span>預估處理</span><strong>${item.type === "damage" ? "客服確認 8 分鐘" : "清潔 15 分鐘"}</strong></div>
+        </div>
+        <div class="summary">${aiSummary(item)}</div>
+      `;
+    }
+
+    function renderTasks() {
+      const groups = {
+        todo: document.getElementById("todoTasks"),
+        assigned: document.getElementById("assignedTasks"),
+        in_progress: document.getElementById("assignedTasks"),
+        waiting_review: document.getElementById("assignedTasks"),
+        done: document.getElementById("doneTasks"),
+        resolved: document.getElementById("doneTasks")
+      };
+      Object.values(groups).forEach(node => node.innerHTML = "");
+      state.incidents.forEach(item => {
+        if (item.type === "normal" && item.status !== "done" && item.status !== "resolved") return;
+        const card = document.createElement("article");
+        card.className = "task-card";
+        card.innerHTML = `
+          <strong>${item.type === "damage" ? "Inspection" : item.type === "cleaning" ? "Cleaning" : "Release"} Task · ${item.plate}</strong>
+          <p>${item.station} · ${item.label}</p>
+          <p>Priority ${item.score} · ${item.assignee}</p>
+          <span class="pill">${taskStatusText(item.status)}</span>
+        `;
+        card.addEventListener("click", () => {
+          state.selectedId = item.id;
+          switchView("dashboard");
+          renderAll();
+        });
+        (groups[item.status] || groups.todo).appendChild(card);
+      });
+      Object.entries(groups).forEach(([key, node]) => {
+        if (!node.children.length) node.innerHTML = `<p class="subtitle">目前沒有${taskStatusText(key)}任務</p>`;
+      });
+    }
+
+    function renderAnalytics() {
+      const max = Math.max(...state.damageHotspots.map(row => row[1]));
+      document.getElementById("damageBars").innerHTML = state.damageHotspots.map(([label, count]) => `
+        <div class="bar-row">
+          <strong>${label}</strong>
+          <div class="bar-track"><div class="bar" style="width:${count / max * 100}%"></div></div>
+          <span>${count}次</span>
+        </div>
+      `).join("");
+      const vehicles = state.incidents.slice(0, 5).map(item => {
+        const clean = item.type === "cleaning" ? 62 : 92;
+        const damage = item.type === "damage" ? 58 : 90;
+        const usage = item.nextBooking < 40 ? 72 : 84;
+        const score = Math.round(clean * .4 + damage * .4 + usage * .2);
+        return { ...item, health: score };
+      }).sort((a, b) => a.health - b.health);
+      document.getElementById("healthList").innerHTML = vehicles.map(item => `
+        <article class="health">
+          <div class="health-top">
+            <strong>${item.plate}</strong>
+            <span>${item.health}%</span>
+          </div>
+          <div class="health-meter"><div style="width:${item.health}%"></div></div>
+          <span class="subtitle">${item.station} · ${item.label}</span>
+        </article>
+      `).join("");
+    }
+
+    function renderLinePanel() {
+      const item = selectedIncident();
+      const message = state.currentLineMessage || genAiLineMessage(item);
+      document.getElementById("lineGroupStatus").textContent = state.slackConnected ? "Connected" : "Not Connected";
+      document.getElementById("lineGroupName").textContent = state.lineGroup;
+      document.getElementById("lineIncidentName").textContent = `${item.plate} · ${item.label}`;
+      document.getElementById("lineMessage").value = message;
+      document.getElementById("lineMessageState").textContent = "由 Server 自動通知";
+      document.getElementById("lineLog").innerHTML = state.lineLogs.length
+        ? state.lineLogs.map(log => `
+          <article class="log-item">
+            <strong>${escapeHtml(log.title)}</strong>
+            <span class="subtitle">${escapeHtml(log.time)} · ${escapeHtml(log.group)}</span>
+            <p>${escapeHtml(log.message)}</p>
+          </article>
+        `).join("")
+        : `<p class="subtitle">目前尚未送出 Slack 通知。</p>`;
+    }
+
+    function renderAll() {
+      enrichScores();
+      renderMetrics();
+      renderIncidentList();
+      renderDetailClean();
+      renderMap();
+      renderTasks();
+      renderAnalytics();
+      renderLinePanel();
+    }
+
+    function switchView(viewId) {
+      document.querySelectorAll(".view").forEach(view => view.classList.toggle("active", view.id === viewId));
+      document.querySelectorAll(".nav button").forEach(btn => btn.classList.toggle("active", btn.dataset.view === viewId));
+    }
+
+    async function dispatchSelected() {
+      const item = selectedIncident();
+      if (item.type === "normal") {
+        showToast("不需派工", `${item.plate} 目前為正常車況，系統已保留檢查紀錄。`);
+        return;
+      }
+      try {
+        await apiPost("/api/action", { action: "dispatch", incidentId: item.id });
+        showToast("任務已派發", `${item.plate} 已由 Server 寫入 SQLite 並自動通知 Slack。`);
+      } catch (error) {
+        showToast("派工失敗", error.message);
+      }
+    }
+
+    async function startSelectedTask() {
+      const item = selectedIncident();
+      try {
+        await apiPost("/api/action", { action: "in_progress", incidentId: item.id });
+        showToast("任務開始", `${item.plate} 已更新為處理中並自動通知 Slack。`);
+      } catch (error) {
+        showToast("更新失敗", error.message);
+      }
+    }
+
+    async function completeSelected() {
+      const item = selectedIncident();
+      try {
+        await apiPost("/api/action", { action: "resolve", incidentId: item.id });
+        showToast("車況已更新", `${item.plate} 完成處理，Fleet Health 與 Dashboard 已同步更新。`);
+      } catch (error) {
+        showToast("完成失敗", error.message);
+      }
+    }
+
+    async function reopenSelected() {
+      const item = selectedIncident();
+      try {
+        await apiPost("/api/action", { action: "reopen", incidentId: item.id });
+        showToast("Incident 已重開", `${item.plate} 已回到待處理狀態並自動通知 Slack。`);
+      } catch (error) {
+        showToast("Reopen 失敗", error.message);
+      }
+    }
+
+    async function addComment() {
+      const item = selectedIncident();
+      const body = document.getElementById("commentText").value.trim();
+      if (!body) {
+        showToast("留言不可空白", "請先輸入客服留言。");
+        return;
+      }
+      try {
+        await apiPost("/api/action", { action: "comment", incidentId: item.id, author: "客服", body });
+        showToast("留言已新增", "已寫入 SQLite，並由 Server 自動通知 Slack。");
+      } catch (error) {
+        showToast("留言失敗", error.message);
+      }
+    }
+
+
+    function readPhoto(file) {
+      return new Promise((resolve, reject) => {
+        if (!file) return resolve(null);
+        const reader = new FileReader();
+        reader.onload = () => resolve({ name: file.name, data: reader.result });
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    async function submitMaintenanceReport() {
+      const item = selectedIncident();
+      const file = document.getElementById("reportPhoto").files[0];
+      const note = document.getElementById("reportNote").value.trim();
+      try {
+        const photo = await readPhoto(file);
+        await apiPost("/api/action", { action: "maintenance_report", incidentId: item.id, note, photo });
+        const latest = selectedIncident();
+        if (latest.status === "resolved" && latest.autoClosed) {
+          showToast("Auto Closed", `${latest.plate} AI Review pass，自動結案。`);
+        } else {
+          showToast("Need Human Review", `${latest.plate} AI Review 未通過，需人工確認。`);
+        }
+      } catch (error) {
+        showToast("回報失敗", error.message);
+      }
+    }
+
+    async function simulateIncident() {
+      const next = 308 + state.incidents.length;
+      const newItem = {
+        id: `INC-${next}`,
+        plate: "NEW-" + Math.floor(1000 + Math.random() * 8999),
+        station: "\u677f\u6a4b\u8eca\u7ad9",
+        type: Math.random() > .45 ? "damage" : "cleaning",
+        label: Math.random() > .45 ? "\u65b0\u589e\u5de6\u524d\u4fdd\u687f\u64e6\u50b7" : "\u8eca\u5167\u5730\u588a\u9ad2\u6c61",
+        severity: "high",
+        confidence: 92 + Math.floor(Math.random() * 7),
+        time: "09:" + String(3 + state.incidents.length).padStart(2, "0"),
+        nextBooking: 22,
+        hotStation: true,
+        x: 47 + Math.random() * 20,
+        y: 46 + Math.random() * 22,
+        assignee: "pending",
+        status: "todo",
+        score: 0
+      };
+      try {
+        await apiPost("/api/incidents", newItem);
+        state.selectedId = newItem.id;
+        switchView("dashboard");
+        showToast("AI 新增 Incident", `${newItem.plate} 已寫入 SQLite 並自動通知 Slack。`);
+        renderAll();
+      } catch (error) {
+        showToast("新增失敗", error.message);
+      }
+    }
+
+    function generateLineForSelected(trigger) {
+      enrichScores();
+      const item = selectedIncident();
+      state.currentLineMessage = genAiLineMessage(item, trigger);
+      renderLinePanel();
+      showToast("GenAI 訊息已產生", `${item.plate} 的 Slack 通知已更新，可直接送出或複製。`);
+    }
+
+    async function copyLineMessage() {
+      const message = document.getElementById("lineMessage").value;
+      try {
+        await navigator.clipboard.writeText(message);
+        showToast("已複製 Slack 訊息", "可貼到 Slack、簡報或測試文件。");
+      } catch (error) {
+        document.getElementById("lineMessage").select();
+        showToast("請手動複製", "瀏覽器封鎖剪貼簿權限，訊息已幫你選取。");
+      }
+    }
+
+    function showToast(title, text) {
+      const stack = document.getElementById("toastStack");
+      const toast = document.createElement("div");
+      toast.className = "toast";
+      toast.innerHTML = `<strong>${title}</strong><p>${text}</p>`;
+      stack.prepend(toast);
+      setTimeout(() => toast.remove(), 5200);
+    }
+
+    document.querySelectorAll(".nav button").forEach(btn => {
+      btn.addEventListener("click", () => switchView(btn.dataset.view));
+    });
+    document.getElementById("severityFilter").addEventListener("change", renderIncidentList);
+    document.getElementById("typeFilter").addEventListener("change", renderIncidentList);
+    document.getElementById("simulateBtn").addEventListener("click", simulateIncident);
+    document.getElementById("notifyBtn").addEventListener("click", () => {
+      generateLineForSelected("manual");
+      switchView("line");
+    });
+    document.getElementById("generateLineBtn").addEventListener("click", () => generateLineForSelected("manual"));
+    document.getElementById("copyLineBtn").addEventListener("click", copyLineMessage);
+
+    async function initApp() {
+      const shared = await loadSharedState();
+      renderAll();
+      if (shared) {
+        showToast("共享資料已連線", "目前資料會寫入伺服器上的 SQLite irent_ops.db。");
+      }
+      setInterval(async () => {
+        const currentSelected = state.selectedId;
+        const activeInput = document.activeElement?.id === "commentText";
+        await loadSharedState();
+        state.selectedId = currentSelected;
+        if (!activeInput) renderAll();
+      }, 3000);
+    }
+
+    initApp();
+  </script>
+</body>
+</html>

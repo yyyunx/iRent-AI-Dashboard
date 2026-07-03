@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: irent-ops-dashboard
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python outputs/shared_ops_server.py
+    envVars:
+      - key: DATABASE_PATH
+        value: /var/data/irent_ops.db
+      - key: SLACK_WEBHOOK_URL
+        sync: false
+    disk:
+      name: irent-ops-data
+      mountPath: /var/data
+      sizeGB: 1
