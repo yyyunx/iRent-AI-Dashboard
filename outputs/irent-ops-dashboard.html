@@ -1297,6 +1297,193 @@
       border-color: #f0d4d4;
     }
 
+    .photo-ops-layout {
+      display: grid;
+      grid-template-columns: minmax(0, .9fr) minmax(420px, 1.1fr);
+      gap: 22px;
+      align-items: start;
+    }
+
+    .photo-flow-card {
+      padding: 20px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .segmented {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      padding: 5px;
+      border-radius: 16px;
+      background: #f5f5f5;
+    }
+
+    .segmented button {
+      border: 0;
+      border-radius: 12px;
+      min-height: 42px;
+      background: transparent;
+      color: var(--muted);
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .segmented button.active {
+      background: var(--red);
+      color: #ffffff;
+      box-shadow: 0 10px 20px rgba(198, 40, 40, .18);
+    }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+
+    .field {
+      display: grid;
+      gap: 6px;
+    }
+
+    .field label {
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 800;
+    }
+
+    .field input,
+    .field select,
+    .field textarea {
+      width: 100%;
+      min-height: 42px;
+      border: 1px solid #dedede;
+      border-radius: 14px;
+      background: #ffffff;
+      padding: 0 12px;
+      font: inherit;
+    }
+
+    .field textarea {
+      min-height: 80px;
+      padding: 10px 12px;
+      resize: vertical;
+    }
+
+    .slot-grid {
+      display: grid;
+      gap: 10px;
+    }
+
+    .slot-row {
+      display: grid;
+      grid-template-columns: 130px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: center;
+      padding: 12px;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      background: #ffffff;
+    }
+
+    .slot-row strong {
+      color: #222222;
+    }
+
+    .slot-row input[type="file"] {
+      min-width: 0;
+    }
+
+    .quality-chip {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 116px;
+      min-height: 32px;
+      border-radius: 999px;
+      padding: 0 10px;
+      background: #eeeeee;
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 850;
+    }
+
+    .quality-chip.pass {
+      background: #e9f4ea;
+      color: var(--green);
+    }
+
+    .quality-chip.fail {
+      background: #fff4d6;
+      color: #8a5b00;
+    }
+
+    .submission-list {
+      display: grid;
+      gap: 10px;
+      padding: 16px;
+      max-height: 680px;
+      overflow: auto;
+    }
+
+    .submission-item {
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 14px;
+      background: #ffffff;
+      display: grid;
+      gap: 8px;
+      cursor: pointer;
+    }
+
+    .submission-item:hover {
+      background: #f8f8f8;
+    }
+
+    .submission-top {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      align-items: start;
+    }
+
+    .status-badge {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 850;
+      background: #eeeeee;
+      color: var(--muted);
+    }
+
+    .status-badge.ok {
+      background: #e9f4ea;
+      color: var(--green);
+    }
+
+    .status-badge.warning {
+      background: #fff4d6;
+      color: #8a5b00;
+    }
+
+    .photo-result-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 10px;
+      margin-top: 10px;
+    }
+
+    .photo-result {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 10px;
+      background: #fafafa;
+      display: grid;
+      gap: 5px;
+    }
+
     @media (max-width: 1080px) {
       .app { grid-template-columns: 1fr; }
       .sidebar {
@@ -1346,6 +1533,7 @@
       </div>
       <nav class="nav" aria-label="主選單">
         <button class="active" data-view="dashboard">Dashboard <span id="navIncidentCount">6</span></button>
+        <button data-view="photoOps">租客拍照 <span id="navSubmissionCount">0</span></button>
         <button data-view="map">地圖模式 <span>Live</span></button>
         <button data-view="tasks">任務派發 <span id="navTaskCount">4</span></button>
         <button data-view="line">Slack 通知 <span id="navLineCount">0</span></button>
@@ -1428,6 +1616,58 @@
               <h2>事件處理面板</h2>
             </div>
             <div class="detail" id="detailPanel"></div>
+          </section>
+        </div>
+      </section>
+
+      <section class="view" id="photoOps">
+        <div class="photo-ops-layout">
+          <section class="panel photo-flow-card">
+            <div class="panel-head">
+              <h2>租客拍照流程</h2>
+              <span class="pill">Pickup / Return AI Gate</span>
+            </div>
+            <div class="segmented" aria-label="拍照階段">
+              <button class="active" id="pickupModeBtn" data-phase-mode="pickup">取車檢查</button>
+              <button id="returnModeBtn" data-phase-mode="return">還車檢查</button>
+            </div>
+            <div class="form-grid">
+              <div class="field">
+                <label for="photoRentalId">Rental ID</label>
+                <input id="photoRentalId" value="R-20260704-001">
+              </div>
+              <div class="field">
+                <label for="photoPlate">Plate</label>
+                <input id="photoPlate" value="ABC-1234">
+              </div>
+              <div class="field">
+                <label for="photoStation">Station / Location</label>
+                <input id="photoStation" value="台北 101 站">
+              </div>
+              <div class="field">
+                <label for="photoParkingLocation">Parking Location</label>
+                <input id="photoParkingLocation" value="B3 100">
+              </div>
+            </div>
+            <div class="field">
+              <label for="photoNote">AI Scenario Note</label>
+              <textarea id="photoNote" placeholder="可輸入 scratch / dent / dirty / blur 來測試 mock AI 結果。"></textarea>
+            </div>
+            <div class="slot-grid" id="photoSlotGrid"></div>
+            <div class="line-actions">
+              <button class="btn" id="demoClearPhotosBtn">Demo 正常照片</button>
+              <button class="btn" id="demoIssuePhotosBtn">Demo 異常照片</button>
+              <button class="btn primary" id="submitPhotoFlowBtn">提交 AI 分析</button>
+            </div>
+            <div class="summary" id="photoFlowSummary">照片品質檢查會呼叫 /api/photos/quality-check，提交後呼叫 /api/photo-submissions。</div>
+          </section>
+
+          <section class="panel">
+            <div class="panel-head">
+              <h2>照片提交紀錄</h2>
+              <span class="pill">SQLite + AI Result</span>
+            </div>
+            <div class="submission-list" id="submissionList"></div>
           </section>
         </div>
       </section>
@@ -1553,6 +1793,9 @@
       timelines: {},
       slackNotifications: [],
       maintenanceReports: {},
+      photoSubmissions: [],
+      uploadedPhotos: [],
+      photoFlow: { phase: "pickup", checkedPhotos: {} },
       opsMetrics: { autoCloseRate: "0%", manualReviewReduced: 0, avgTimeSaved: "0?" },
       currentLineMessage: "",
       lineLogs: []
@@ -1560,6 +1803,14 @@
 
     const severityText = { high: "高優先", medium: "中度", low: "正常/低" };
     const typeText = { damage: "車損", cleaning: "清潔", normal: "正常" };
+    const photoSlots = [
+      ["front", "車頭"],
+      ["right_side", "右側"],
+      ["rear", "車尾"],
+      ["left_side", "左側"],
+      ["front_interior", "前座內裝"],
+      ["backseat_interior", "後座內裝"]
+    ];
     let apiOnline = false;
     let saveTimer = null;
 
@@ -1635,6 +1886,7 @@
       document.getElementById("navIncidentCount").textContent = state.incidents.filter(i => i.status !== "done" && i.status !== "resolved").length;
       document.getElementById("navTaskCount").textContent = state.incidents.filter(i => i.status !== "done" && i.status !== "resolved" && i.type !== "normal").length;
       document.getElementById("navLineCount").textContent = state.lineLogs.length;
+      document.getElementById("navSubmissionCount").textContent = state.photoSubmissions?.length || 0;
       document.getElementById("autoCloseRate").textContent = state.opsMetrics?.autoCloseRate || "0%";
       document.getElementById("manualReviewReduced").textContent = state.opsMetrics?.manualReviewReduced ?? 0;
       document.getElementById("avgTimeSaved").textContent = state.opsMetrics?.avgTimeSaved || "0?";
@@ -1782,6 +2034,34 @@
       `;
     }
 
+    function incidentPhotoContextHtml(item) {
+      const related = (state.photoSubmissions || []).filter(sub => sub.plate === item.plate);
+      if (!related.length) return "";
+      const latest = related[0];
+      const photos = (state.uploadedPhotos || []).filter(photo => photo.submissionId === latest.submissionId);
+      return `
+        <h3>租客拍照 AI 來源</h3>
+        <div class="review-panel">
+          <div class="review-grid">
+            <div><span>rentalId</span><strong>${escapeHtml(latest.rentalId)}</strong></div>
+            <div><span>phase</span><strong>${escapeHtml(latest.phase)}</strong></div>
+            <div><span>submission</span><strong>${escapeHtml(latest.submissionId)}</strong></div>
+            <div><span>status</span><strong>${escapeHtml(latest.overallStatus)}</strong></div>
+          </div>
+          <div class="photo-result-grid">
+            ${photos.map(photo => `
+              <div class="photo-result">
+                <strong>${escapeHtml(photo.slot)}</strong>
+                <span>quality: ${photo.qualityPassed ? "pass" : "fail"}</span>
+                <span>blurScore: ${photo.blurScore ?? "-"}</span>
+                <span>AI: ${escapeHtml(JSON.stringify(photo.aiResult || {}))}</span>
+              </div>
+            `).join("")}
+          </div>
+        </div>
+      `;
+    }
+
     function renderDetailClean() {
       const item = selectedIncident();
       const photoClass = item.type === "cleaning" ? "photo interior" : "photo";
@@ -1801,6 +2081,7 @@
           <div><span>Auto Dispatch</span><strong>${escapeHtml(item.assignee)}</strong></div>
         </div>
         <div class="summary">${escapeHtml(aiSummary(item))}</div>
+        ${incidentPhotoContextHtml(item)}
         <h3>流程進度</h3>
         ${flowProgressHtml(item)}
         <h3>小隊回報</h3>
@@ -2010,11 +2291,163 @@
         : `<p class="subtitle">目前尚未送出 Slack 通知。</p>`;
     }
 
+    function renderPhotoOps() {
+      document.querySelectorAll("[data-phase-mode]").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.phaseMode === state.photoFlow.phase);
+      });
+      const grid = document.getElementById("photoSlotGrid");
+      grid.innerHTML = photoSlots.map(([slot, label]) => {
+        const checked = state.photoFlow.checkedPhotos[slot];
+        const statusClass = checked ? (checked.quality?.passed ? "pass" : "fail") : "";
+        const statusText = checked
+          ? `${checked.quality?.passed ? "通過" : "重拍"} · ${checked.quality?.blurScore}`
+          : "待檢查";
+        return `
+          <div class="slot-row" data-slot="${slot}">
+            <strong>${label}</strong>
+            <input id="slotFile-${slot}" type="file" accept="image/*">
+            <button class="btn" data-quality-slot="${slot}">品質檢查</button>
+            <span class="quality-chip ${statusClass}">${statusText}</span>
+          </div>
+        `;
+      }).join("");
+      grid.querySelectorAll("[data-quality-slot]").forEach(btn => {
+        btn.addEventListener("click", () => runQualityCheck(btn.dataset.qualitySlot));
+      });
+      renderSubmissionList();
+    }
+
+    function renderSubmissionList() {
+      const list = document.getElementById("submissionList");
+      const submissions = state.photoSubmissions || [];
+      if (!submissions.length) {
+        list.innerHTML = `<p class="subtitle">目前尚無租客照片提交紀錄。</p>`;
+        return;
+      }
+      list.innerHTML = submissions.map(item => {
+        const photos = (state.uploadedPhotos || []).filter(photo => photo.submissionId === item.submissionId);
+        return `
+          <article class="submission-item">
+            <div class="submission-top">
+              <div>
+                <strong>${escapeHtml(item.submissionId)}</strong>
+                <p class="subtitle">${escapeHtml(item.rentalId)} · ${escapeHtml(item.plate)} · ${escapeHtml(item.phase)}</p>
+              </div>
+              <span class="status-badge ${item.overallStatus === "ok" ? "ok" : "warning"}">${escapeHtml(item.overallStatus)}</span>
+            </div>
+            <p>${escapeHtml(item.aiSummary || "")}</p>
+            <div class="photo-result-grid">
+              ${photos.map(photo => `
+                <div class="photo-result">
+                  <strong>${escapeHtml(photo.slot)}</strong>
+                  <span>Quality: ${photo.qualityPassed ? "pass" : "check"}</span>
+                  <span>Blur: ${photo.blurScore ?? "-"}</span>
+                  <span>AI: ${escapeHtml(JSON.stringify(photo.aiResult || {}))}</span>
+                </div>
+              `).join("")}
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+
+    function setPhotoPhase(phase) {
+      state.photoFlow.phase = phase;
+      state.photoFlow.checkedPhotos = {};
+      document.getElementById("photoFlowSummary").textContent = phase === "pickup"
+        ? "取車流程會判斷既有車損與照片品質，避免把既有問題歸責到新租客。"
+        : "還車流程會判斷新增車損與內裝清潔，必要時自動建立 Incident。";
+      renderPhotoOps();
+    }
+
+    function photoFormPayload(slot, fileData = null) {
+      const note = document.getElementById("photoNote").value.trim();
+      return {
+        rentalId: document.getElementById("photoRentalId").value.trim(),
+        plate: document.getElementById("photoPlate").value.trim(),
+        phase: state.photoFlow.phase,
+        station: document.getElementById("photoStation").value.trim(),
+        parkingLocation: document.getElementById("photoParkingLocation").value.trim(),
+        slot,
+        filename: fileData?.name || `${slot}${note ? "-" + note : ""}.jpg`,
+        imageData: fileData?.data || "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+        note
+      };
+    }
+
+    async function runQualityCheck(slot) {
+      const input = document.getElementById(`slotFile-${slot}`);
+      const file = input?.files?.[0];
+      try {
+        const fileData = file ? await readPhoto(file) : null;
+        const payload = photoFormPayload(slot, fileData);
+        const response = await apiPost("/api/photos/quality-check", payload);
+        state.photoFlow.checkedPhotos[slot] = {
+          photoId: response.photoId,
+          filename: payload.filename,
+          quality: response.quality
+        };
+        renderPhotoOps();
+        showToast("照片品質檢查完成", `${slot}: ${response.quality.message}`);
+      } catch (error) {
+        showToast("品質檢查失敗", error.message);
+      }
+    }
+
+    function seedDemoPhotos(type) {
+      const note = type === "issue" ? "scratch dirty" : "normal clean";
+      document.getElementById("photoNote").value = note;
+      state.photoFlow.checkedPhotos = {};
+      photoSlots.forEach(([slot]) => {
+        const filename = type === "issue" && (slot === "right_side" || slot === "backseat_interior")
+          ? `${slot}-${slot === "right_side" ? "scratch" : "dirty"}.jpg`
+          : `${slot}-normal.jpg`;
+        state.photoFlow.checkedPhotos[slot] = {
+          photoId: "",
+          filename,
+          quality: { passed: true, blurScore: 135.2 }
+        };
+      });
+      renderPhotoOps();
+      showToast("Demo 照片已填入", type === "issue" ? "會模擬新增車損與內裝髒污。" : "會模擬正常照片。");
+    }
+
+    async function submitPhotoFlow() {
+      const note = document.getElementById("photoNote").value.trim();
+      const photos = photoSlots.map(([slot]) => {
+        const checked = state.photoFlow.checkedPhotos[slot];
+        const filename = checked?.filename || `${slot}${note ? "-" + note : ""}.jpg`;
+        return {
+          slot,
+          photoId: checked?.photoId || "",
+          filename,
+          note,
+          qualityPassed: checked?.quality?.passed ?? true
+        };
+      });
+      const payload = {
+        rentalId: document.getElementById("photoRentalId").value.trim(),
+        plate: document.getElementById("photoPlate").value.trim(),
+        phase: state.photoFlow.phase,
+        station: document.getElementById("photoStation").value.trim(),
+        parkingLocation: document.getElementById("photoParkingLocation").value.trim(),
+        photos
+      };
+      try {
+        const response = await apiPost("/api/photo-submissions", payload);
+        document.getElementById("photoFlowSummary").textContent = `提交完成：${response.submissionId}，狀態 ${response.overallStatus}，Incident ${response.createdIncidents.join(", ") || "無"}`;
+        showToast("照片提交完成", response.createdIncidents.length ? "AI 已建立 Incident 並同步 Dashboard。" : "AI 判斷無新增異常。");
+      } catch (error) {
+        showToast("照片提交失敗", error.message);
+      }
+    }
+
     function renderAll() {
       enrichScores();
       renderMetrics();
       renderIncidentList();
       renderDetailClean();
+      renderPhotoOps();
       renderMap();
       renderTasks();
       renderAnalytics();
@@ -2178,6 +2611,11 @@
     document.getElementById("severityFilter").addEventListener("change", renderIncidentList);
     document.getElementById("typeFilter").addEventListener("change", renderIncidentList);
     document.getElementById("simulateBtn").addEventListener("click", simulateIncident);
+    document.getElementById("pickupModeBtn").addEventListener("click", () => setPhotoPhase("pickup"));
+    document.getElementById("returnModeBtn").addEventListener("click", () => setPhotoPhase("return"));
+    document.getElementById("demoClearPhotosBtn").addEventListener("click", () => seedDemoPhotos("clear"));
+    document.getElementById("demoIssuePhotosBtn").addEventListener("click", () => seedDemoPhotos("issue"));
+    document.getElementById("submitPhotoFlowBtn").addEventListener("click", submitPhotoFlow);
     document.getElementById("notifyBtn").addEventListener("click", () => {
       generateLineForSelected("manual");
       switchView("line");

@@ -8,6 +8,7 @@ import sqlite3
 import time
 import base64
 import re
+import random
 
 
 ROOT = Path(__file__).resolve().parent
@@ -139,6 +140,41 @@ def init_db():
               ai_review_summary TEXT,
               created_at TEXT NOT NULL,
               FOREIGN KEY (incident_id) REFERENCES Incident(id) ON DELETE CASCADE
+            );
+
+            CREATE TABLE IF NOT EXISTS PhotoSubmission (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              submission_id TEXT UNIQUE NOT NULL,
+              rental_id TEXT NOT NULL,
+              plate TEXT NOT NULL,
+              phase TEXT NOT NULL,
+              station TEXT,
+              parking_location TEXT,
+              status TEXT NOT NULL,
+              overall_status TEXT NOT NULL,
+              ai_summary TEXT,
+              created_at TEXT NOT NULL
+            );
+
+            CREATE TABLE IF NOT EXISTS UploadedPhoto (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              photo_id TEXT UNIQUE NOT NULL,
+              submission_id TEXT,
+              rental_id TEXT NOT NULL,
+              plate TEXT NOT NULL,
+              phase TEXT NOT NULL,
+              slot TEXT NOT NULL,
+              filename TEXT NOT NULL,
+              file_path TEXT,
+              quality_passed INTEGER NOT NULL DEFAULT 0,
+              blur_score REAL,
+              is_blur INTEGER NOT NULL DEFAULT 0,
+              plate_visible INTEGER NOT NULL DEFAULT 1,
+              angle_valid INTEGER NOT NULL DEFAULT 1,
+              distance_valid INTEGER NOT NULL DEFAULT 1,
+              ai_result_json TEXT,
+              created_at TEXT NOT NULL,
+              FOREIGN KEY (submission_id) REFERENCES PhotoSubmission(submission_id) ON DELETE SET NULL
             );
             """
         )
@@ -355,6 +391,197 @@ def save_report_photo(incident_id, photo):
     return f"uploads/{filename}"
 
 
+PHOTO_SLOTS = {
+    "front": "車頭",
+    "right_side": "右側",
+    "rear": "車尾",
+    "left_side": "左側",
+    "front_interior": "前座內裝",
+    "backseat_interior": "後座內裝",
+}
+
+
+def next_code(conn, table, column, prefix):
+    count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0] + 1
+    return f"{prefix}-{count:03d}"
+
+
+def decode_photo_data(data_url):
+    if not data_url:
+        return b""
+    if "," in data_url:
+        data_url = data_url.split(",", 1)[1]
+    try:
+        return base64.b64decode(data_url)
+    except Exception:
+        return b""
+
+
+def save_uploaded_photo(conn, payload, photo_id=None, submission_id=None):
+    ts = now_text()
+    photo_id = photo_id or next_code(conn, "UploadedPhoto", "photo_id", "PHOTO")
+    filename = re.sub(r"[^A-Za-z0-9_.-]", "_", payload.get("filename") or f"{photo_id}.jpg")
+    suffix = Path(filename).suffix or ".jpg"
+    stored_name = f"{photo_id}_{int(time.time())}{suffix}"
+    file_path = UPLOAD_DIR / stored_name
+    data = decode_photo_data(payload.get("imageData") or payload.get("data") or "")
+    if data:
+        file_path.write_bytes(data)
+    conn.execute(
+        """
+        INSERT OR REPLACE INTO UploadedPhoto(
+          photo_id, submission_id, rental_id, plate, phase, slot, filename, file_path,
+          quality_passed, blur_score, is_blur, plate_visible, angle_valid, distance_valid,
+          ai_result_json, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            photo_id,
+            submission_id,
+            payload.get("rentalId") or payload.get("rental_id") or "",
+            payload.get("plate") or "",
+            payload.get("phase") or "pickup",
+            payload.get("slot") or "front",
+            filename,
+            f"uploads/{stored_name}" if data else "",
+            0,
+            None,
+            0,
+            1,
+            1,
+            1,
+            "",
+            ts,
+        ),
+    )
+    return photo_id
+
+
+def mock_quality_check(photo):
+    text = " ".join(str(photo.get(key, "")) for key in ("filename", "slot", "imageData", "data")).lower()
+    is_blur = any(word in text for word in ("blur", "bad", "dark", "fail"))
+    blur_score = 42.1 if is_blur else 135.2
+    plate_visible = "no_plate" not in text
+    angle_valid = "bad_angle" not in text
+    distance_valid = "too_close" not in text and "too_far" not in text
+    passed = not is_blur and plate_visible and angle_valid and distance_valid
+    message = "照片品質通過" if passed else "照片品質不足，請重新拍攝"
+    return {
+        "passed": passed,
+        "blurScore": blur_score,
+        "isBlur": is_blur,
+        "plateVisible": plate_visible,
+        "angleValid": angle_valid,
+        "distanceValid": distance_valid,
+        "message": message,
+    }
+
+
+def mock_vehicle_ai_analysis(submission):
+    results = []
+    for index, photo in enumerate(submission.get("photos") or []):
+        slot = photo.get("slot") or "front"
+        text = " ".join(str(photo.get(key, "")) for key in ("filename", "slot", "note")).lower()
+        is_interior = slot in ("front_interior", "backseat_interior")
+        quality = bool(photo.get("qualityPassed", True))
+        if is_interior:
+            dirty = any(word in text for word in ("dirty", "trash", "stain", "髒", "垃圾"))
+            result = {
+                "slot": slot,
+                "qualityPassed": quality,
+                "damageDetected": False,
+                "cleanliness": "dirty" if dirty else "normal",
+                "confidence": 0.89 if dirty else 0.93,
+            }
+        else:
+            damaged = any(word in text for word in ("scratch", "dent", "damage", "crack", "擦傷", "凹", "破"))
+            result = {
+                "slot": slot,
+                "qualityPassed": quality,
+                "damageDetected": damaged,
+                "damageType": "scratch" if damaged else None,
+                "damageLocation": PHOTO_SLOTS.get(slot, slot),
+                "isNewDamage": damaged and submission.get("phase") == "return",
+                "confidence": 0.88 if damaged else 0.92,
+            }
+        results.append(result)
+    return results
+
+
+def create_incident_from_ai_result(conn, submission, ai_result):
+    created = []
+    for result in ai_result:
+        should_create = result.get("damageDetected") or result.get("cleanliness") == "dirty"
+        if not should_create:
+            continue
+        incident_id = next_code(conn, "Incident", "id", "INC-AI")
+        is_dirty = result.get("cleanliness") == "dirty"
+        label = "車內清潔異常" if is_dirty else f"{result.get('damageLocation') or result.get('slot')} 新增車損"
+        item = {
+            "id": incident_id,
+            "plate": submission.get("plate") or "UNKNOWN",
+            "station": submission.get("station") or submission.get("parkingLocation") or "租客回報位置",
+            "type": "cleaning" if is_dirty else "damage",
+            "label": label,
+            "severity": "high" if not is_dirty else "medium",
+            "confidence": round(float(result.get("confidence", 0.86)) * 100),
+            "time": time.strftime("%H:%M"),
+            "nextBooking": 24,
+            "hotStation": True,
+            "x": random.randint(24, 76),
+            "y": random.randint(24, 76),
+            "assignee": "auto",
+            "status": "assigned",
+            "score": 0,
+        }
+        insert_incident(conn, item, notify=True)
+        add_timeline(
+            conn,
+            incident_id,
+            "photo_ai_analysis",
+            "Photo AI Analysis",
+            f"rentalId={submission.get('rentalId')} phase={submission.get('phase')} slot={result.get('slot')}",
+        )
+        created.append(incident_id)
+    return created
+
+
+def row_to_submission(row):
+    return {
+        "submissionId": row["submission_id"],
+        "rentalId": row["rental_id"],
+        "plate": row["plate"],
+        "phase": row["phase"],
+        "station": row["station"],
+        "parkingLocation": row["parking_location"],
+        "status": row["status"],
+        "overallStatus": row["overall_status"],
+        "aiSummary": row["ai_summary"],
+        "createdAt": row["created_at"],
+    }
+
+
+def row_to_photo(row):
+    return {
+        "photoId": row["photo_id"],
+        "submissionId": row["submission_id"],
+        "rentalId": row["rental_id"],
+        "plate": row["plate"],
+        "phase": row["phase"],
+        "slot": row["slot"],
+        "filename": row["filename"],
+        "filePath": row["file_path"],
+        "qualityPassed": bool(row["quality_passed"]),
+        "blurScore": row["blur_score"],
+        "isBlur": bool(row["is_blur"]),
+        "plateVisible": bool(row["plate_visible"]),
+        "angleValid": bool(row["angle_valid"]),
+        "distanceValid": bool(row["distance_valid"]),
+        "aiResult": json.loads(row["ai_result_json"] or "{}"),
+        "createdAt": row["created_at"],
+    }
+
+
 def run_ai_review(note, photo_path):
     text = (note or "").lower()
     fail_words = ("fail", "異常", "未完成", "仍有", "不通過", "髒", "破損")
@@ -392,6 +619,8 @@ def project_state():
         reports = {}
         for row in conn.execute("SELECT * FROM MaintenanceReport ORDER BY id ASC"):
             reports.setdefault(row["incident_id"], []).append(dict(row))
+        submissions = [row_to_submission(row) for row in conn.execute("SELECT * FROM PhotoSubmission ORDER BY id DESC LIMIT 50")]
+        uploaded_photos = [row_to_photo(row) for row in conn.execute("SELECT * FROM UploadedPhoto ORDER BY id DESC LIMIT 100")]
         line_logs = [
             {
                 "title": f"{row['status']} · {row['event_type']} · {row['incident_id'] or '-'}",
@@ -412,6 +641,8 @@ def project_state():
             "comments": comments,
             "slackNotifications": notifications,
             "maintenanceReports": reports,
+            "photoSubmissions": submissions,
+            "uploadedPhotos": uploaded_photos,
             "opsMetrics": ops_metrics(conn),
         }
 
@@ -471,10 +702,136 @@ def handle_action(payload):
             else:
                 add_timeline(conn, incident_id, "ai_review_pending", "AI Review Needs Manual Check", f"{review_result} / Confidence {review_confidence}%")
             incident = incident_by_id(conn, incident_id)
-            send_slack(conn, incident_id, "maintenance_report", slack_message(incident, "maintenance_report", note or result))
+            send_slack(conn, incident_id, "maintenance_report", slack_message(incident, "maintenance_report", note or review_result))
         else:
             return 400, {"ok": False, "error": "Unknown action"}
     return 200, {"ok": True, "state": project_state()}
+
+
+def handle_quality_check(payload):
+    with connect() as conn:
+        photo_id = save_uploaded_photo(conn, payload)
+        quality = mock_quality_check(payload)
+        conn.execute(
+            """
+            UPDATE UploadedPhoto
+            SET quality_passed = ?, blur_score = ?, is_blur = ?, plate_visible = ?,
+                angle_valid = ?, distance_valid = ?
+            WHERE photo_id = ?
+            """,
+            (
+                1 if quality["passed"] else 0,
+                quality["blurScore"],
+                1 if quality["isBlur"] else 0,
+                1 if quality["plateVisible"] else 0,
+                1 if quality["angleValid"] else 0,
+                1 if quality["distanceValid"] else 0,
+                photo_id,
+            ),
+        )
+    return 200, {"ok": True, "photoId": photo_id, "quality": quality, "state": project_state()}
+
+
+def handle_photo_submission(payload):
+    photos = payload.get("photos") or []
+    with connect() as conn:
+        submission_id = next_code(conn, "PhotoSubmission", "submission_id", "SUB")
+        submission = {
+            "submissionId": submission_id,
+            "rentalId": payload.get("rentalId") or "",
+            "plate": payload.get("plate") or "",
+            "phase": payload.get("phase") or "return",
+            "station": payload.get("station") or payload.get("location") or "",
+            "parkingLocation": payload.get("parkingLocation") or "",
+            "photos": photos,
+        }
+        ai_results = mock_vehicle_ai_analysis(submission)
+        created_incidents = create_incident_from_ai_result(conn, submission, ai_results)
+        overall_status = "warning" if created_incidents else "ok"
+        status = "incident_created" if created_incidents else "clear"
+        ai_summary = (
+            f"AI found {len(created_incidents)} issue(s) and created incident(s): {', '.join(created_incidents)}"
+            if created_incidents else "AI review found no new damage or cleanliness blocker."
+        )
+        conn.execute(
+            """
+            INSERT INTO PhotoSubmission(
+              submission_id, rental_id, plate, phase, station, parking_location,
+              status, overall_status, ai_summary, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                submission_id,
+                submission["rentalId"],
+                submission["plate"],
+                submission["phase"],
+                submission["station"],
+                submission["parkingLocation"],
+                status,
+                overall_status,
+                ai_summary,
+                now_text(),
+            ),
+        )
+        for photo, ai_result in zip(photos, ai_results):
+            photo_payload = {
+                "rentalId": submission["rentalId"],
+                "plate": submission["plate"],
+                "phase": submission["phase"],
+                "slot": photo.get("slot") or "front",
+                "filename": photo.get("filename") or f"{photo.get('slot') or 'photo'}.jpg",
+                "imageData": photo.get("imageData") or photo.get("data") or "",
+            }
+            photo_id = photo.get("photoId")
+            if photo_id:
+                cursor = conn.execute(
+                    """
+                    UPDATE UploadedPhoto
+                    SET submission_id = ?, ai_result_json = ?
+                    WHERE photo_id = ?
+                    """,
+                    (submission_id, json.dumps(ai_result, ensure_ascii=False), photo_id),
+                )
+                if cursor.rowcount == 0:
+                    saved_id = save_uploaded_photo(conn, photo_payload, photo_id=photo_id, submission_id=submission_id)
+                    conn.execute("UPDATE UploadedPhoto SET ai_result_json = ? WHERE photo_id = ?", (json.dumps(ai_result, ensure_ascii=False), saved_id))
+            else:
+                saved_id = save_uploaded_photo(conn, photo_payload, submission_id=submission_id)
+                conn.execute("UPDATE UploadedPhoto SET ai_result_json = ?, quality_passed = 1 WHERE photo_id = ?", (json.dumps(ai_result, ensure_ascii=False), saved_id))
+        if created_incidents:
+            message = (
+                f"*Photo AI Incident* | {submission['plate']}\n"
+                f"Rental: {submission['rentalId']}\n"
+                f"Phase: {submission['phase']}\n"
+                f"Incidents: {', '.join(created_incidents)}\n"
+                f"Dashboard: /irent-ops-dashboard.html"
+            )
+            send_slack(conn, created_incidents[0], "photo_submission", message)
+    return 200, {
+        "ok": True,
+        "submissionId": submission_id,
+        "overallStatus": overall_status,
+        "results": ai_results,
+        "createdIncidents": created_incidents,
+        "state": project_state(),
+    }
+
+
+def get_photo_submissions():
+    with connect() as conn:
+        rows = conn.execute("SELECT * FROM PhotoSubmission ORDER BY id DESC").fetchall()
+        return [row_to_submission(row) for row in rows]
+
+
+def get_photo_submission_detail(submission_id):
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM PhotoSubmission WHERE submission_id = ?", (submission_id,)).fetchone()
+        if not row:
+            return None
+        photos = [row_to_photo(photo) for photo in conn.execute("SELECT * FROM UploadedPhoto WHERE submission_id = ? ORDER BY id ASC", (submission_id,))]
+        detail = row_to_submission(row)
+        detail["photos"] = photos
+        return detail
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -509,6 +866,17 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == "/api/state":
             self.send_json(200, project_state())
             return
+        if self.path == "/api/submissions":
+            self.send_json(200, {"ok": True, "submissions": get_photo_submissions()})
+            return
+        if self.path.startswith("/api/submissions/"):
+            submission_id = self.path.split("/", 3)[-1]
+            detail = get_photo_submission_detail(submission_id)
+            if not detail:
+                self.send_json(404, {"ok": False, "error": "Submission not found"})
+                return
+            self.send_json(200, {"ok": True, "submission": detail})
+            return
         if self.path == "/healthz":
             self.send_json(200, {"ok": True})
             return
@@ -541,6 +909,14 @@ class Handler(BaseHTTPRequestHandler):
             return
         if self.path == "/api/action":
             status, body = handle_action(payload)
+            self.send_json(status, body)
+            return
+        if self.path == "/api/photos/quality-check":
+            status, body = handle_quality_check(payload)
+            self.send_json(status, body)
+            return
+        if self.path == "/api/photo-submissions":
+            status, body = handle_photo_submission(payload)
             self.send_json(status, body)
             return
         if self.path == "/api/settings/slack":

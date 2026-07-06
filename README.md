@@ -187,3 +187,47 @@ outputs/irent-ops-dashboard.html
 
 本專案希望透過 AI 協助 iRent 優化取車與還車流程。  
 系統不只是在使用者端檢查照片品質，也會將 AI 車況判斷結果同步到營運端，讓客服與營運人員可以更快掌握車損、髒污與照片品質問題，進一步提升租還車體驗與營運效率。
+---
+
+## Photo Submission APIs
+
+The dashboard keeps the original operations workflow and adds a mock renter photo flow for pickup and return inspections.
+
+### POST `/api/photos/quality-check`
+
+Runs a mock Laplacian-style quality check and stores uploaded photo metadata.
+
+Request example:
+
+```json
+{
+  "rentalId": "R-20260704-001",
+  "plate": "ABC-1234",
+  "phase": "pickup",
+  "slot": "front",
+  "filename": "front.jpg",
+  "imageData": "base64..."
+}
+```
+
+Response includes `photoId` and a `quality` object with `passed`, `blurScore`, `isBlur`, `plateVisible`, `angleValid`, `distanceValid`, and `message`.
+
+### POST `/api/photo-submissions`
+
+Submits a pickup or return photo set, runs mock vehicle AI analysis, stores the submission, and creates incidents when new damage or dirty interior is detected.
+
+Response includes `submissionId`, `overallStatus`, `results`, and `createdIncidents`.
+
+### GET `/api/submissions`
+
+Returns recent photo submissions for the dashboard.
+
+### GET `/api/submissions/{submissionId}`
+
+Returns one submission with uploaded photos and AI result metadata.
+
+### GET `/api/state`
+
+Now also includes `photoSubmissions` and `uploadedPhotos`.
+
+These additions are stored in SQLite tables `PhotoSubmission` and `UploadedPhoto`. Existing Incident, Slack log, AI Review, Render, and operations dashboard behavior remain in place.
