@@ -1484,6 +1484,94 @@
       gap: 5px;
     }
 
+    [hidden] {
+      display: none !important;
+    }
+
+    .role-selection {
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 28px;
+      background: #f5f5f5;
+    }
+
+    .role-card {
+      width: min(560px, 100%);
+      border: 1px solid var(--line);
+      border-radius: 20px;
+      background: #ffffff;
+      box-shadow: var(--shadow);
+      padding: 34px;
+      display: grid;
+      gap: 16px;
+      text-align: center;
+      justify-items: center;
+    }
+
+    .role-card .brand-mark {
+      margin-bottom: 4px;
+    }
+
+    .role-card h1 {
+      margin: 0;
+    }
+
+    .role-actions {
+      width: 100%;
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 10px;
+    }
+
+    .customer-app {
+      min-height: 100vh;
+      background: #f5f5f5;
+      padding-top: 8px;
+    }
+
+    .customer-header {
+      margin: 28px auto 0;
+      width: min(1120px, calc(100% - 32px));
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: #ffffff;
+      box-shadow: var(--shadow);
+      padding: 18px 22px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }
+
+    .customer-header strong {
+      color: var(--red);
+      font-size: 20px;
+    }
+
+    .customer-main {
+      width: min(1120px, calc(100% - 32px));
+      margin: 22px auto 40px;
+      padding: 0;
+      display: grid;
+      grid-template-columns: minmax(0, 1.1fr) minmax(340px, .9fr);
+      gap: 22px;
+      align-items: start;
+    }
+
+    .customer-result-panel {
+      min-height: 280px;
+    }
+
+    #operatorApp #photoOps .photo-flow-card {
+      display: none;
+    }
+
+    #operatorApp #photoOps .photo-ops-layout {
+      grid-template-columns: 1fr;
+    }
+
     @media (max-width: 1080px) {
       .app { grid-template-columns: 1fr; }
       .sidebar {
@@ -1522,7 +1610,80 @@
   </style>
 </head>
 <body>
-  <div class="app">
+  <section class="role-selection" id="roleSelectionView">
+    <div class="role-card">
+      <div class="brand-mark">iR</div>
+      <h1>iRent AI 智慧營運中控台</h1>
+      <p class="subtitle">請選擇身分，系統會顯示對應的使用流程。</p>
+      <div class="role-actions">
+        <button class="btn primary" id="chooseCustomerBtn">我是使用者</button>
+        <button class="btn" id="chooseOperatorBtn">我是營運人員</button>
+      </div>
+    </div>
+  </section>
+
+  <section class="customer-app" id="customerApp" hidden>
+    <header class="customer-header">
+      <div>
+        <strong>iRent 使用者拍照檢查</strong>
+        <p class="subtitle">只顯示取車檢查 / 還車檢查與本次提交結果。</p>
+      </div>
+      <button class="btn subtle" id="customerBackBtn">切換身分</button>
+    </header>
+
+    <main class="customer-main">
+      <section class="panel photo-flow-card">
+        <div class="panel-head">
+          <h2>取車 / 還車檢查</h2>
+          <span class="pill">Customer Photo Flow</span>
+        </div>
+        <div class="segmented" aria-label="使用者拍照階段">
+          <button class="active" id="customerPickupModeBtn" data-customer-phase="pickup">取車檢查</button>
+          <button id="customerReturnModeBtn" data-customer-phase="return">還車檢查</button>
+        </div>
+        <div class="form-grid">
+          <div class="field">
+            <label for="customerRentalId">Rental ID</label>
+            <input id="customerRentalId" value="R-20260704-001">
+          </div>
+          <div class="field">
+            <label for="customerPlate">Plate</label>
+            <input id="customerPlate" value="ABC-1234">
+          </div>
+          <div class="field">
+            <label for="customerStation">Station / Location</label>
+            <input id="customerStation" value="台北 101 站">
+          </div>
+          <div class="field">
+            <label for="customerParkingLocation">Parking Location</label>
+            <input id="customerParkingLocation" value="B3 100">
+          </div>
+        </div>
+        <div class="field">
+          <label for="customerPhotoNote">備註</label>
+          <textarea id="customerPhotoNote" placeholder="可輸入 scratch / dent / dirty / blur 來測試 mock AI 結果。"></textarea>
+        </div>
+        <div class="slot-grid" id="customerPhotoSlotGrid"></div>
+        <div class="line-actions">
+          <button class="btn" id="customerDemoClearBtn">Demo 正常照片</button>
+          <button class="btn" id="customerDemoIssueBtn">Demo 異常照片</button>
+          <button class="btn primary" id="customerSubmitBtn">完成送出</button>
+        </div>
+      </section>
+
+      <section class="panel customer-result-panel">
+        <div class="panel-head">
+          <h2>本次提交結果</h2>
+          <span class="pill">Result Summary</span>
+        </div>
+        <div class="submission-list" id="customerResultSummary">
+          <p class="subtitle">完成送出後，這裡只會顯示本次提交摘要。</p>
+        </div>
+      </section>
+    </main>
+  </section>
+
+  <div class="app" id="operatorApp" hidden>
     <aside class="sidebar">
       <div class="brand">
         <div class="brand-mark">iR</div>
@@ -1533,7 +1694,7 @@
       </div>
       <nav class="nav" aria-label="主選單">
         <button class="active" data-view="dashboard">Dashboard <span id="navIncidentCount">6</span></button>
-        <button data-view="photoOps">租客拍照 <span id="navSubmissionCount">0</span></button>
+        <button data-view="photoOps">提交紀錄 <span id="navSubmissionCount">0</span></button>
         <button data-view="map">地圖模式 <span>Live</span></button>
         <button data-view="tasks">任務派發 <span id="navTaskCount">4</span></button>
         <button data-view="line">Slack 通知 <span id="navLineCount">0</span></button>
@@ -1813,6 +1974,9 @@
     ];
     let apiOnline = false;
     let saveTimer = null;
+    let currentRole = null;
+    let customerSubmitting = false;
+    const customerFlow = { phase: "pickup", checkedPhotos: {}, lastSubmission: null };
 
     function exportSharedState() {
       return {
@@ -2351,6 +2515,163 @@
       }).join("");
     }
 
+    function setRole(role) {
+      currentRole = role;
+      document.getElementById("roleSelectionView").hidden = role !== null;
+      document.getElementById("customerApp").hidden = role !== "customer";
+      document.getElementById("operatorApp").hidden = role !== "operator";
+      if (role === "customer") renderCustomerApp();
+      if (role === "operator") renderAll();
+    }
+
+    function renderCustomerApp() {
+      document.querySelectorAll("[data-customer-phase]").forEach(btn => {
+        btn.classList.toggle("active", btn.dataset.customerPhase === customerFlow.phase);
+      });
+      const grid = document.getElementById("customerPhotoSlotGrid");
+      grid.innerHTML = photoSlots.map(([slot, label]) => {
+        const checked = customerFlow.checkedPhotos[slot];
+        const statusClass = checked ? (checked.quality?.passed ? "pass" : "fail") : "";
+        const statusText = checked
+          ? `${checked.quality?.passed ? "通過" : "重拍"} · ${checked.quality?.blurScore}`
+          : "待檢查";
+        return `
+          <div class="slot-row" data-slot="${slot}">
+            <strong>${label}</strong>
+            <input id="customerSlotFile-${slot}" type="file" accept="image/*">
+            <button class="btn" data-customer-quality-slot="${slot}">品質檢查</button>
+            <span class="quality-chip ${statusClass}">${statusText}</span>
+          </div>
+        `;
+      }).join("");
+      grid.querySelectorAll("[data-customer-quality-slot]").forEach(btn => {
+        btn.addEventListener("click", () => runCustomerQualityCheck(btn.dataset.customerQualitySlot));
+      });
+    }
+
+    function setCustomerPhase(phase) {
+      customerFlow.phase = phase;
+      customerFlow.checkedPhotos = {};
+      renderCustomerApp();
+    }
+
+    function customerPayload(slot, fileData = null) {
+      const note = document.getElementById("customerPhotoNote").value.trim();
+      return {
+        rentalId: document.getElementById("customerRentalId").value.trim(),
+        plate: document.getElementById("customerPlate").value.trim(),
+        phase: customerFlow.phase,
+        station: document.getElementById("customerStation").value.trim(),
+        parkingLocation: document.getElementById("customerParkingLocation").value.trim(),
+        slot,
+        filename: fileData?.name || `${slot}${note ? "-" + note : ""}.jpg`,
+        imageData: fileData?.data || "data:image/jpeg;base64,/9j/4AAQSkZJRg==",
+        note
+      };
+    }
+
+    async function runCustomerQualityCheck(slot) {
+      const input = document.getElementById(`customerSlotFile-${slot}`);
+      const file = input?.files?.[0];
+      try {
+        const fileData = file ? await readPhoto(file) : null;
+        const payload = customerPayload(slot, fileData);
+        const response = await apiPost("/api/photos/quality-check", payload);
+        customerFlow.checkedPhotos[slot] = {
+          photoId: response.photoId,
+          filename: payload.filename,
+          quality: response.quality
+        };
+        renderCustomerApp();
+        renderCustomerResult({
+          title: "照片品質檢查完成",
+          body: `${slot}: ${response.quality.message}`,
+          status: response.quality.passed ? "ok" : "warning"
+        });
+      } catch (error) {
+        renderCustomerResult({ title: "品質檢查失敗", body: error.message, status: "warning" });
+      }
+    }
+
+    function seedCustomerDemoPhotos(type) {
+      const note = type === "issue" ? "scratch dirty" : "normal clean";
+      document.getElementById("customerPhotoNote").value = note;
+      customerFlow.checkedPhotos = {};
+      photoSlots.forEach(([slot]) => {
+        const filename = type === "issue" && (slot === "right_side" || slot === "backseat_interior")
+          ? `${slot}-${slot === "right_side" ? "scratch" : "dirty"}.jpg`
+          : `${slot}-normal.jpg`;
+        customerFlow.checkedPhotos[slot] = {
+          photoId: "",
+          filename,
+          quality: { passed: true, blurScore: 135.2 }
+        };
+      });
+      renderCustomerApp();
+      renderCustomerResult({
+        title: "Demo 照片已填入",
+        body: type === "issue" ? "本次送出會模擬異常並建立營運端 Incident。" : "本次送出會模擬正常照片。",
+        status: type === "issue" ? "warning" : "ok"
+      });
+    }
+
+    function renderCustomerResult(result) {
+      const statusClass = result.status === "ok" ? "ok" : "warning";
+      const incidents = result.createdIncidents || [];
+      document.getElementById("customerResultSummary").innerHTML = `
+        <article class="submission-item">
+          <div class="submission-top">
+            <div>
+              <strong>${escapeHtml(result.title)}</strong>
+              <p class="subtitle">${escapeHtml(result.submissionId || "尚未提交")}</p>
+            </div>
+            <span class="status-badge ${statusClass}">${escapeHtml(result.status || "info")}</span>
+          </div>
+          <p>${escapeHtml(result.body || "")}</p>
+          ${incidents.length ? `<p>系統已建立異常紀錄，營運人員可於 Dashboard 查看。</p>` : ""}
+        </article>
+      `;
+    }
+
+    async function submitCustomerPhotoFlow() {
+      if (customerSubmitting) return;
+      customerSubmitting = true;
+      const note = document.getElementById("customerPhotoNote").value.trim();
+      const photos = photoSlots.map(([slot]) => {
+        const checked = customerFlow.checkedPhotos[slot];
+        return {
+          slot,
+          photoId: checked?.photoId || "",
+          filename: checked?.filename || `${slot}${note ? "-" + note : ""}.jpg`,
+          note,
+          qualityPassed: checked?.quality?.passed ?? true
+        };
+      });
+      const payload = {
+        rentalId: document.getElementById("customerRentalId").value.trim(),
+        plate: document.getElementById("customerPlate").value.trim(),
+        phase: customerFlow.phase,
+        station: document.getElementById("customerStation").value.trim(),
+        parkingLocation: document.getElementById("customerParkingLocation").value.trim(),
+        photos
+      };
+      try {
+        const response = await apiPost("/api/photo-submissions", payload);
+        customerFlow.lastSubmission = response;
+        renderCustomerResult({
+          title: response.createdIncidents.length ? "已送出，需營運端確認" : "已送出，未偵測異常",
+          body: `提交編號 ${response.submissionId}，AI 狀態 ${response.overallStatus}。`,
+          status: response.createdIncidents.length ? "warning" : "ok",
+          submissionId: response.submissionId,
+          createdIncidents: response.createdIncidents
+        });
+      } catch (error) {
+        renderCustomerResult({ title: "送出失敗", body: error.message, status: "warning" });
+      } finally {
+        customerSubmitting = false;
+      }
+    }
+
     function setPhotoPhase(phase) {
       state.photoFlow.phase = phase;
       state.photoFlow.checkedPhotos = {};
@@ -2444,6 +2765,7 @@
 
     function renderAll() {
       enrichScores();
+      if (currentRole !== "operator") return;
       renderMetrics();
       renderIncidentList();
       renderDetailClean();
@@ -2622,19 +2944,34 @@
     });
     document.getElementById("generateLineBtn").addEventListener("click", () => generateLineForSelected("manual"));
     document.getElementById("copyLineBtn").addEventListener("click", copyLineMessage);
+    document.getElementById("chooseCustomerBtn").addEventListener("click", () => setRole("customer"));
+    document.getElementById("chooseOperatorBtn").addEventListener("click", () => setRole("operator"));
+    document.getElementById("customerBackBtn").addEventListener("click", () => setRole(null));
+    document.getElementById("customerPickupModeBtn").addEventListener("click", () => setCustomerPhase("pickup"));
+    document.getElementById("customerReturnModeBtn").addEventListener("click", () => setCustomerPhase("return"));
+    document.getElementById("customerDemoClearBtn").addEventListener("click", () => seedCustomerDemoPhotos("clear"));
+    document.getElementById("customerDemoIssueBtn").addEventListener("click", () => seedCustomerDemoPhotos("issue"));
+    document.getElementById("customerSubmitBtn").addEventListener("click", submitCustomerPhotoFlow);
+    document.addEventListener("click", event => {
+      if (event.target?.id === "customerSubmitBtn") submitCustomerPhotoFlow();
+    });
 
     async function initApp() {
       const shared = await loadSharedState();
-      renderAll();
-      if (shared) {
+      setRole(null);
+      renderCustomerApp();
+      if (shared && currentRole === "operator") {
         showToast("共享資料已連線", "目前資料會寫入伺服器上的 SQLite irent_ops.db。");
       }
       setInterval(async () => {
         const currentSelected = state.selectedId;
-        const activeInput = document.activeElement?.id === "commentText";
+        const activeInput = ["commentText", "photoNote", "customerPhotoNote"].includes(document.activeElement?.id);
         await loadSharedState();
         state.selectedId = currentSelected;
-        if (!activeInput) renderAll();
+        if (!activeInput) {
+          if (currentRole === "operator") renderAll();
+          if (currentRole === "customer") renderCustomerApp();
+        }
       }, 3000);
     }
 
