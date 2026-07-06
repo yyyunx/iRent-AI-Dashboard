@@ -1607,6 +1607,302 @@
       .bar-row { grid-template-columns: 92px 1fr 38px; }
       .flow-progress, .review-grid { grid-template-columns: 1fr; }
     }
+
+    /* RWD hardening: keep progress steps readable and prevent page overflow. */
+    html,
+    body {
+      width: 100%;
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
+    body,
+    .app,
+    main,
+    .customer-app,
+    .customer-main,
+    .panel,
+    .detail,
+    .photo-flow-card {
+      min-width: 0;
+    }
+
+    .metrics {
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .flow-progress,
+    .timeline {
+      display: flex;
+      gap: 12px;
+      overflow-x: auto;
+      overflow-y: hidden;
+      padding-bottom: 8px;
+      scroll-snap-type: x proximity;
+      -webkit-overflow-scrolling: touch;
+    }
+
+    .flow-step,
+    .timeline-item {
+      flex: 0 0 112px;
+      min-width: 96px;
+      max-width: 120px;
+      white-space: normal;
+      word-break: keep-all;
+      overflow-wrap: normal;
+      text-align: center;
+      scroll-snap-align: start;
+    }
+
+    .flow-step strong,
+    .flow-step span {
+      display: block;
+      width: 100%;
+      line-height: 1.25;
+      white-space: normal;
+      word-break: keep-all;
+    }
+
+    .flow-step::after {
+      right: -12px;
+      width: 12px;
+    }
+
+    .form-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+
+    .slot-grid {
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    .slot-row {
+      grid-template-columns: 1fr;
+      align-items: stretch;
+    }
+
+    .slot-row .btn,
+    .slot-row input[type="file"],
+    .quality-chip {
+      width: 100%;
+    }
+
+    @media (min-width: 1024px) {
+      .flow-progress,
+      .timeline {
+        flex-wrap: nowrap;
+      }
+
+      .flow-step,
+      .timeline-item {
+        flex-basis: 120px;
+      }
+    }
+
+    @media (max-width: 1024px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      main {
+        padding: 20px;
+      }
+
+      .grid,
+      .map-layout,
+      .analytics-grid,
+      .line-grid,
+      .photo-ops-layout,
+      .customer-main {
+        grid-template-columns: 1fr;
+      }
+
+      .metrics {
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      }
+
+      .panel,
+      .metric {
+        border-radius: 14px;
+      }
+
+      .flow-step,
+      .timeline-item {
+        flex: 0 0 112px;
+      }
+    }
+
+    @media (max-width: 768px) {
+      .app {
+        display: block;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 8px;
+        z-index: 20;
+        display: block;
+        padding: 12px;
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+        overflow-x: auto;
+      }
+
+      .brand {
+        min-height: auto;
+        padding-bottom: 10px;
+      }
+
+      .sidebar-note {
+        display: none;
+      }
+
+      .nav {
+        display: flex;
+        gap: 8px;
+        overflow-x: auto;
+        padding-bottom: 4px;
+      }
+
+      .nav button {
+        flex: 0 0 auto;
+        min-width: 116px;
+        justify-content: center;
+        gap: 8px;
+      }
+
+      main {
+        padding: 14px;
+      }
+
+      .topbar,
+      .panel-head,
+      .customer-header {
+        flex-direction: column;
+        align-items: stretch;
+      }
+
+      .actions,
+      .line-actions,
+      .detail-actions,
+      .role-actions {
+        grid-template-columns: 1fr;
+        justify-content: stretch;
+      }
+
+      .actions .btn,
+      .line-actions .btn,
+      .detail-actions .btn,
+      .role-actions .btn,
+      .btn {
+        width: 100%;
+      }
+
+      .metrics,
+      .form-grid,
+      .review-grid,
+      .photo-result-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .incident {
+        grid-template-columns: 8px minmax(0, 1fr);
+      }
+
+      .score,
+      .priority-badge {
+        grid-column: 2;
+        width: fit-content;
+        max-width: 100%;
+      }
+
+      .customer-main,
+      .customer-header {
+        width: min(100% - 24px, 1120px);
+      }
+
+      .flow-step,
+      .timeline-item {
+        flex: 0 0 104px;
+      }
+    }
+
+    @media (max-width: 480px) {
+      .role-selection {
+        padding: 16px;
+      }
+
+      .role-card,
+      .topbar,
+      .metric,
+      .panel,
+      .detail,
+      .photo-flow-card,
+      .customer-header {
+        padding: 14px;
+      }
+
+      h1 {
+        font-size: 22px;
+        line-height: 1.2;
+      }
+
+      .panel-head h2 {
+        font-size: 16px;
+      }
+
+      .metric strong {
+        font-size: 30px;
+      }
+
+      .incident h3 {
+        font-size: 16px;
+      }
+
+      .flow-progress,
+      .timeline {
+        gap: 10px;
+      }
+
+      .flow-step,
+      .timeline-item {
+        flex: 0 0 96px;
+        min-width: 96px;
+        max-width: 112px;
+        min-height: 72px;
+        padding: 9px 8px;
+      }
+
+      .flow-step strong {
+        font-size: 12px;
+      }
+
+      .flow-step span {
+        font-size: 11px;
+      }
+
+      .photo-grid,
+      .segmented {
+        grid-template-columns: 1fr;
+      }
+
+      .customer-main {
+        width: calc(100% - 20px);
+        margin-top: 14px;
+      }
+
+      .customer-header {
+        width: calc(100% - 20px);
+        margin-top: 18px;
+      }
+
+      .submission-list,
+      .log-list,
+      .bar-list,
+      .health-list {
+        padding: 12px;
+      }
+    }
   </style>
 </head>
 <body>
