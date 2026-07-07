@@ -1,0 +1,144 @@
+import { Request, Response } from 'express';
+import { DatabaseRepository } from '../repositories/DatabaseRepository';
+import { DashboardService } from '../services/DashboardService';
+import { dbRowToSubmissionResponse, dbRowToPhotoResponse } from '../models/types';
+
+export class DashboardController {
+  private repo: DatabaseRepository;
+  private service: DashboardService;
+
+  constructor(repo: DatabaseRepository, service: DashboardService) {
+    this.repo = repo;
+    this.service = service;
+  }
+
+  public getProjectState = async (req: Request, res: Response) => {
+    try {
+      const state = this.service.getProjectState();
+      res.json(state);
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message || "Failed to get state" });
+    }
+  };
+
+  public getPhotoSubmissions = async (req: Request, res: Response) => {
+    try {
+      const submissionsRaw = this.repo.getAllPhotoSubmissions();
+      const submissions = submissionsRaw.map(row => dbRowToSubmissionResponse(row));
+      res.json({ ok: true, submissions });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message || "Failed to get submissions" });
+    }
+  };
+
+  public getPhotoSubmissionDetail = async (req: Request, res: Response) => {
+    const submissionId = req.params.submissionId;
+    try {
+      const detailRaw = this.repo.getPhotoSubmissionDetail(submissionId);
+      if (!detailRaw) {
+        return res.status(404).json({ ok: false, error: "Submission not found" });
+      }
+      const photosRaw = this.repo.getUploadedPhotosBySubmission(submissionId);
+      const photos = photosRaw.map(row => dbRowToPhotoResponse(row));
+
+      const detail = dbRowToSubmissionResponse(detailRaw);
+      res.json({
+        ok: true,
+        submission: {
+          ...detail,
+          photos
+        }
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message || "Failed to get submission details" });
+    }
+  };
+
+  public insertIncident = async (req: Request, res: Response) => {
+    const payload = req.body;
+    try {
+      // Map payload keys back to DB column keys if needed, but repo.insertIncident accepts partial Incident
+      const dbItem = {
+        id: payload.id,
+        plate: payload.plate,
+        station: payload.station,
+        type: payload.type,
+        label: payload.label,
+        severity: payload.severity,
+        confidence: Number(payload.confidence),
+        detected_time: payload.time,
+        next_booking: Number(payload.nextBooking ?? payload.next_booking ?? 24),
+        hot_station: payload.hotStation ? 1 : 0,
+        map_x: Number(payload.x ?? payload.map_x),
+        map_y: Number(payload.y ?? payload.map_y),
+        status: payload.status || 'todo',
+        score: Number(payload.score || 0)
+      };
+
+      this.repo.insertIncident(dbItem);
+      res.json({ ok: true, state: this.service.getProjectState() });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message || "Failed to insert incident" });
+    }
+  };
+
+  public handleAction = async (req: Request, res: Response) => {
+    const payload = req.body;
+    try {
+      const result = await this.service.handleAction(payload);
+      if (result.ok) {
+        res.json({ ok: true, state: this.service.getProjectState() });
+      } else {
+        res.status(result.status || 400).json({ ok: false, error: result.error });
+      }
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message || "Failed to handle action" });
+    }
+  };
+
+  public runQualityCheck = async (req: Request, res: Response) => {
+    const payload = req.body;
+    try {
+      const result = await this.service.handleQualityCheckAction(payload);
+      res.json({
+        ok: true,
+        photoId: result.photoId,
+        quality: result.quality,
+        state: this.service.getProjectState()
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message || "Failed to run quality check" });
+    }
+  };
+
+  public handlePhotoSubmission = async (req: Request, res: Response) => {
+    const payload = req.body;
+    try {
+      const result = await this.service.handlePhotoSubmissionAction(payload);
+      res.json({
+        ok: true,
+        submissionId: result.submissionId,
+        overallStatus: result.overallStatus,
+        results: result.results,
+        createdIncidents: result.createdIncidents,
+        state: this.service.getProjectState()
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message || "Failed to handle photo submission" });
+    }
+  };
+
+  public updateSlackSettings = async (req: Request, res: Response) => {
+    const payload = req.body;
+    const webhook = (payload.webhook || "").trim();
+    if (!webhook.startsWith("https://hooks.slack.com/services/")) {
+      return res.status(400).json({ ok: false, error: "Invalid webhook" });
+    }
+    try {
+      this.repo.setSetting("slackWebhook", webhook);
+      res.json({ ok: true, state: this.service.getProjectState() });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message || "Failed to update slack webhook" });
+    }
+  };
+}
