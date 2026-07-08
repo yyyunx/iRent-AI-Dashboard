@@ -125,6 +125,8 @@ interface AppContextType {
   removeToast: (id: string) => void;
   refreshState: () => Promise<boolean>;
   apiPost: (path: string, payload: any) => Promise<any>;
+  developerMode: boolean;
+  setDeveloperMode: (val: boolean) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -134,6 +136,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [currentRole, setCurrentRole] = useState<'customer' | 'operator' | null>(null);
   const [toastStack, setToastStack] = useState<Toast[]>([]);
+  const [developerMode, setDeveloperModeState] = useState<boolean>(() => {
+    return localStorage.getItem('developerMode') === 'true';
+  });
+
+  const setDeveloperMode = useCallback((val: boolean) => {
+    setDeveloperModeState(val);
+    localStorage.setItem('developerMode', String(val));
+  }, []);
 
   const showToast = useCallback((title: string, text: string) => {
     const id = Math.random().toString(36).substring(2, 9);
@@ -218,7 +228,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         showToast,
         removeToast,
         refreshState,
-        apiPost
+        apiPost,
+        developerMode,
+        setDeveloperMode
       }}
     >
       {children}

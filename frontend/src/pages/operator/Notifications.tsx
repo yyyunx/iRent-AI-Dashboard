@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp, Incident } from '../../context/AppContext';
-import { Send, Copy, AlertCircle, HelpCircle, Link2, Sparkles } from 'lucide-react';
+import { Copy, AlertCircle, HelpCircle, Link2, Sparkles } from 'lucide-react';
 
 const Notifications: React.FC = () => {
   const { state, selectedId, apiPost, showToast } = useApp();

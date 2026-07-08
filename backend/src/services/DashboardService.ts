@@ -212,6 +212,17 @@ export class DashboardService {
     const textPayload = `${payload.filename || ''} ${payload.slot || ''} ${payload.imageData || ''} ${payload.data || ''} ${payload.note || ''}`;
     const quality = this.runQualityCheck(payload.filename || '', payload.slot || '', textPayload);
 
+    // If frontend computed metrics are provided, override backend simulation
+    const finalSharpness = payload.frontendSharpness !== undefined ? Number(payload.frontendSharpness) : quality.blurScore;
+    const finalIsBlur = payload.isBlur !== undefined ? Boolean(payload.isBlur) : quality.isBlur;
+
+    if (payload.frontendSharpness !== undefined) {
+      quality.blurScore = finalSharpness;
+      quality.isBlur = finalIsBlur;
+      quality.passed = !finalIsBlur && quality.plateVisible && quality.angleValid && quality.distanceValid;
+      quality.message = quality.passed ? "照片品質通過" : "照片品質不足，請重新拍攝";
+    }
+
     this.repo.insertUploadedPhoto({
       photo_id: photoId,
       submission_id: payload.submissionId || null,
@@ -222,8 +233,8 @@ export class DashboardService {
       filename: payload.filename || `${photoId}.jpg`,
       file_path: relativePath,
       quality_passed: quality.passed ? 1 : 0,
-      blur_score: quality.blurScore,
-      is_blur: quality.isBlur ? 1 : 0,
+      blur_score: finalSharpness,
+      is_blur: finalIsBlur ? 1 : 0,
       plate_visible: quality.plateVisible ? 1 : 0,
       angle_valid: quality.angleValid ? 1 : 0,
       distance_valid: quality.distanceValid ? 1 : 0,

@@ -1,17 +1,13 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { 
-  AlertTriangle, 
-  CheckCircle, 
   HelpCircle, 
-  MessageSquarePlus, 
   RefreshCw, 
   Play, 
   XOctagon, 
   Sparkles, 
   UserCheck,
-  Send,
-  Plus
+  Send
 } from 'lucide-react';
 
 const SEVERITY_TEXT: Record<string, string> = { high: "高優先", medium: "中度", low: "正常/低" };

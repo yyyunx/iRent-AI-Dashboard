@@ -1,9 +1,10 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { CheckCircle2, AlertTriangle, HelpCircle } from 'lucide-react';
+import { CheckCircle2, AlertTriangle, HelpCircle, Eye, X } from 'lucide-react';
 
 const Submissions: React.FC = () => {
   const { state } = useApp();
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   const submissions = state?.photoSubmissions || [];
 
@@ -43,6 +44,22 @@ const Submissions: React.FC = () => {
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
                   {photos.map(photo => (
                     <div key={photo.photoId} className="border border-irent-line rounded-2xl p-3 bg-[#fafafa] flex flex-col gap-1.5 text-xs">
+                      {photo.filePath && (
+                        <div 
+                          onClick={() => setPreviewImage(`/${photo.filePath}`)}
+                          className="relative group w-full h-28 rounded-xl overflow-hidden border border-irent-line bg-slate-100 mb-2 cursor-pointer hover:border-irent-red transition-all"
+                          title="點擊放大預覽"
+                        >
+                          <img 
+                            src={`/${photo.filePath}`} 
+                            alt={photo.slot} 
+                            className="w-full h-full object-cover group-hover:scale-105 transition-all duration-200" 
+                          />
+                          <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all text-white">
+                            <Eye size={16} />
+                          </div>
+                        </div>
+                      )}
                       <div className="flex justify-between items-center border-b border-slate-100 pb-1.5 mb-1.5">
                         <strong className="text-irent-ink font-black">{photo.slot}</strong>
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
@@ -73,6 +90,30 @@ const Submissions: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setPreviewImage(null)}>
+          <div className="relative max-w-3xl w-full max-h-[85vh] bg-white rounded-3xl overflow-hidden border border-irent-line shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-black/60 text-white hover:bg-irent-red transition-all flex items-center justify-center"
+            >
+              <X size={18} />
+            </button>
+            <div className="p-4 flex-1 flex items-center justify-center bg-slate-950 overflow-hidden min-h-[300px]">
+              <img
+                src={previewImage}
+                alt="Uploaded Preview"
+                className="max-w-full max-h-[70vh] object-contain rounded-2xl"
+              />
+            </div>
+            <div className="p-4 bg-white border-t border-irent-line text-center text-xs text-irent-muted font-bold">
+              照片預覽
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

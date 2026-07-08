@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, CheckCircle2, AlertTriangle, HelpCircle, Image, Upload } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, AlertTriangle, HelpCircle, Image, Settings, Eye, X } from 'lucide-react';
+import { checkBlurScore } from '../utils/blurDetection';
 
 const PHOTO_SLOTS = [
   { key: 'front', label: '車頭' },
@@ -15,6 +16,9 @@ const PHOTO_SLOTS = [
 interface CheckedPhoto {
   photoId: string;
   filename: string;
+  previewUrl?: string;
+  feSharpness?: number;
+  feWallTime?: number;
   quality: {
     passed: boolean;
     blurScore: number;
@@ -36,7 +40,7 @@ interface LastSubmission {
 
 const CustomerFlow: React.FC = () => {
   const navigate = useNavigate();
-  const { apiPost, showToast } = useApp();
+  const { apiPost, showToast, developerMode, setDeveloperMode } = useApp();
 
   const [phase, setPhase] = useState<'pickup' | 'return'>('pickup');
   const [rentalId, setRentalId] = useState('R-20260704-001');
@@ -47,6 +51,9 @@ const CustomerFlow: React.FC = () => {
   const [checkedPhotos, setCheckedPhotos] = useState<Record<string, CheckedPhoto>>({});
   const [submitting, setSubmitting] = useState(false);
   const [lastSubmission, setLastSubmission] = useState<LastSubmission | null>(null);
+
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [previewImage, setPreviewImage] = useState<string | null>(null);
 
   // File readers
   const readPhoto = (file: File): Promise<{ name: string; data: string }> => {
@@ -74,9 +81,20 @@ const CustomerFlow: React.FC = () => {
 
   const handleQualityCheck = async (slot: string, event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
+    if (!file) return;
+
     try {
-      const fileData = file ? await readPhoto(file) : null;
-      const payload = getPayload(slot, fileData);
+      const fileData = await readPhoto(file);
+      
+      // Calculate frontend LoG blur metrics
+      const blurMetrics = await checkBlurScore(fileData.data);
+      
+      const basePayload = getPayload(slot, fileData);
+      const payload = {
+        ...basePayload,
+        frontendSharpness: blurMetrics.variance,
+        isBlur: blurMetrics.isBlur
+      };
       
       const response = await apiPost('/api/photos/quality-check', payload);
       
@@ -85,6 +103,9 @@ const CustomerFlow: React.FC = () => {
         [slot]: {
           photoId: response.photoId,
           filename: payload.filename,
+          previewUrl: fileData.data,
+          feSharpness: blurMetrics.variance,
+          feWallTime: blurMetrics.wallTime,
           quality: response.quality
         }
       }));
@@ -101,21 +122,28 @@ const CustomerFlow: React.FC = () => {
     
     const newChecked: Record<string, CheckedPhoto> = {};
     PHOTO_SLOTS.forEach(slot => {
-      const filename = type === 'issue' && (slot.key === 'right_side' || slot.key === 'backseat_interior')
+      const isIssueSlot = type === 'issue' && (slot.key === 'right_side' || slot.key === 'backseat_interior');
+      const filename = isIssueSlot
         ? `${slot.key}-${slot.key === 'right_side' ? 'scratch' : 'dirty'}.jpg`
         : `${slot.key}-normal.jpg`;
         
+      const svgText = `Demo ${slot.label}`;
+      const previewUrl = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="90" viewBox="0 0 120 90"><rect width="100%" height="100%" fill="%23f3f4f6"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="10" fill="%239ca3af">${svgText}</text></svg>`;
+
       newChecked[slot.key] = {
         photoId: '',
         filename,
+        previewUrl,
+        feSharpness: isIssueSlot ? 5.84 : 124.62,
+        feWallTime: 6.18,
         quality: {
-          passed: true,
-          blurScore: 135.2,
-          isBlur: false,
+          passed: !isIssueSlot,
+          blurScore: isIssueSlot ? 42.1 : 135.2,
+          isBlur: isIssueSlot,
           plateVisible: true,
           angleValid: true,
           distanceValid: true,
-          message: '照片品質通過'
+          message: isIssueSlot ? '照片品質不足，請重新拍攝' : '照片品質通過'
         }
       };
     });
@@ -178,13 +206,22 @@ const CustomerFlow: React.FC = () => {
           <strong className="text-irent-red text-xl font-bold">iRent 使用者拍照檢查</strong>
           <p className="text-irent-muted text-xs m-0">只顯示取車檢查 / 還車檢查與本次提交結果。</p>
         </div>
-        <button 
-          onClick={() => navigate('/')}
-          className="min-h-[38px] px-3 border border-irent-line rounded-xl text-irent-muted flex items-center gap-1.5 hover:bg-irent-soft-red hover:text-irent-red transition-all duration-200"
-        >
-          <ArrowLeft size={16} />
-          切換身分
-        </button>
+        <div className="flex items-center gap-2">
+          <button 
+            onClick={() => setShowSettingsModal(true)}
+            className="min-h-[38px] w-[38px] flex items-center justify-center border border-irent-line rounded-xl text-irent-muted hover:bg-irent-soft-red hover:text-irent-red transition-all duration-200"
+            title="系統設定"
+          >
+            <Settings size={16} />
+          </button>
+          <button 
+            onClick={() => navigate('/')}
+            className="min-h-[38px] px-3 border border-irent-line rounded-xl text-irent-muted flex items-center gap-1.5 hover:bg-irent-soft-red hover:text-irent-red transition-all duration-200"
+          >
+            <ArrowLeft size={16} />
+            切換身分
+          </button>
+        </div>
       </header>
 
       <main className="w-[min(1120px,calc(100%-32px))] mx-auto mt-5 mb-10 grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-[22px] items-start">
@@ -269,22 +306,70 @@ const CustomerFlow: React.FC = () => {
                 : '待檢查';
 
               return (
-                <div key={slot.key} className="grid grid-cols-1 md:grid-cols-[110px_1fr_auto_116px] gap-2.5 items-center p-3 border border-irent-line rounded-2xl bg-white shadow-sm">
-                  <strong className="text-[#222222] text-sm md:text-base">{slot.label}</strong>
-                  
-                  <div className="relative overflow-hidden w-full">
-                    <input 
-                      type="file" 
-                      id={`customer-file-${slot.key}`}
-                      accept="image/*"
-                      onChange={e => handleQualityCheck(slot.key, e)}
-                      className="w-full text-xs text-slate-500 file:mr-4 file:py-2 file:px-4 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-irent-soft-red file:text-irent-red hover:file:bg-irent-soft-red-strong cursor-pointer"
-                    />
+                <div key={slot.key} className="flex flex-col gap-2.5 p-3.5 border border-irent-line rounded-2xl bg-white shadow-sm">
+                  <div className="flex flex-wrap md:flex-nowrap items-center gap-3.5 justify-between">
+                    {/* Preview Thumbnail */}
+                    <div className="flex-shrink-0">
+                      {checked?.previewUrl ? (
+                        <div 
+                          onClick={() => setPreviewImage(checked.previewUrl!)}
+                          className="relative group w-14 h-11 rounded-xl overflow-hidden border border-irent-line cursor-pointer hover:border-irent-red transition-all shadow-sm"
+                          title="點擊放大預覽"
+                        >
+                          <img 
+                            src={checked.previewUrl} 
+                            alt={slot.label} 
+                            className="w-full h-full object-cover group-hover:scale-105 transition-all duration-200" 
+                          />
+                          <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all text-white">
+                            <Eye size={12} />
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="w-14 h-11 bg-irent-bg rounded-xl border border-irent-line flex items-center justify-center text-irent-muted">
+                          <Image size={16} />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Label and Input */}
+                    <div className="flex-1 min-w-[200px] flex flex-col gap-1">
+                      <strong className="text-[#222222] text-sm md:text-base">{slot.label}</strong>
+                      <input 
+                        type="file" 
+                        id={`customer-file-${slot.key}`}
+                        accept="image/*"
+                        onChange={e => handleQualityCheck(slot.key, e)}
+                        className="w-full text-xs text-slate-500 file:mr-4 file:py-1.5 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-irent-soft-red file:text-irent-red hover:file:bg-irent-soft-red-strong cursor-pointer"
+                      />
+                    </div>
+
+                    {/* Status Badge */}
+                    <div className="flex-shrink-0 flex items-center">
+                      <span className={`inline-flex items-center justify-center min-h-[32px] rounded-full px-3 text-[11px] font-black ${chipClass}`}>
+                        {chipText}
+                      </span>
+                    </div>
                   </div>
 
-                  <span className={`inline-flex items-center justify-center min-h-[32px] rounded-full px-3 text-[11px] font-black ${chipClass}`}>
-                    {chipText}
-                  </span>
+                  {/* Inline developer stats when Developer Mode is active */}
+                  {developerMode && checked && (checked.feSharpness !== undefined || checked.feWallTime !== undefined) && (
+                    <div className="mt-1 px-3 py-2 border border-dashed border-irent-line rounded-xl bg-[#fafafa] flex items-center gap-4 text-[10px] font-mono text-irent-muted">
+                      <span className="flex items-center gap-1">
+                        <strong className="text-irent-ink">LoG Sharpness:</strong>
+                        <span className={checked.quality.isBlur ? 'text-irent-red font-bold' : 'text-irent-green font-bold'}>
+                          {checked.feSharpness ?? '-'}
+                        </span>
+                        <span className="text-[9px] opacity-75">
+                          (threshold: 12.0)
+                        </span>
+                      </span>
+                      <span className="w-px h-3 bg-irent-line" />
+                      <span>
+                        <strong className="text-irent-ink">Wall Time:</strong> {checked.feWallTime !== undefined ? `${checked.feWallTime} ms` : '-'}
+                      </span>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -357,6 +442,71 @@ const CustomerFlow: React.FC = () => {
           </div>
         </section>
       </main>
+
+      {/* Settings Modal */}
+      {showSettingsModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-3xl max-w-md w-full border border-irent-line shadow-2xl p-6 relative animate-in fade-in zoom-in duration-200">
+            <button
+              onClick={() => setShowSettingsModal(false)}
+              className="absolute top-4 right-4 text-irent-muted hover:text-irent-red transition-all"
+            >
+              <X size={20} />
+            </button>
+            <h3 className="text-lg font-black text-irent-ink mb-4 flex items-center gap-2">
+              <Settings size={20} className="text-irent-red animate-spin-slow" />
+              拍照流程設定
+            </h3>
+            
+            <div className="border-t border-irent-line pt-4 flex flex-col gap-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <strong className="block text-sm text-irent-ink font-bold">開啟開發者模式</strong>
+                  <span className="text-irent-muted text-[11px] block mt-0.5 leading-normal">
+                    在下方欄位顯示前端 Laplacian of Gaussian 的變異數分數以及計算所花費的時間（Wall Time）。
+                  </span>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={developerMode}
+                  onChange={(e) => {
+                    setDeveloperMode(e.target.checked);
+                    showToast(
+                      e.target.checked ? "開啟開發者模式" : "關閉開發者模式",
+                      e.target.checked ? "已啟用 LoG 變異數與推論耗時顯示。" : "已隱藏開發者偵錯資訊。"
+                    );
+                  }}
+                  className="w-5 h-5 accent-irent-red cursor-pointer flex-shrink-0"
+                />
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Image Preview Modal */}
+      {previewImage && (
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm" onClick={() => setPreviewImage(null)}>
+          <div className="relative max-w-3xl w-full max-h-[85vh] bg-white rounded-3xl overflow-hidden border border-irent-line shadow-2xl flex flex-col" onClick={e => e.stopPropagation()}>
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute top-4 right-4 z-10 w-8 h-8 rounded-full bg-black/60 text-white hover:bg-irent-red transition-all flex items-center justify-center"
+            >
+              <X size={18} />
+            </button>
+            <div className="p-4 flex-1 flex items-center justify-center bg-slate-950 overflow-hidden min-h-[300px]">
+              <img
+                src={previewImage}
+                alt="Uploaded Preview"
+                className="max-w-full max-h-[70vh] object-contain rounded-2xl"
+              />
+            </div>
+            <div className="p-4 bg-white border-t border-irent-line text-center text-xs text-irent-muted font-bold">
+              照片預覽
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

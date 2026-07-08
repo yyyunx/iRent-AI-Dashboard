@@ -1,0 +1,13 @@
+{
+  "name": "irent-ai-dashboard-root",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev:backend": "pnpm --dir backend dev",
+    "dev:frontend": "pnpm --dir frontend dev",
+    "dev": "concurrently -k -s first \"pnpm dev:backend\" \"pnpm dev:frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

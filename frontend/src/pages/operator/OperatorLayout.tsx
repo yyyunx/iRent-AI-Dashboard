@@ -17,7 +17,8 @@ import {
   CheckCircle,
   TrendingUp,
   Award,
-  Zap
+  Zap,
+  Settings
 } from 'lucide-react';
 
 const OperatorLayout: React.FC = () => {
@@ -34,6 +35,7 @@ const OperatorLayout: React.FC = () => {
     { path: '/operator/tasks', label: '任務派發', icon: KanbanSquare, badge: state?.incidents.filter(i => i.status !== 'resolved' && i.status !== 'done' && i.type !== 'normal').length },
     { path: '/operator/notifications', label: 'Slack 通知', icon: BellRing, badge: state?.lineLogs?.length },
     { path: '/operator/analytics', label: '營運分析', icon: BarChart3, textBadge: '30d' },
+    { path: '/operator/settings', label: '系統設定', icon: Settings },
   ];
 
   const handleSimulate = async () => {

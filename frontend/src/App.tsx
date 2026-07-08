@@ -13,6 +13,7 @@ const MapView = React.lazy(() => import('./pages/operator/MapView'));
 const Tasks = React.lazy(() => import('./pages/operator/Tasks'));
 const Notifications = React.lazy(() => import('./pages/operator/Notifications'));
 const Analytics = React.lazy(() => import('./pages/operator/Analytics'));
+const Settings = React.lazy(() => import('./pages/operator/Settings'));
 
 // Standard loading fallback for chunk resolve
 const PageLoader: React.FC = () => (
@@ -40,6 +41,7 @@ const App: React.FC = () => {
               <Route path="tasks" element={<Tasks />} />
               <Route path="notifications" element={<Notifications />} />
               <Route path="analytics" element={<Analytics />} />
+              <Route path="settings" element={<Settings />} />
             </Route>
 
             {/* Catch-all redirect */}
