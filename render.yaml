@@ -1,13 +1,17 @@
 services:
   - type: web
     name: irent-ops-dashboard
-    env: python
+    env: node
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python outputs/shared_ops_server.py
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --dir frontend install --frozen-lockfile && pnpm --dir backend install --frozen-lockfile && pnpm build
+    startCommand: pnpm start
     envVars:
+      - key: NODE_ENV
+        value: production
       - key: DATABASE_PATH
         value: /var/data/irent_ops.db
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
       - key: SLACK_WEBHOOK_URL
         sync: false
     disk:

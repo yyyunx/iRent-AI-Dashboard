@@ -4,6 +4,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+*.log
 
 # Build outputs
 dist/
@@ -35,5 +36,6 @@ Thumbs.db
 *.db-shm
 *.db-wal
 
+outputs/__pycache__/
 outputs/uploads/
 

@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
 import { DatabaseRepository } from './repositories/DatabaseRepository';
 import { DashboardService } from './services/DashboardService';
 import { DashboardController } from './controllers/DashboardController';
@@ -36,7 +37,17 @@ export function createApp(dbPath: string, uploadDir: string) {
   // Mount API router
   app.use('/api', createApiRouter(controller));
 
-  // Fallback handler
+  const frontendDist = process.env.FRONTEND_DIST || path.resolve(__dirname, '../../frontend/dist');
+  const frontendIndex = path.join(frontendDist, 'index.html');
+
+  if (process.env.NODE_ENV === 'production' && fs.existsSync(frontendIndex)) {
+    app.use(express.static(frontendDist));
+    app.get('*', (req, res) => {
+      res.sendFile(frontendIndex);
+    });
+  }
+
+  // Fallback handler for API/local backend-only requests
   app.use((req, res) => {
     res.status(404).json({ ok: false, error: 'Endpoint not found' });
   });

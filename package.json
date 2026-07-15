@@ -5,7 +5,9 @@
   "scripts": {
     "dev:backend": "pnpm --dir backend dev",
     "dev:frontend": "pnpm --dir frontend dev",
-    "dev": "concurrently -k -s first \"pnpm dev:backend\" \"pnpm dev:frontend\""
+    "dev": "concurrently -k -s first \"pnpm dev:backend\" \"pnpm dev:frontend\"",
+    "build": "pnpm --dir frontend build && pnpm --dir backend build",
+    "start": "pnpm --dir backend start"
   },
   "devDependencies": {
     "concurrently": "^8.2.2"
