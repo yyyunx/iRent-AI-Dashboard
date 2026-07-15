@@ -13,8 +13,8 @@ const Submissions: React.FC = () => {
   };
 
   return (
-    <div className="bg-white border border-irent-line rounded-2xl shadow-premium p-5 flex flex-col gap-4">
-      <div className="flex justify-between items-center pb-3 border-b border-irent-line">
+    <div className="bg-white border border-irent-line rounded-2xl shadow-premium p-4 sm:p-5 flex flex-col gap-4 min-w-0">
+      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 pb-3 border-b border-irent-line">
         <h2 className="text-lg font-black text-irent-ink">照片提交紀錄</h2>
         <span className="text-xs font-bold text-irent-red bg-irent-soft-red px-2.5 py-1 rounded-full">SQLite + AI Result</span>
       </div>
@@ -27,8 +27,8 @@ const Submissions: React.FC = () => {
 
             return (
               <article key={item.submissionId} className="pt-3.5 first:pt-0 flex flex-col gap-3.5">
-                <div className="flex justify-between items-start gap-4">
-                  <div>
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3 sm:gap-4">
+                  <div className="min-w-0">
                     <strong className="text-irent-ink font-bold block text-base">{item.submissionId}</strong>
                     <p className="text-irent-muted text-xs my-0.5">{item.rentalId} · {item.plate} · {item.phase === 'pickup' ? '取車檢查' : '還車檢查'}</p>
                   </div>
@@ -41,7 +41,7 @@ const Submissions: React.FC = () => {
                 <p className="text-irent-ink text-sm leading-relaxed m-0">{item.aiSummary}</p>
 
                 {/* Photo grid of this submission */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2.5">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">
                   {photos.map(photo => (
                     <div key={photo.photoId} className="border border-irent-line rounded-2xl p-3 bg-[#fafafa] flex flex-col gap-1.5 text-xs">
                       {photo.filePath && (
@@ -60,7 +60,7 @@ const Submissions: React.FC = () => {
                           </div>
                         </div>
                       )}
-                      <div className="flex justify-between items-center border-b border-slate-100 pb-1.5 mb-1.5">
+                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 border-b border-slate-100 pb-1.5 mb-1.5">
                         <strong className="text-irent-ink font-black">{photo.slot}</strong>
                         <span className={`text-[10px] px-2 py-0.5 rounded-full font-black ${
                           photo.qualityPassed ? 'bg-[#e9f4ea] text-irent-green' : 'bg-[#fff4d6] text-[#8a5b00]'
@@ -101,7 +101,7 @@ const Submissions: React.FC = () => {
             >
               <X size={18} />
             </button>
-            <div className="p-4 flex-1 flex items-center justify-center bg-slate-950 overflow-hidden min-h-[300px]">
+            <div className="p-3 sm:p-4 flex-1 flex items-center justify-center bg-slate-950 overflow-hidden min-h-[220px] sm:min-h-[300px]">
               <img
                 src={previewImage}
                 alt="Uploaded Preview"

@@ -179,16 +179,16 @@ const Dashboard: React.FC = () => {
   };
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-[1.35fr_0.65fr] gap-5 items-start">
+    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.35fr)_minmax(320px,0.65fr)] gap-4 sm:gap-5 items-start min-w-0">
       {/* Incident Queue List */}
-      <section className="bg-white border border-irent-line rounded-2xl shadow-premium overflow-hidden">
-        <div className="bg-[#fff8f8] border-b border-[#f4d7d7] px-5 py-4.5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+      <section className="bg-white border border-irent-line rounded-2xl shadow-premium overflow-hidden min-w-0">
+        <div className="bg-[#fff8f8] border-b border-[#f4d7d7] px-4 sm:px-5 py-4.5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
           <h2 className="text-[#222222] text-lg font-black m-0">即時 Incident 佇列</h2>
-          <div className="flex gap-2 w-full sm:w-auto">
+          <div className="flex flex-col sm:flex-row gap-2 w-full sm:w-auto">
             <select 
               value={severityFilter} 
               onChange={e => setSeverityFilter(e.target.value)}
-              className="flex-1 sm:flex-initial h-[38px] border border-irent-line rounded-xl px-2.5 bg-white text-sm font-bold text-irent-ink focus:ring-3 focus:ring-red-100"
+              className="w-full sm:flex-1 sm:min-w-[132px] h-[38px] border border-irent-line rounded-xl px-2.5 bg-white text-sm font-bold text-irent-ink focus:ring-3 focus:ring-red-100"
               aria-label="嚴重度篩選"
             >
               <option value="all">全部嚴重度</option>
@@ -199,7 +199,7 @@ const Dashboard: React.FC = () => {
             <select 
               value={typeFilter} 
               onChange={e => setTypeFilter(e.target.value)}
-              className="flex-1 sm:flex-initial h-[38px] border border-irent-line rounded-xl px-2.5 bg-white text-sm font-bold text-irent-ink focus:ring-3 focus:ring-red-100"
+              className="w-full sm:flex-1 sm:min-w-[132px] h-[38px] border border-irent-line rounded-xl px-2.5 bg-white text-sm font-bold text-irent-ink focus:ring-3 focus:ring-red-100"
               aria-label="類型篩選"
             >
               <option value="all">所有類型</option>
@@ -220,19 +220,19 @@ const Dashboard: React.FC = () => {
                 <article 
                   key={item.id} 
                   onClick={() => setSelectedId(item.id)}
-                  className={`grid grid-cols-[8px_1fr_auto] gap-3 px-5 py-4 cursor-pointer transition-all ${
+                  className={`grid grid-cols-[8px_minmax(0,1fr)] sm:grid-cols-[8px_minmax(0,1fr)_auto] gap-3 px-4 sm:px-5 py-4 cursor-pointer transition-all ${
                     isActive ? 'bg-irent-soft-red border-l-4 border-l-irent-red' : 'bg-white hover:bg-slate-50'
                   }`}
                 >
                   <div className={`w-2 h-full rounded-full min-h-[78px] ${
                     item.severity === 'high' ? 'bg-irent-danger' : item.severity === 'medium' ? 'bg-irent-orange' : 'bg-irent-green'
                   }`} />
-                  <div>
+                  <div className="min-w-0">
                     <h3 className="font-extrabold text-irent-ink text-base mb-1">{item.plate}</h3>
                     <p className="text-irent-muted text-xs my-0.5">{item.station} · {TYPE_TEXT[item.type]} · {item.label}</p>
                     <p className="text-irent-muted text-[11px] my-0.5">AI Confidence {item.confidence}% · {item.time} · {SEVERITY_TEXT[item.severity]}</p>
                   </div>
-                  <div className={`self-start min-w-[108px] text-center rounded-full py-2 px-3 flex flex-col items-center justify-center ${severityColor}`}>
+                  <div className={`col-start-2 sm:col-start-auto self-start w-full sm:w-auto sm:min-w-[108px] text-center rounded-full py-2 px-3 flex flex-col items-center justify-center ${severityColor}`}>
                     <strong className="text-xs font-black leading-none">{SEVERITY_TEXT[item.severity]}</strong>
                     <span className="text-[10px] opacity-80 mt-1">Priority {item.score}</span>
                   </div>
@@ -248,7 +248,7 @@ const Dashboard: React.FC = () => {
       </section>
 
       {/* Action / Detail Panel */}
-      <section className="bg-white border border-irent-line rounded-2xl shadow-premium p-5 flex flex-col gap-5">
+      <section className="bg-white border border-irent-line rounded-2xl shadow-premium p-4 sm:p-5 flex flex-col gap-5 min-w-0">
         <div className="border-b border-irent-line pb-3">
           <h2 className="text-lg font-black text-irent-ink">事件處理面板</h2>
         </div>
@@ -256,7 +256,7 @@ const Dashboard: React.FC = () => {
         {selected ? (
           <div className="flex flex-col gap-5">
             {/* Photos */}
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
               <div className={`h-[130px] rounded-2xl border border-slate-100 flex items-center justify-center text-xs font-bold text-white relative overflow-hidden bg-cover bg-center ${
                 selected.type === 'cleaning' 
                   ? 'bg-[radial-gradient(circle_at_72%_64%,#d14a32_0_6,transparent_7),linear-gradient(160deg,#2f3a49_0_38%,#e2e8f0_39%_48%,#64748b_49%_100%)]' 
@@ -271,31 +271,31 @@ const Dashboard: React.FC = () => {
 
             {/* Info KV List */}
             <div className="grid gap-2 border-b border-irent-line pb-4">
-              <div className="flex justify-between border-b border-dashed border-irent-line pb-2.5">
+              <div className="flex flex-col sm:flex-row justify-between gap-1 border-b border-dashed border-irent-line pb-2.5">
                 <span className="text-irent-muted text-xs">Incident</span>
                 <strong className="text-irent-ink text-xs font-extrabold">{selected.id}</strong>
               </div>
-              <div className="flex justify-between border-b border-dashed border-irent-line pb-2.5">
+              <div className="flex flex-col sm:flex-row justify-between gap-1 border-b border-dashed border-irent-line pb-2.5">
                 <span className="text-irent-muted text-xs">車號</span>
                 <strong className="text-irent-ink text-xs font-extrabold">{selected.plate}</strong>
               </div>
-              <div className="flex justify-between border-b border-dashed border-irent-line pb-2.5">
+              <div className="flex flex-col sm:flex-row justify-between gap-1 border-b border-dashed border-irent-line pb-2.5">
                 <span className="text-irent-muted text-xs">站點</span>
                 <strong className="text-irent-ink text-xs font-extrabold">{selected.station}</strong>
               </div>
-              <div className="flex justify-between border-b border-dashed border-irent-line pb-2.5">
+              <div className="flex flex-col sm:flex-row justify-between gap-1 border-b border-dashed border-irent-line pb-2.5">
                 <span className="text-irent-muted text-xs">AI 偵測</span>
                 <strong className="text-irent-ink text-xs font-extrabold">{selected.label}</strong>
               </div>
-              <div className="flex justify-between border-b border-dashed border-irent-line pb-2.5">
+              <div className="flex flex-col sm:flex-row justify-between gap-1 border-b border-dashed border-irent-line pb-2.5">
                 <span className="text-irent-muted text-xs">Priority Score</span>
                 <strong className="text-irent-ink text-xs font-extrabold">{selected.score}</strong>
               </div>
-              <div className="flex justify-between border-b border-dashed border-irent-line pb-2.5">
+              <div className="flex flex-col sm:flex-row justify-between gap-1 border-b border-dashed border-irent-line pb-2.5">
                 <span className="text-irent-muted text-xs">Status</span>
                 <strong className="text-irent-ink text-xs font-extrabold">{getStatusLabel(selected)}</strong>
               </div>
-              <div className="flex justify-between border-b border-dashed border-irent-line pb-2.5">
+              <div className="flex flex-col sm:flex-row justify-between gap-1 border-b border-dashed border-irent-line pb-2.5">
                 <span className="text-irent-muted text-xs">Auto Dispatch</span>
                 <strong className="text-irent-ink text-xs font-extrabold">{selected.assignee}</strong>
               </div>
@@ -353,7 +353,7 @@ const Dashboard: React.FC = () => {
                   {getOutcomeStatus()}
                 </span>
               </div>
-              <div className="grid grid-cols-2 gap-2 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
                 <div className="bg-white border border-irent-line rounded-xl p-2">
                   <span className="text-irent-muted block text-[10px] mb-0.5">result</span>
                   <strong className="text-irent-ink font-bold">{getAIReviewResult()}</strong>
@@ -403,17 +403,17 @@ const Dashboard: React.FC = () => {
               </div>
 
               {/* Comment box */}
-              <div className="flex gap-2">
+              <div className="flex flex-col sm:flex-row gap-2">
                 <textarea 
                   value={commentText}
                   onChange={e => setCommentText(e.target.value)}
                   placeholder="輸入客服留言，送出後會自動通知 Slack"
-                  className="flex-1 min-h-[42px] max-h-[100px] border border-irent-line rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-irent-red focus:ring-3 focus:ring-red-100"
+                  className="w-full sm:flex-1 min-h-[42px] max-h-[100px] border border-irent-line rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-irent-red focus:ring-3 focus:ring-red-100"
                 />
                 <button
                   onClick={handleAddComment}
                   disabled={commentSubmitting || !commentText.trim()}
-                  className="min-h-[42px] px-3 bg-irent-red text-white rounded-xl hover:bg-irent-red-hover transition-all flex items-center justify-center disabled:opacity-50"
+                  className="w-full sm:w-auto min-h-[42px] px-3 bg-irent-red text-white rounded-xl hover:bg-irent-red-hover transition-all flex items-center justify-center disabled:opacity-50"
                   aria-label="新增客服留言"
                 >
                   <Send size={14} />
@@ -435,7 +435,7 @@ const Dashboard: React.FC = () => {
                   <select
                     value={reportResult}
                     onChange={e => setReportResult(e.target.value)}
-                    className="h-[36px] border border-irent-line rounded-xl px-2 bg-white text-xs font-bold text-irent-ink"
+                    className="w-full sm:w-auto h-[36px] border border-irent-line rounded-xl px-2 bg-white text-xs font-bold text-irent-ink"
                     aria-label="處理結果"
                   >
                     <option value="pass">處理完成，照片通過</option>
@@ -459,7 +459,7 @@ const Dashboard: React.FC = () => {
             </div>
 
             {/* Control Actions */}
-            <div className="grid grid-cols-2 gap-2 border-t border-irent-line pt-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 border-t border-irent-line pt-4">
               <button 
                 onClick={() => handleAction('dispatch')}
                 className="w-full min-h-[44px] rounded-xl border border-irent-red text-irent-red bg-white font-extrabold text-xs hover:shadow-hover transition-all flex items-center justify-center gap-1.5"
@@ -478,7 +478,7 @@ const Dashboard: React.FC = () => {
               {selected.aiReviewResult && (selected.aiReviewResult !== 'pass' || Number(selected.aiReviewConfidence || 0) < 90) && (
                 <button 
                   onClick={() => handleAction('resolve')}
-                  className="col-span-2 w-full min-h-[44px] rounded-xl border border-irent-orange text-irent-orange bg-white font-extrabold text-xs hover:shadow-hover transition-all flex items-center justify-center gap-1.5"
+                  className="sm:col-span-2 w-full min-h-[44px] rounded-xl border border-irent-orange text-irent-orange bg-white font-extrabold text-xs hover:shadow-hover transition-all flex items-center justify-center gap-1.5"
                 >
                   <UserCheck size={14} />
                   人工確認結案
@@ -487,7 +487,7 @@ const Dashboard: React.FC = () => {
 
               <button 
                 onClick={() => handleAction('reopen')}
-                className="col-span-2 w-full min-h-[34px] rounded-xl border border-transparent text-irent-muted font-bold text-xs hover:bg-irent-soft-red hover:text-irent-red transition-all flex items-center justify-center gap-1"
+                className="sm:col-span-2 w-full min-h-[34px] rounded-xl border border-transparent text-irent-muted font-bold text-xs hover:bg-irent-soft-red hover:text-irent-red transition-all flex items-center justify-center gap-1"
               >
                 <XOctagon size={13} />
                 Reopen Incident

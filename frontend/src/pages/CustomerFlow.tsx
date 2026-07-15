@@ -200,13 +200,13 @@ const CustomerFlow: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen bg-irent-bg pt-2">
-      <header className="mx-auto mt-7 w-[min(1120px,calc(100%-32px))] border border-irent-line rounded-[18px] bg-white shadow-premium p-[18px_22px] flex items-center justify-between gap-4">
-        <div>
-          <strong className="text-irent-red text-xl font-bold">iRent 使用者拍照檢查</strong>
-          <p className="text-irent-muted text-xs m-0">只顯示取車檢查 / 還車檢查與本次提交結果。</p>
+    <div className="min-h-screen bg-irent-bg pt-2 overflow-x-hidden">
+      <header className="mx-auto mt-4 sm:mt-7 w-[min(1120px,calc(100%-24px))] sm:w-[min(1120px,calc(100%-32px))] border border-irent-line rounded-[18px] bg-white shadow-premium p-4 sm:p-[18px_22px] flex flex-col sm:flex-row sm:items-center justify-between gap-4 min-w-0">
+        <div className="min-w-0">
+          <strong className="text-irent-red text-lg sm:text-xl font-bold break-anywhere">iRent 使用者拍照檢查</strong>
+          <p className="text-irent-muted text-xs m-0 break-anywhere">只顯示取車檢查 / 還車檢查與本次提交結果。</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 w-full sm:w-auto">
           <button 
             onClick={() => setShowSettingsModal(true)}
             className="min-h-[38px] w-[38px] flex items-center justify-center border border-irent-line rounded-xl text-irent-muted hover:bg-irent-soft-red hover:text-irent-red transition-all duration-200"
@@ -216,7 +216,7 @@ const CustomerFlow: React.FC = () => {
           </button>
           <button 
             onClick={() => navigate('/')}
-            className="min-h-[38px] px-3 border border-irent-line rounded-xl text-irent-muted flex items-center gap-1.5 hover:bg-irent-soft-red hover:text-irent-red transition-all duration-200"
+            className="min-h-[38px] flex-1 sm:flex-initial px-3 border border-irent-line rounded-xl text-irent-muted flex items-center justify-center gap-1.5 hover:bg-irent-soft-red hover:text-irent-red transition-all duration-200"
           >
             <ArrowLeft size={16} />
             切換身分
@@ -224,10 +224,10 @@ const CustomerFlow: React.FC = () => {
         </div>
       </header>
 
-      <main className="w-[min(1120px,calc(100%-32px))] mx-auto mt-5 mb-10 grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-[22px] items-start">
+      <main className="w-[min(1120px,calc(100%-24px))] sm:w-[min(1120px,calc(100%-32px))] mx-auto mt-5 mb-10 grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-4 sm:gap-[22px] items-start min-w-0">
         {/* Upload Panel */}
-        <section className="bg-white border border-irent-line rounded-2xl shadow-premium p-5 flex flex-col gap-4">
-          <div className="flex justify-between items-center pb-3 border-b border-irent-line">
+        <section className="bg-white border border-irent-line rounded-2xl shadow-premium p-4 sm:p-5 flex flex-col gap-4 min-w-0">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center pb-3 border-b border-irent-line gap-2">
             <h2 className="text-lg font-black text-irent-ink">取車 / 還車檢查</h2>
             <span className="text-xs font-bold text-irent-red bg-irent-soft-red px-2.5 py-1 rounded-full">Customer Photo Flow</span>
           </div>
@@ -306,8 +306,8 @@ const CustomerFlow: React.FC = () => {
                 : '待檢查';
 
               return (
-                <div key={slot.key} className="flex flex-col gap-2.5 p-3.5 border border-irent-line rounded-2xl bg-white shadow-sm">
-                  <div className="flex flex-wrap md:flex-nowrap items-center gap-3.5 justify-between">
+                <div key={slot.key} className="flex flex-col gap-2.5 p-3 sm:p-3.5 border border-irent-line rounded-2xl bg-white shadow-sm min-w-0">
+                  <div className="flex flex-col sm:flex-row sm:flex-wrap md:flex-nowrap sm:items-center gap-3.5 justify-between min-w-0">
                     {/* Preview Thumbnail */}
                     <div className="flex-shrink-0">
                       {checked?.previewUrl ? (
@@ -333,8 +333,8 @@ const CustomerFlow: React.FC = () => {
                     </div>
 
                     {/* Label and Input */}
-                    <div className="flex-1 min-w-[200px] flex flex-col gap-1">
-                      <strong className="text-[#222222] text-sm md:text-base">{slot.label}</strong>
+                    <div className="w-full sm:flex-1 min-w-0 flex flex-col gap-1">
+                      <strong className="text-[#222222] text-sm md:text-base break-anywhere">{slot.label}</strong>
                       <input 
                         type="file" 
                         id={`customer-file-${slot.key}`}
@@ -345,8 +345,8 @@ const CustomerFlow: React.FC = () => {
                     </div>
 
                     {/* Status Badge */}
-                    <div className="flex-shrink-0 flex items-center">
-                      <span className={`inline-flex items-center justify-center min-h-[32px] rounded-full px-3 text-[11px] font-black ${chipClass}`}>
+                    <div className="w-full sm:w-auto flex-shrink-0 flex items-center">
+                      <span className={`inline-flex items-center justify-center min-h-[32px] w-full sm:w-auto rounded-full px-3 text-[11px] font-black break-anywhere ${chipClass}`}>
                         {chipText}
                       </span>
                     </div>
@@ -354,7 +354,7 @@ const CustomerFlow: React.FC = () => {
 
                   {/* Inline developer stats when Developer Mode is active */}
                   {developerMode && checked && (checked.feSharpness !== undefined || checked.feWallTime !== undefined) && (
-                    <div className="mt-1 px-3 py-2 border border-dashed border-irent-line rounded-xl bg-[#fafafa] flex items-center gap-4 text-[10px] font-mono text-irent-muted">
+                    <div className="mt-1 px-3 py-2 border border-dashed border-irent-line rounded-xl bg-[#fafafa] flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-[10px] font-mono text-irent-muted break-anywhere">
                       <span className="flex items-center gap-1">
                         <strong className="text-irent-ink">LoG Sharpness:</strong>
                         <span className={checked.quality.isBlur ? 'text-irent-red font-bold' : 'text-irent-green font-bold'}>
@@ -364,7 +364,7 @@ const CustomerFlow: React.FC = () => {
                           (threshold: 12.0)
                         </span>
                       </span>
-                      <span className="w-px h-3 bg-irent-line" />
+                      <span className="hidden sm:block w-px h-3 bg-irent-line" />
                       <span>
                         <strong className="text-irent-ink">Wall Time:</strong> {checked.feWallTime !== undefined ? `${checked.feWallTime} ms` : '-'}
                       </span>
@@ -400,8 +400,8 @@ const CustomerFlow: React.FC = () => {
         </section>
 
         {/* Results Panel */}
-        <section className="bg-white border border-irent-line rounded-2xl shadow-premium min-h-[280px] p-5 flex flex-col gap-4">
-          <div className="flex justify-between items-center pb-3 border-b border-irent-line">
+        <section className="bg-white border border-irent-line rounded-2xl shadow-premium min-h-[280px] p-4 sm:p-5 flex flex-col gap-4 min-w-0">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center pb-3 border-b border-irent-line gap-2">
             <h2 className="text-lg font-black text-irent-ink">本次提交結果</h2>
             <span className="text-xs font-bold text-irent-red bg-irent-soft-red px-2.5 py-1 rounded-full">Result Summary</span>
           </div>
@@ -409,10 +409,10 @@ const CustomerFlow: React.FC = () => {
           <div className="flex-1 flex flex-col justify-center">
             {lastSubmission ? (
               <article className="border border-irent-line rounded-2xl p-4 bg-white flex flex-col gap-3">
-                <div className="flex justify-between items-start gap-3">
-                  <div>
-                    <strong className="text-irent-ink font-bold block text-base">{lastSubmission.title}</strong>
-                    <p className="text-irent-muted text-[11px] m-0">ID: {lastSubmission.submissionId}</p>
+                <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+                  <div className="min-w-0">
+                    <strong className="text-irent-ink font-bold block text-base break-anywhere">{lastSubmission.title}</strong>
+                    <p className="text-irent-muted text-[11px] m-0 break-all">ID: {lastSubmission.submissionId}</p>
                   </div>
                   <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-black ${
                     lastSubmission.overallStatus === 'ok' ? 'bg-[#e9f4ea] text-irent-green' : 'bg-[#fff4d6] text-[#8a5b00]'
@@ -421,7 +421,7 @@ const CustomerFlow: React.FC = () => {
                     {lastSubmission.overallStatus}
                   </span>
                 </div>
-                <p className="text-irent-ink text-sm leading-relaxed m-0">{lastSubmission.body}</p>
+                <p className="text-irent-ink text-sm leading-relaxed m-0 break-anywhere">{lastSubmission.body}</p>
                 {lastSubmission.createdIncidents && lastSubmission.createdIncidents.length > 0 && (
                   <div className="mt-2 text-xs text-[#8f1d1d] bg-[#fff3f3] p-3 rounded-xl border border-[#fde5e5] leading-relaxed">
                     <strong>系統已建立異常紀錄，營運人員可於 Dashboard 查看。</strong>
@@ -446,7 +446,7 @@ const CustomerFlow: React.FC = () => {
       {/* Settings Modal */}
       {showSettingsModal && (
         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl max-w-md w-full border border-irent-line shadow-2xl p-6 relative animate-in fade-in zoom-in duration-200">
+          <div className="bg-white rounded-3xl max-w-md w-full max-h-[90vh] overflow-y-auto border border-irent-line shadow-2xl p-4 sm:p-6 relative animate-in fade-in zoom-in duration-200">
             <button
               onClick={() => setShowSettingsModal(false)}
               className="absolute top-4 right-4 text-irent-muted hover:text-irent-red transition-all"
@@ -494,7 +494,7 @@ const CustomerFlow: React.FC = () => {
             >
               <X size={18} />
             </button>
-            <div className="p-4 flex-1 flex items-center justify-center bg-slate-950 overflow-hidden min-h-[300px]">
+            <div className="p-3 sm:p-4 flex-1 flex items-center justify-center bg-slate-950 overflow-hidden min-h-[220px] sm:min-h-[300px]">
               <img
                 src={previewImage}
                 alt="Uploaded Preview"

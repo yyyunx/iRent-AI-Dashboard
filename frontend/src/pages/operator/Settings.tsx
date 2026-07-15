@@ -26,10 +26,10 @@ const Settings: React.FC = () => {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6 items-start min-w-0">
       {/* Developer Settings Card */}
-      <section className="bg-white border border-irent-line rounded-2xl shadow-premium p-5 flex flex-col gap-5">
-        <div className="flex justify-between items-center pb-3 border-b border-irent-line">
+      <section className="bg-white border border-irent-line rounded-2xl shadow-premium p-4 sm:p-5 flex flex-col gap-5 min-w-0">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 pb-3 border-b border-irent-line">
           <h2 className="text-lg font-black text-irent-ink m-0 flex items-center gap-2">
             <Sliders size={20} className="text-irent-red" />
             開發者模式設定
@@ -38,8 +38,8 @@ const Settings: React.FC = () => {
         </div>
 
         <div className="flex flex-col gap-4">
-          <div className="flex items-center justify-between p-4 border border-irent-line rounded-2xl bg-[#fafafa]">
-            <div className="flex-1 pr-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 border border-irent-line rounded-2xl bg-[#fafafa]">
+            <div className="flex-1 sm:pr-4 min-w-0">
               <strong className="block text-sm text-irent-ink font-bold mb-1">
                 啟用前端模糊偵測與指標資訊
               </strong>
@@ -79,8 +79,8 @@ const Settings: React.FC = () => {
       </section>
 
       {/* Integration Settings Card */}
-      <section className="bg-white border border-irent-line rounded-2xl shadow-premium p-5 flex flex-col gap-5">
-        <div className="flex justify-between items-center pb-3 border-b border-irent-line">
+      <section className="bg-white border border-irent-line rounded-2xl shadow-premium p-4 sm:p-5 flex flex-col gap-5 min-w-0">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 pb-3 border-b border-irent-line">
           <h2 className="text-lg font-black text-irent-ink m-0 flex items-center gap-2">
             <Link2 size={20} className="text-[#4a154b]" />
             Slack 通訊整合
@@ -109,7 +109,7 @@ const Settings: React.FC = () => {
           <button
             type="submit"
             disabled={updatingWebhook || !webhookInput.trim()}
-            className="h-[42px] px-4 bg-irent-red text-white text-sm font-bold rounded-2xl hover:bg-irent-red-hover transition-all disabled:opacity-50"
+            className="w-full sm:w-auto h-[42px] px-4 bg-irent-red text-white text-sm font-bold rounded-2xl hover:bg-irent-red-hover transition-all disabled:opacity-50"
           >
             {updatingWebhook ? '設定中...' : '儲存連結'}
           </button>
