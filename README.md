@@ -1,21 +1,6 @@
-下面整份直接複製貼到 GitHub `README.md` 就好。
+# iRent AI Dashboard 
 
-````md
-# iRent AI Dashboard
-
-iRent AI Dashboard is a demo web app for AI-assisted rental-car inspection workflows.
-
-It includes:
-
-- Renter photo submission flow
-- Blur / quality check
-- AI-style incident creation mock
-- Operator dashboard
-- Photo submissions review
-- Tasks / dispatch views
-- Settings page
-- Slack webhook configuration
-- SQLite demo persistence
+iRent AI Dashboard is a demo operations dashboard for AI-assisted rental-car inspection workflows. It includes a renter photo submission flow, blur/quality checks, AI-style incident creation, operator dispatch views, Settings, Slack webhook configuration, and SQLite persistence.
 
 ---
 
