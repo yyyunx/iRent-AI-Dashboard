@@ -1,21 +1,56 @@
+下面整份直接複製貼到 GitHub `README.md` 就好。
+
+````md
 # iRent AI Dashboard
 
-iRent AI Dashboard is a demo operations dashboard for AI-assisted rental-car inspection workflows. It includes a renter photo submission flow, blur/quality checks, AI-style incident creation, operator dispatch views, Settings, Slack webhook configuration, and SQLite persistence.
+iRent AI Dashboard is a demo web app for AI-assisted rental-car inspection workflows.
+
+It includes:
+
+- Renter photo submission flow
+- Blur / quality check
+- AI-style incident creation mock
+- Operator dashboard
+- Photo submissions review
+- Tasks / dispatch views
+- Settings page
+- Slack webhook configuration
+- SQLite demo persistence
+
+---
 
 ## Architecture
 
 - Frontend: React + Vite + TypeScript
 - Backend: Express + TypeScript
 - Database: SQLite through `better-sqlite3`
-- Demo database: `outputs/irent_ops.db`
-- Upload storage: `outputs/uploads/` locally, `/var/data/uploads` on Render
+- Local demo database: `outputs/irent_ops.db`
+- Local upload folder: `outputs/uploads/`
 
-The current app is served as two processes during development:
+The app runs as two processes during local development:
 
-- Vite frontend on `http://localhost:5173`
-- Express backend on `http://localhost:5188`
+- Frontend: `http://localhost:5173`
+- Backend API: `http://localhost:5188`
 
-In production, Express serves the built frontend from `frontend/dist` and keeps API routes under `/api`.
+In production, Express serves the built React frontend from `frontend/dist`, while API routes stay under `/api`.
+
+---
+
+## Project Structure
+
+```txt
+iRent-AI-Dashboard/
+├─ frontend/              # React + Vite frontend
+├─ backend/               # Express + TypeScript backend
+├─ outputs/
+│  ├─ irent_ops.db        # Demo SQLite database
+│  └─ uploads/            # Local uploaded images
+├─ package.json           # Root scripts
+├─ render.yaml            # Render deployment reference
+└─ README.md
+````
+
+---
 
 ## Local Development
 
@@ -23,6 +58,8 @@ Install dependencies from the repository root:
 
 ```bash
 pnpm install
+pnpm --dir frontend install
+pnpm --dir backend install
 ```
 
 Run frontend and backend together:
@@ -31,7 +68,23 @@ Run frontend and backend together:
 pnpm dev
 ```
 
-Build both apps:
+Open the frontend:
+
+```txt
+http://localhost:5173
+```
+
+Backend health check:
+
+```txt
+http://localhost:5188/healthz
+```
+
+---
+
+## Build
+
+Build both frontend and backend:
 
 ```bash
 pnpm build
@@ -43,65 +96,167 @@ Start the production server after building:
 pnpm start
 ```
 
-Smoke-test the backend:
+In production mode, Express serves the React build and the API from the same backend service.
 
-```bash
-curl http://localhost:5188/healthz
-curl http://localhost:5188/api/state
-```
-
-PowerShell equivalent:
-
-```powershell
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:5188/healthz
-Invoke-WebRequest -UseBasicParsing http://127.0.0.1:5188/api/state
-```
+---
 
 ## Environment Variables
 
-- `PORT`: Express port. Defaults to `5188`.
-- `DATABASE_PATH`: SQLite database path. Defaults to `outputs/irent_ops.db`.
-- `UPLOAD_DIR`: uploaded photo directory. Defaults to `outputs/uploads`.
-- `FRONTEND_DIST`: optional override for built frontend assets.
-- `CORS_ORIGIN`: optional comma-separated CORS allowlist.
-- `SLACK_WEBHOOK_URL`: optional Slack webhook value used by deployment/runtime.
+| Key                 | Description                           | Default                |
+| ------------------- | ------------------------------------- | ---------------------- |
+| `PORT`              | Express backend port                  | `5188`                 |
+| `NODE_ENV`          | Runtime mode                          | `development`          |
+| `DATABASE_PATH`     | SQLite database path                  | `outputs/irent_ops.db` |
+| `UPLOAD_DIR`        | Upload folder path                    | `outputs/uploads`      |
+| `FRONTEND_DIST`     | Optional frontend build path override | auto-detected          |
+| `CORS_ORIGIN`       | Optional CORS allowlist               | not required locally   |
+| `SLACK_WEBHOOK_URL` | Optional Slack webhook                | empty                  |
+
+---
 
 ## Render Deployment
 
-`render.yaml` is configured for a Node.js web service:
+This project is deployed as a Node.js web service.
 
-- Build: `corepack enable && pnpm install --frozen-lockfile && pnpm build`
-- Start: `pnpm start`
-- Persistent disk: `/var/data`
-- Production database: `/var/data/irent_ops.db`
-- Production uploads: `/var/data/uploads`
+### Build Command
 
-The Python `outputs/shared_ops_server.py` implementation is legacy and is no longer used by Render.
+```bash
+pnpm install --frozen-lockfile && pnpm --dir frontend install --frozen-lockfile && pnpm --dir backend install --frozen-lockfile && pnpm build
+```
 
-## Demo Data
+### Start Command
 
-`outputs/irent_ops.db` is intentionally kept as a demo SQLite database for local review and demos. It is not a production database. Runtime uploads and generated cache files should not be committed.
+```bash
+pnpm start
+```
+
+### Render Environment Variables
+
+For short-term demo deployment on Render Free:
+
+```txt
+NODE_ENV=production
+DATABASE_PATH=outputs/irent_ops.db
+UPLOAD_DIR=outputs/uploads
+SLACK_WEBHOOK_URL=optional
+```
+
+Health check path:
+
+```txt
+/healthz
+```
+
+---
+
+## Render Free Demo Limitation
+
+This project currently uses local SQLite and local upload storage for demo purposes.
+
+On Render Free, the filesystem is not persistent. This means data written at runtime may be lost after:
+
+* Redeploy
+* Restart
+* Service spin down
+* Free instance wake-up
+
+For short-term demos, this is acceptable.
+
+For production, replace local SQLite and local uploads with external persistent services such as:
+
+* Supabase Postgres
+* Neon Postgres
+* Supabase Storage
+* Cloudinary
+
+---
 
 ## API Surface
 
-- `GET /healthz`
-- `GET /api/state`
-- `GET /api/submissions`
-- `GET /api/submissions/:submissionId`
-- `POST /api/incidents`
-- `POST /api/action`
-- `POST /api/photos/quality-check`
-- `POST /api/photo-submissions`
-- `POST /api/settings/slack`
+### Health
+
+```txt
+GET /healthz
+```
+
+### Dashboard / State
+
+```txt
+GET /api/state
+```
+
+### Photo Submissions
+
+```txt
+GET /api/submissions
+GET /api/submissions/:submissionId
+POST /api/photos/quality-check
+POST /api/photo-submissions
+```
+
+### Incidents / Actions
+
+```txt
+POST /api/incidents
+POST /api/action
+```
+
+### Settings
+
+```txt
+POST /api/settings/slack
+```
+
+---
+
+## Demo Database
+
+`outputs/irent_ops.db` is kept as a demo SQLite database for local review and demo usage.
+
+It is not intended to be used as a production database.
+
+---
 
 ## Repository Hygiene
 
-The repository ignores:
+The repository should not commit:
 
-- `node_modules/`
-- `dist/` and build outputs
-- `.env*`
-- logs
-- SQLite journal/WAL files
-- `outputs/uploads/`
-- `outputs/__pycache__/`
+* `node_modules/`
+* `dist/`
+* `.env*`
+* logs
+* runtime uploads
+* SQLite journal / WAL files
+* Python cache files
+
+Ignored examples:
+
+```txt
+node_modules/
+dist/
+.env*
+*.log
+outputs/uploads/
+outputs/__pycache__/
+*.db-journal
+*.db-wal
+*.db-shm
+```
+
+---
+
+## Legacy Python Server
+
+The old Python server:
+
+```txt
+outputs/shared_ops_server.py
+```
+
+is legacy and is no longer used for Render deployment.
+
+The current deployment target is:
+
+```txt
+React frontend + Express backend + SQLite demo database
+```
