@@ -6,9 +6,14 @@ import { DatabaseRepository } from './repositories/DatabaseRepository';
 import { DashboardService } from './services/DashboardService';
 import { DashboardController } from './controllers/DashboardController';
 import { createApiRouter } from './routes/apiRoutes';
+import { PerformanceMonitor } from './services/PerformanceMonitor';
 
 export function createApp(dbPath: string, uploadDir: string) {
   const app = express();
+  const repo = new DatabaseRepository(dbPath);
+  const service = new DashboardService(repo, uploadDir);
+  const controller = new DashboardController(repo, service);
+  const performanceMonitor = new PerformanceMonitor();
 
   // Middleware
   app.use(cors({
@@ -16,6 +21,10 @@ export function createApp(dbPath: string, uploadDir: string) {
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization']
   }));
+
+  // LINE requires the exact bytes to verify x-line-signature. It must run before express.json().
+  app.post('/api/line/webhook', express.raw({ type: 'application/json', limit: '2mb' }), controller.receiveLineWebhook);
+  app.use(performanceMonitor.middleware);
   
   // Increase payload limit for base64 image uploads
   app.use(express.json({ limit: '50mb' }));
@@ -24,14 +33,13 @@ export function createApp(dbPath: string, uploadDir: string) {
   // Serve uploads static assets
   app.use('/uploads', express.static(uploadDir));
 
-  // Initialize DB, Service, Controller
-  const repo = new DatabaseRepository(dbPath);
-  const service = new DashboardService(repo, uploadDir);
-  const controller = new DashboardController(repo, service);
-
   // Health endpoint
   app.get('/healthz', (req, res) => {
     res.json({ ok: true });
+  });
+
+  app.get('/api/performance', (req, res) => {
+    res.json({ ok: true, performance: performanceMonitor.snapshot(), notifications: service.getNotificationStats() });
   });
 
   // Mount API router

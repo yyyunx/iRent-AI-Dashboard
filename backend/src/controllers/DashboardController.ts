@@ -141,4 +141,50 @@ export class DashboardController {
       res.status(500).json({ ok: false, error: e.message || "Failed to update slack webhook" });
     }
   };
+
+  public updateLineSettings = async (req: Request, res: Response) => {
+    const { targetId, groupName, enabled } = req.body || {};
+    if (targetId !== undefined && targetId !== '' && !/^[URC][A-Za-z0-9_-]{10,}$/.test(String(targetId))) {
+      return res.status(400).json({ ok: false, error: 'LINE target ID must be a user, group, or room ID from a webhook event.' });
+    }
+    if (enabled !== undefined && typeof enabled !== 'boolean') {
+      return res.status(400).json({ ok: false, error: 'enabled must be true or false.' });
+    }
+    try {
+      this.service.updateLineSettings({
+        targetId: targetId === undefined ? undefined : String(targetId),
+        groupName: groupName === undefined ? undefined : String(groupName),
+        enabled
+      });
+      res.json({ ok: true, state: this.service.getProjectState() });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message || 'Failed to update LINE settings' });
+    }
+  };
+
+  public sendLineTest = async (req: Request, res: Response) => {
+    try {
+      const status = this.service.queueLineTest(String(req.body?.message || ''));
+      res.json({ ok: true, status, state: this.service.getProjectState() });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message || 'Failed to queue LINE test' });
+    }
+  };
+
+  /** Raw-body endpoint is registered before JSON parsing in app.ts for signature verification. */
+  public receiveLineWebhook = async (req: Request, res: Response) => {
+    const rawBody = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
+    const verification = this.service.verifyLineWebhook(rawBody, req.header('x-line-signature') || undefined);
+    if (!verification.valid) {
+      const status = verification.reason.includes('not configured') ? 503 : 401;
+      return res.status(status).json({ ok: false, error: verification.reason });
+    }
+    try {
+      const body = JSON.parse(rawBody.toString('utf8'));
+      const capturedTargets = this.service.captureLineWebhookTargets(body);
+      res.json({ ok: true, capturedTargets });
+    } catch (e: any) {
+      res.status(400).json({ ok: false, error: e.message || 'Invalid LINE webhook payload' });
+    }
+  };
 }

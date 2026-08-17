@@ -90,6 +90,20 @@ export interface SlackNotification {
   created_at: string;
 }
 
+export interface NotificationLog {
+  id?: number;
+  provider: 'line' | 'slack';
+  incident_id?: string | null;
+  event_type: string;
+  target_id?: string | null;
+  message: string;
+  status: 'queued' | 'sending' | 'sent' | 'failed' | 'not_configured';
+  attempts: number;
+  error?: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Settings {
   key: string;
   value: string;

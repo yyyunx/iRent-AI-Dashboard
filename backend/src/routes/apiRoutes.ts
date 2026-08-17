@@ -13,6 +13,8 @@ export function createApiRouter(controller: DashboardController): Router {
   router.post('/photos/quality-check', controller.runQualityCheck);
   router.post('/photo-submissions', controller.handlePhotoSubmission);
   router.post('/settings/slack', controller.updateSlackSettings);
+  router.post('/settings/line', controller.updateLineSettings);
+  router.post('/notifications/line/test', controller.sendLineTest);
 
   return router;
 }

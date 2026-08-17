@@ -98,12 +98,23 @@ export interface AppState {
   incidents: Incident[];
   damageHotspots: [string, number][];
   lineGroup: string;
+  lineConfig: {
+    enabled: boolean;
+    groupName: string;
+    targetId: string;
+    targetConfigured: boolean;
+    tokenConfigured: boolean;
+    connected: boolean;
+    webhookConfigured: boolean;
+    targetSource: 'environment' | 'dashboard';
+  };
   slackConnected: boolean;
   slackWebhook: string;
-  lineLogs: { title: string; time: string; group: string; message: string }[];
+  lineLogs: { title: string; time: string; group: string; message: string; status: string; error: string | null }[];
   timelines: Record<string, TimelineItem[]>;
   comments: Record<string, CommentItem[]>;
   slackNotifications: any[];
+  notificationStats: { provider: string; status: string; count: number }[];
   maintenanceReports: Record<string, MaintenanceReportItem[]>;
   photoSubmissions: PhotoSubmission[];
   uploadedPhotos: UploadedPhoto[];

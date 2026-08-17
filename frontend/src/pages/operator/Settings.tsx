@@ -1,131 +1,97 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { Link2, Save, Send, ShieldCheck } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { Link2, Sliders, ToggleLeft, ToggleRight } from 'lucide-react';
 
 const Settings: React.FC = () => {
-  const { state, apiPost, showToast, developerMode, setDeveloperMode } = useApp();
-  const [webhookInput, setWebhookInput] = useState('');
-  const [updatingWebhook, setUpdatingWebhook] = useState(false);
+  const { state, apiPost, showToast } = useApp();
+  const [targetId, setTargetId] = useState('');
+  const [groupName, setGroupName] = useState('iRent Ops Alerts');
+  const [enabled, setEnabled] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
 
-  const handleUpdateWebhook = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!webhookInput.trim().startsWith('https://hooks.slack.com/services/')) {
-      showToast("網址錯誤", "必須是有效的 https://hooks.slack.com/services/ 連結");
-      return;
-    }
-    setUpdatingWebhook(true);
+  useEffect(() => {
+    if (!state?.lineConfig) return;
+    setTargetId(state.lineConfig.targetSource === 'environment' ? '' : state.lineConfig.targetId);
+    setGroupName(state.lineConfig.groupName);
+    setEnabled(state.lineConfig.enabled);
+  }, [state?.lineConfig]);
+
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
     try {
-      await apiPost('/api/settings/slack', { webhook: webhookInput.trim() });
-      setWebhookInput('');
-      showToast("設定成功", "Slack Webhook 已更新並啟用");
-    } catch (err: any) {
-      showToast("設定失敗", err.message);
+      await apiPost('/api/settings/line', { targetId: targetId.trim(), groupName: groupName.trim(), enabled });
+      showToast('LINE 設定已儲存', '通知會由後端佇列處理，不會阻塞案件操作。');
+    } catch (error: any) {
+      showToast('設定失敗', error.message);
     } finally {
-      setUpdatingWebhook(false);
+      setSaving(false);
     }
   };
 
+  const testLine = async () => {
+    setTesting(true);
+    try {
+      const result = await apiPost('/api/notifications/line/test', { message: 'iRent LINE Bot 測試通知：連線設定已接收。' });
+      showToast(result.status === 'queued' ? '測試通知已排入佇列' : 'LINE 尚未完成設定', result.status === 'queued' ? '請在通知紀錄確認送達結果。' : '請先設定環境變數 Token 與 Target ID。');
+    } catch (error: any) {
+      showToast('測試失敗', error.message);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const config = state?.lineConfig;
   return (
-    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 lg:gap-6 items-start min-w-0">
-      {/* Developer Settings Card */}
-      <section className="bg-white border border-irent-line rounded-2xl shadow-premium p-4 sm:p-5 flex flex-col gap-5 min-w-0">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 pb-3 border-b border-irent-line">
-          <h2 className="text-lg font-black text-irent-ink m-0 flex items-center gap-2">
-            <Sliders size={20} className="text-irent-red" />
-            開發者模式設定
-          </h2>
-          <span className="text-xs font-bold text-irent-red bg-irent-soft-red px-2.5 py-1 rounded-full">DevTools</span>
+    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] gap-5 items-start">
+      <form onSubmit={save} className="bg-white border border-irent-line rounded-2xl shadow-premium p-5 flex flex-col gap-5">
+        <div className="flex items-center justify-between gap-3 pb-3 border-b border-irent-line">
+          <h2 className="text-lg font-black text-irent-ink flex items-center gap-2"><Link2 size={20} className="text-[#06c755]" /> LINE Bot 通知設定</h2>
+          <span className="text-xs font-bold text-[#067b37] bg-[#e9f9ef] px-2.5 py-1 rounded-full">Messaging API</span>
         </div>
 
-        <div className="flex flex-col gap-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 border border-irent-line rounded-2xl bg-[#fafafa]">
-            <div className="flex-1 sm:pr-4 min-w-0">
-              <strong className="block text-sm text-irent-ink font-bold mb-1">
-                啟用前端模糊偵測與指標資訊
-              </strong>
-              <p className="text-irent-muted text-xs leading-relaxed m-0">
-                開啟後，在取車/還車拍照檢查時，將在瀏覽器端使用 Laplacian of Gaussian 算法計算照片的清晰度（Variance of Laplacian）以及推論耗時（Wall Time），並在介面上直接顯示以供調試。
-              </p>
-            </div>
-            <button
-              onClick={() => {
-                setDeveloperMode(!developerMode);
-                showToast(
-                  developerMode ? "已關閉開發者模式" : "已開啟開發者模式",
-                  developerMode ? "模糊偵測指標已被隱藏" : "現在可在拍照時讀取 Sharpness 與 Wall Time 數據"
-                );
-              }}
-              className="focus:outline-none transition-all duration-200 hover:scale-105 flex-shrink-0"
-              aria-label="Toggle Developer Mode"
-            >
-              {developerMode ? (
-                <ToggleRight size={44} className="text-irent-red fill-irent-soft-red" />
-              ) : (
-                <ToggleLeft size={44} className="text-irent-muted" />
-              )}
-            </button>
-          </div>
+        <p className="text-sm text-irent-muted leading-relaxed m-0">Token 只可在部署環境設定，不會經由管理頁或 API 回傳。此頁可設定通知對象與啟用狀態。</p>
 
-          <div className="border border-blue-100 rounded-2xl bg-blue-50/50 p-4 text-xs text-blue-800 leading-relaxed flex flex-col gap-2">
-            <strong>💡 Laplacian of Gaussian (LoG) 說明：</strong>
-            <ul className="list-disc pl-4 space-y-1">
-              <li>圖片在推論前會先等比縮小至 480p（短邊為 480 像素）。</li>
-              <li>使用 5x5 高斯卷積核進行降噪，以避免高頻噪點影響判斷。</li>
-              <li>使用 3x3 拉普拉斯算子計算邊緣二階導數。</li>
-              <li>取拉普拉斯響應的變異數（Variance）作為清晰度分數（Sharpness）。分數越低越模糊，模糊判定閾值預設為 12.0。</li>
-            </ul>
-          </div>
+        <label className="flex items-center justify-between gap-4 p-4 border border-irent-line rounded-2xl bg-[#fafafa] cursor-pointer">
+          <span><strong className="block text-sm text-irent-ink">啟用 LINE 通知</strong><small className="text-xs text-irent-muted">案件建立、派工、回報與結案均會排入發送佇列。</small></span>
+          <input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} className="w-5 h-5 accent-[#06c755]" />
+        </label>
+
+        <label className="flex flex-col gap-1.5 text-sm font-bold text-irent-ink">
+          顯示名稱（僅供管理介面辨識）
+          <input value={groupName} onChange={event => setGroupName(event.target.value)} maxLength={80} className="h-11 border border-irent-line rounded-xl px-3 font-normal focus:outline-none focus:border-[#06c755]" placeholder="例如：台北營運群組" />
+        </label>
+
+        <label className="flex flex-col gap-1.5 text-sm font-bold text-irent-ink">
+          LINE Target ID
+          <input value={targetId} onChange={event => setTargetId(event.target.value)} disabled={config?.targetSource === 'environment'} className="h-11 border border-irent-line rounded-xl px-3 font-mono font-normal disabled:bg-slate-100 focus:outline-none focus:border-[#06c755]" placeholder="U...、C... 或 R..." />
+          <small className="font-normal text-xs text-irent-muted">{config?.targetSource === 'environment' ? '目前由 LINE_TARGET_ID 環境變數管理。' : '可由 LINE webhook 自動帶入，或貼上 webhook event 取得的 userId、groupId、roomId。'}</small>
+        </label>
+
+        <div className="flex flex-col sm:flex-row gap-2.5">
+          <button type="submit" disabled={saving} className="min-h-[44px] px-4 rounded-xl bg-irent-red text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"><Save size={16} />{saving ? '儲存中…' : '儲存設定'}</button>
+          <button type="button" onClick={testLine} disabled={testing || !config?.connected} className="min-h-[44px] px-4 rounded-xl border border-[#06c755] text-[#067b37] font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"><Send size={16} />{testing ? '送出中…' : '發送測試通知'}</button>
         </div>
-      </section>
+      </form>
 
-      {/* Integration Settings Card */}
-      <section className="bg-white border border-irent-line rounded-2xl shadow-premium p-4 sm:p-5 flex flex-col gap-5 min-w-0">
-        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 pb-3 border-b border-irent-line">
-          <h2 className="text-lg font-black text-irent-ink m-0 flex items-center gap-2">
-            <Link2 size={20} className="text-[#4a154b]" />
-            Slack 通訊整合
-          </h2>
-          <span className="text-xs font-bold text-irent-red bg-irent-soft-red px-2.5 py-1 rounded-full">Integrations</span>
-        </div>
-
-        <div className="border border-[#e4c7eb] rounded-2xl bg-[#fbf5ff] p-4 flex flex-col gap-2">
-          <strong className="text-[#4a154b] text-sm flex items-center gap-1.5 font-bold">
-            <Link2 size={16} />
-            Slack 連結狀態: {state?.slackConnected ? '已連接' : '尚未連結'}
-          </strong>
-          <span className="text-irent-muted text-xs leading-relaxed">
-            設定 Slack Incoming Webhook 網址，當 AI 偵測到車損或清潔異常建立事件時，會即時派送警示短訊。
-          </span>
-        </div>
-
-        <form onSubmit={handleUpdateWebhook} className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2.5 items-center">
-          <input
-            type="text"
-            placeholder="https://hooks.slack.com/services/..."
-            value={webhookInput}
-            onChange={e => setWebhookInput(e.target.value)}
-            className="w-full h-[42px] border border-irent-line rounded-2xl px-3 text-sm focus:outline-none focus:border-irent-red focus:ring-3 focus:ring-red-100"
-          />
-          <button
-            type="submit"
-            disabled={updatingWebhook || !webhookInput.trim()}
-            className="w-full sm:w-auto h-[42px] px-4 bg-irent-red text-white text-sm font-bold rounded-2xl hover:bg-irent-red-hover transition-all disabled:opacity-50"
-          >
-            {updatingWebhook ? '設定中...' : '儲存連結'}
-          </button>
-        </form>
-
-        {state?.slackConnected && (
-          <div className="mt-2 p-3.5 border border-irent-line rounded-2xl bg-[#fafafa] text-xs">
-            <span className="text-irent-muted block">已設定 Webhook：</span>
-            <code className="text-irent-ink font-mono break-all block mt-1 bg-white p-2 rounded-xl border border-slate-100">
-              {state?.slackWebhook || '已隱藏/已啟用'}
-            </code>
-          </div>
-        )}
-      </section>
+      <aside className="bg-white border border-irent-line rounded-2xl shadow-premium p-5 flex flex-col gap-4">
+        <h2 className="text-lg font-black text-irent-ink flex items-center gap-2"><ShieldCheck size={20} className="text-[#06c755]" /> 連線狀態</h2>
+        <Status label="Channel access token" ok={Boolean(config?.tokenConfigured)} hint="部署環境 LINE_CHANNEL_ACCESS_TOKEN" />
+        <Status label="通知目標" ok={Boolean(config?.targetConfigured)} hint={config?.targetId ? `已設定 ${config.targetSource === 'environment' ? '環境變數' : '管理頁'} Target ID` : '尚未取得 userId、groupId 或 roomId'} />
+        <Status label="Webhook 簽章" ok={Boolean(config?.webhookConfigured)} hint="部署環境 LINE_CHANNEL_SECRET" />
+        <div className={`rounded-2xl p-4 text-sm font-bold ${config?.connected ? 'bg-[#e9f9ef] text-[#067b37]' : 'bg-amber-50 text-amber-800'}`}>{config?.connected ? 'LINE Bot 已可發送通知' : '尚有 LINE 設定未完成'}</div>
+        <p className="text-xs text-irent-muted leading-relaxed m-0">保留原 Slack 設定與歷史資料作為相容性資料；新的案件事件已改由 LINE 處理。</p>
+      </aside>
     </div>
   );
 };
+
+const Status: React.FC<{ label: string; ok: boolean; hint: string }> = ({ label, ok, hint }) => (
+  <div className="border border-irent-line rounded-xl p-3 flex gap-3 items-start">
+    <span className={`mt-1 w-2.5 h-2.5 rounded-full flex-none ${ok ? 'bg-[#06c755]' : 'bg-amber-400'}`} />
+    <span><strong className="block text-sm text-irent-ink">{label}</strong><small className="block text-xs text-irent-muted mt-0.5">{hint}</small></span>
+  </div>
+);
 
 export default Settings;

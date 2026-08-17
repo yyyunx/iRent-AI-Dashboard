@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
 import { DatabaseRepository } from '../repositories/DatabaseRepository';
+import { NotificationService } from './NotificationService';
 import {
   Incident,
   IncidentResponse,
@@ -13,10 +13,12 @@ import {
 export class DashboardService {
   private repo: DatabaseRepository;
   private uploadDir: string;
+  private notifications: NotificationService;
 
   constructor(repo: DatabaseRepository, uploadDir: string) {
     this.repo = repo;
     this.uploadDir = uploadDir;
+    this.notifications = new NotificationService(repo);
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
@@ -62,21 +64,24 @@ export class DashboardService {
 
     const timelines = this.repo.getTimelines();
     const comments = this.repo.getComments();
-    const notifications = this.repo.getSlackNotifications();
+    const notifications = this.repo.getNotifications();
     const reports = this.repo.getMaintenanceReports();
     const submissionsRaw = this.repo.getPhotoSubmissions();
     const submissions = submissionsRaw.map(row => dbRowToSubmissionResponse(row));
     const uploadedPhotosRaw = this.repo.getUploadedPhotos();
     const uploadedPhotos = uploadedPhotosRaw.map(row => dbRowToPhotoResponse(row));
 
-    const lineGroup = this.repo.getSetting("lineGroup", "iRent Ops Alerts");
+    const lineConfig = this.notifications.getConfig();
+    const lineGroup = lineConfig.groupName;
     const slackConnected = Boolean(this.repo.getSetting("slackWebhook"));
 
-    const lineLogs = notifications.map(row => ({
+    const lineLogs = notifications.filter(row => row.provider === 'line').map(row => ({
       title: `${row.status} · ${row.event_type} · ${row.incident_id || '-'}`,
       time: row.created_at,
       group: lineGroup,
-      message: row.message
+      message: row.message,
+      status: row.status,
+      error: row.error || null
     }));
 
     const DAMAGE_HOTSPOTS = [["右後門", 12], ["前保桿", 9], ["左後輪弧", 7], ["後保桿", 5], ["車頂", 2]];
@@ -86,17 +91,39 @@ export class DashboardService {
       incidents,
       damageHotspots: hotspotsVal,
       lineGroup,
+      lineConfig,
       slackConnected,
       slackWebhook: "",
       lineLogs,
       timelines,
       comments,
       slackNotifications: notifications,
+      notificationStats: this.repo.getNotificationStats(),
       maintenanceReports: reports,
       photoSubmissions: submissions,
       uploadedPhotos,
       opsMetrics: this.getOpsMetrics()
     };
+  }
+
+  public updateLineSettings(input: { targetId?: string; groupName?: string; enabled?: boolean }) {
+    this.notifications.updateSettings(input);
+  }
+
+  public queueLineTest(message: string) {
+    return this.notifications.queueLineMessage(null, 'test', message || 'iRent LINE Bot test notification.');
+  }
+
+  public verifyLineWebhook(rawBody: Buffer, signature: string | undefined) {
+    return this.notifications.verifyWebhookSignature(rawBody, signature);
+  }
+
+  public captureLineWebhookTargets(body: any) {
+    return this.notifications.captureWebhookTargets(body);
+  }
+
+  public getNotificationStats() {
+    return this.repo.getNotificationStats();
   }
 
   // --- Slack Integration ---
@@ -141,6 +168,29 @@ export class DashboardService {
     }
 
     return status;
+  }
+
+  public notifyLine(incidentId: string | null, eventType: string, message: string) {
+    return this.notifications.queueLineMessage(incidentId, eventType, message);
+  }
+
+  public getLineMessage(incident: IncidentResponse, eventType: string, extra = ""): string {
+    const headlineMap: Record<string, string> = {
+      ai_detected: 'AI detected a new incident', dispatch: 'Incident assigned', comment: 'New incident comment',
+      in_progress: 'Incident in progress', resolved: 'Incident resolved', reopen: 'Incident reopened',
+      maintenance_report: 'Maintenance report uploaded'
+    };
+    const lines = [
+      `【${headlineMap[eventType] || 'iRent operations notification'}】`,
+      `Vehicle: ${incident.plate}`,
+      `Incident: ${incident.label}`,
+      `Station: ${incident.station}`,
+      `AI confidence: ${incident.confidence}%`,
+      `Status: ${incident.status}`,
+      `Assignee: ${incident.assignee}`
+    ];
+    if (extra) lines.push(`Note: ${extra}`);
+    return lines.join('\n');
   }
 
   public getSlackMessage(incident: IncidentResponse, eventType: string, extra = ""): string {
@@ -337,7 +387,7 @@ export class DashboardService {
       );
 
       const incidentRes = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId));
-      await this.sendSlack(incidentId, "ai_detected", this.getSlackMessage(incidentRes, "ai_detected"));
+      this.notifyLine(incidentId, "ai_detected", this.getLineMessage(incidentRes, "ai_detected"));
 
       created.push(incidentId);
     }
@@ -427,7 +477,7 @@ export class DashboardService {
         `Dashboard: /irent-ops-dashboard.html`
       ].join('\n');
 
-      await this.sendSlack(createdIncidents[0], "photo_submission", slackMessage);
+      this.notifyLine(createdIncidents[0], "photo_submission", slackMessage);
     }
 
     return {
@@ -487,7 +537,7 @@ export class DashboardService {
       this.repo.addTimeline(incidentId, "assigned", "Reassigned", `${region} / ${team}`);
 
       const updated = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!);
-      await this.sendSlack(incidentId, "dispatch", this.getSlackMessage(updated, "dispatch"));
+      this.notifyLine(incidentId, "dispatch", this.getLineMessage(updated, "dispatch"));
 
     } else if (action === "comment") {
       const body = (payload.body || "").trim();
@@ -497,7 +547,7 @@ export class DashboardService {
       }
       this.repo.addComment(incidentId, author, body);
       this.repo.addTimeline(incidentId, "comment", "Comment", `${author}: ${body}`);
-      await this.sendSlack(incidentId, "comment", this.getSlackMessage(incidentRes, "comment", body));
+      this.notifyLine(incidentId, "comment", this.getLineMessage(incidentRes, "comment", body));
 
     } else if (action === "in_progress") {
       this.repo.updateIncidentStatusAndAssignee(incidentId, "in_progress", incident.assignee);
@@ -505,7 +555,7 @@ export class DashboardService {
       this.repo.addTimeline(incidentId, "in_progress", "In Progress", "Task started");
 
       const updated = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!);
-      await this.sendSlack(incidentId, "in_progress", this.getSlackMessage(updated, "in_progress"));
+      this.notifyLine(incidentId, "in_progress", this.getLineMessage(updated, "in_progress"));
 
     } else if (action === "resolve") {
       this.repo.updateIncidentStatusAndAssignee(incidentId, "resolved", "人工確認結案", {
@@ -517,7 +567,7 @@ export class DashboardService {
       this.repo.addTimeline(incidentId, "resolved", "Manual Close", "Manual confirmed");
 
       const updated = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!);
-      await this.sendSlack(incidentId, "resolved", this.getSlackMessage(updated, "resolved"));
+      this.notifyLine(incidentId, "resolved", this.getLineMessage(updated, "resolved"));
 
     } else if (action === "reopen") {
       const [team, region] = this.repo.assignTeam(incident.station);
@@ -534,7 +584,7 @@ export class DashboardService {
       this.repo.addTimeline(incidentId, "reopen", "Reassigned", `${region} / ${team}`);
 
       const updated = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!);
-      await this.sendSlack(incidentId, "reopen", this.getSlackMessage(updated, "reopen"));
+      this.notifyLine(incidentId, "reopen", this.getLineMessage(updated, "reopen"));
 
     } else if (action === "maintenance_report") {
       const note = (payload.note || "").trim();
@@ -585,7 +635,7 @@ export class DashboardService {
       }
 
       const updated = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!);
-      await this.sendSlack(incidentId, "maintenance_report", this.getSlackMessage(updated, "maintenance_report", note || review.result));
+      this.notifyLine(incidentId, "maintenance_report", this.getLineMessage(updated, "maintenance_report", note || review.result));
 
     } else {
       return { status: 400, ok: false, error: "Unknown action" };

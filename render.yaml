@@ -12,7 +12,11 @@ services:
         value: /var/data/irent_ops.db
       - key: UPLOAD_DIR
         value: /var/data/uploads
-      - key: SLACK_WEBHOOK_URL
+      - key: LINE_CHANNEL_ACCESS_TOKEN
+        sync: false
+      - key: LINE_CHANNEL_SECRET
+        sync: false
+      - key: LINE_TARGET_ID
         sync: false
     disk:
       name: irent-ops-data

@@ -118,6 +118,23 @@ export class DatabaseRepository {
         FOREIGN KEY (incident_id) REFERENCES Incident(id) ON DELETE SET NULL
       );
 
+      -- Kept separately from SlackNotification so existing audit data remains intact.
+      CREATE TABLE IF NOT EXISTS NotificationLog (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        provider TEXT NOT NULL,
+        incident_id TEXT,
+        event_type TEXT NOT NULL,
+        target_id TEXT,
+        message TEXT NOT NULL,
+        status TEXT NOT NULL,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        error TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (incident_id) REFERENCES Incident(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_notification_log_status ON NotificationLog(status, created_at DESC);
+
       CREATE TABLE IF NOT EXISTS Settings (
         key TEXT PRIMARY KEY,
         value TEXT NOT NULL,
@@ -178,6 +195,8 @@ export class DatabaseRepository {
     // Seed defaults
     const now = this.nowText();
     this.db.prepare("INSERT OR IGNORE INTO Settings(key, value, updated_at) VALUES (?, ?, ?)").run("lineGroup", "iRent Ops Alerts", now);
+    this.db.prepare("INSERT OR IGNORE INTO Settings(key, value, updated_at) VALUES (?, ?, ?)").run("lineTargetId", "", now);
+    this.db.prepare("INSERT OR IGNORE INTO Settings(key, value, updated_at) VALUES (?, ?, ?)").run("lineNotificationEnabled", "true", now);
     this.db.prepare("INSERT OR IGNORE INTO Settings(key, value, updated_at) VALUES (?, ?, ?)").run("damageHotspots", JSON.stringify(DAMAGE_HOTSPOTS), now);
 
     const incidentCount = (this.db.prepare("SELECT COUNT(*) as count FROM Incident").get() as any).count;
@@ -425,6 +444,45 @@ export class DatabaseRepository {
       INSERT INTO SlackNotification(incident_id, event_type, message, status, attempts, error, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)
     `).run(incidentId, eventType, message, status, attempts, error, this.nowText());
+  }
+
+  public addNotification(notification: {
+    provider: 'line' | 'slack'; incidentId: string | null; eventType: string; targetId?: string | null;
+    message: string; status: string; attempts?: number; error?: string | null;
+  }): number {
+    const ts = this.nowText();
+    const result = this.db.prepare(`
+      INSERT INTO NotificationLog(provider, incident_id, event_type, target_id, message, status, attempts, error, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      notification.provider, notification.incidentId, notification.eventType, notification.targetId || null,
+      notification.message, notification.status, notification.attempts || 0, notification.error || null, ts, ts
+    );
+    return Number(result.lastInsertRowid);
+  }
+
+  public updateNotification(id: number, status: string, attempts: number, error: string | null = null) {
+    this.db.prepare(`
+      UPDATE NotificationLog SET status = ?, attempts = ?, error = ?, updated_at = ? WHERE id = ?
+    `).run(status, attempts, error, this.nowText(), id);
+  }
+
+  public getNotifications(limit = 100) {
+    return this.db.prepare("SELECT * FROM NotificationLog ORDER BY id DESC LIMIT ?").all(limit) as any[];
+  }
+
+  public getPendingNotifications(limit = 50) {
+    return this.db.prepare(`
+      SELECT * FROM NotificationLog WHERE provider = 'line' AND status = 'queued' ORDER BY id ASC LIMIT ?
+    `).all(limit) as any[];
+  }
+
+  public getNotificationStats() {
+    return this.db.prepare(`
+      SELECT provider, status, COUNT(*) AS count
+      FROM NotificationLog
+      GROUP BY provider, status
+    `).all() as { provider: string; status: string; count: number }[];
   }
 
   public getSetting(key: string, defaultValue = ''): string {

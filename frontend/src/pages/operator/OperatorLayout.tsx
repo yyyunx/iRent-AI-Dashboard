@@ -18,7 +18,8 @@ import {
   TrendingUp,
   Award,
   Zap,
-  Settings
+  Settings,
+  Calculator
 } from 'lucide-react';
 
 const OperatorLayout: React.FC = () => {
@@ -36,6 +37,7 @@ const OperatorLayout: React.FC = () => {
     { path: '/operator/notifications', label: 'Slack 通知', icon: BellRing, badge: state?.lineLogs?.length },
     { path: '/operator/analytics', label: '營運分析', icon: BarChart3, textBadge: '30d' },
     { path: '/operator/settings', label: '系統設定', icon: Settings },
+    { path: '/operator/roi', label: 'ROI 試算', icon: Calculator },
   ];
 
   const handleSimulate = async () => {
@@ -103,7 +105,7 @@ const OperatorLayout: React.FC = () => {
               >
                 <div className="flex items-center gap-2.5 min-w-0">
                   <Icon size={18} />
-                  <span className="whitespace-nowrap lg:whitespace-normal break-anywhere">{item.label}</span>
+                  <span className="whitespace-nowrap lg:whitespace-normal break-anywhere">{item.path === '/operator/notifications' ? 'LINE 通知' : item.label}</span>
                 </div>
                 {item.badge !== undefined && item.badge > 0 && (
                   <span className={`text-[11px] font-black rounded-full px-2 py-0.5 ${
