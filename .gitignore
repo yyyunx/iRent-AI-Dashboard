@@ -39,3 +39,8 @@ Thumbs.db
 outputs/__pycache__/
 outputs/uploads/
 
+
+# Model weights
+*.pt
+*.pth
+*.onnx
