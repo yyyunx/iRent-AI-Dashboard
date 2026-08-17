@@ -11,6 +11,9 @@ dist/
 build/
 .tsbuildinfo
 
+# Local ML model weights
+*.pt
+
 # Environment variables
 .env
 .env.local

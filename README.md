@@ -88,7 +88,7 @@ iRent/
 │       ├── repositories/
 │       └── models/
 ├── outputs/
-│   ├── irent_ops.db          展示用 SQLite
+│   ├── irent_ops.db          SQLite 資料庫
 │   └── uploads/              本機上傳照片
 ├── WORKFLOW.md               業務與 LINE 通知流程
 ├── render.yaml               Render 部署設定
@@ -174,10 +174,9 @@ LINE_TARGET_ID=
 ## 現有限制
 
 - 車損與髒污分析目前是 Hackathon 用的模擬 AI 邏輯。
-- LINE Messaging API 尚未寫入程式，目前只有整合文件與資料需求。
+- LINE Messaging API 已完成整合；Token、Secret 與 Target ID 僅能設定於部署環境。
 - 尚未提供登入、角色權限與完整稽核機制。
 - SQLite 與本機照片儲存適合展示，不適合多執行個體正式環境。
-- `outputs/shared_ops_server.py` 是舊版 Python Server，現行部署使用 React + Express。
 
 ## LINE 官方文件
 
@@ -185,4 +184,3 @@ LINE_TARGET_ID=
 - [發送 Push Message](https://developers.line.biz/en/docs/messaging-api/sending-messages/)
 - [取得 userId、groupId 與 roomId](https://developers.line.biz/en/docs/messaging-api/getting-user-ids/)
 - [LINE Notify 終止服務公告](https://developers.line.biz/en/news/2025/04/01/line-notify/)
-

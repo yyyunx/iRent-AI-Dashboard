@@ -474,7 +474,7 @@ export class DashboardService {
         `Rental: ${payload.rentalId}`,
         `Phase: ${payload.phase}`,
         `Incidents: ${createdIncidents.join(', ')}`,
-        `Dashboard: /irent-ops-dashboard.html`
+        `Dashboard: /operator/dashboard`
       ].join('\n');
 
       this.notifyLine(createdIncidents[0], "photo_submission", slackMessage);
