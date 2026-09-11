@@ -5,7 +5,6 @@ import {
   Bell,
   BellRing,
   Calculator,
-  ChevronRight,
   History,
   LayoutDashboard,
   LogOut,
@@ -81,14 +80,14 @@ const OperatorLayout: React.FC = () => {
         </nav>
         <div className="sidebar-spacer" />
         <div className="sidebar-promo"><strong>讓每一次出行<br />更安心</strong><span>Powered by AI</span><div className="sidebar-promo__road"><span>iRent</span></div></div>
-        <button className="sidebar-user" onClick={() => { setCurrentRole(null); navigate('/'); }}><span className="avatar">YL</span><span><strong>李芸希</strong><small>營運管理員</small></span><LogOut size={18} /></button>
+        <button type="button" className="sidebar-user" onClick={() => { setCurrentRole(null); navigate('/'); }}><span className="avatar">iR</span><span><strong>營運管理員</strong><small>控制中心</small></span><LogOut size={18} aria-label="切換身分" /></button>
       </aside>
 
       <main className="ops-main">
         <header className="topbar">
-          <button className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="開啟選單"><Menu size={21} /></button>
-          <label className="topbar-search"><Search size={18} /><input value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="搜尋事件、車號、站點或關鍵字…" /></label>
-          <div className="topbar-actions"><button className="notification-button" onClick={() => navigate('/operator/notifications')} aria-label="查看 LINE 通知"><Bell size={19} /><span /></button><time>{now}</time><button className="topbar-user" onClick={() => navigate('/operator/settings')}><span className="avatar avatar--small">YL</span><span>李芸希</span><ChevronRight size={15} /></button></div>
+          <button type="button" className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="開啟選單"><Menu size={21} /></button>
+          <label className="topbar-search"><Search size={18} /><input value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="搜尋事件、車號、站點或關鍵字…" aria-label="全域搜尋" /></label>
+          <div className="topbar-actions"><button type="button" className="notification-button" onClick={() => navigate('/operator/notifications')} aria-label="查看 LINE 通知"><Bell size={19} /><span /></button><time>{now}</time><button type="button" className="topbar-settings-btn" onClick={() => navigate('/operator/settings')} aria-label="系統設定" title="系統設定"><Settings size={20} /></button></div>
         </header>
 
         {isDashboard && <DashboardHeader state={state} onCreateIncident={createIncident} creating={creating} />}
