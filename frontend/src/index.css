@@ -91,7 +91,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .ops-sidebar nav button:hover svg { color: var(--sidebar-accent); }
 .ops-sidebar nav button.active { color: var(--sidebar-accent); background: var(--sidebar-active-bg); border-color: rgba(255,255,255,.92); box-shadow: 0 1px 2px rgba(95,31,39,.035), 0 4px 12px rgba(95,31,39,.05), inset 3px 0 0 var(--sidebar-accent); }
 .ops-sidebar nav button.active svg { color: var(--sidebar-accent); }
-.ops-sidebar nav button.line-item:not(.active) svg { color: var(--sidebar-accent); }
+.ops-sidebar nav button.line-item:not(.active) svg { color: var(--sidebar-icon); }
 .ops-sidebar nav em { min-width: 25px; height: 25px; display: grid; place-items: center; border: 1px solid rgba(255,255,255,.72); border-radius: 999px; padding: 0 7px; color: var(--sidebar-badge-text); background: var(--sidebar-badge-bg); font-size: 10px; font-weight: 800; font-style: normal; }
 .sidebar-spacer { flex: 1; }
 .sidebar-user { width: 100%; border: 1px solid rgba(255,255,255,.9); border-radius: 12px; background: rgba(255,255,255,.82); min-height: 60px; padding: 8px 10px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; text-align: left; cursor: pointer; box-shadow: 0 1px 2px rgba(80,27,34,.03), 0 4px 10px rgba(80,27,34,.035); color: var(--sidebar-text); transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
