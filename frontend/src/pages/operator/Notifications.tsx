@@ -21,12 +21,12 @@ const Notifications: React.FC = () => {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(300px,0.7fr)_minmax(0,1.3fr)] gap-5 items-start">
       <section className="bg-white border border-irent-line rounded-2xl shadow-premium p-5 flex flex-col gap-5">
-        <div className="flex items-center gap-2 pb-3 border-b border-irent-line"><BellRing size={20} className="text-[#06c755]" /><h2 className="text-lg font-black text-irent-ink">LINE Bot 通知</h2></div>
+        <div className="flex items-center gap-2 pb-3 border-b border-irent-line"><BellRing size={20} className="text-irent-red" /><h2 className="text-lg font-black text-irent-ink">LINE Bot 通知</h2></div>
         <div className={`p-4 rounded-2xl ${connected ? 'bg-[#e9f9ef]' : 'bg-amber-50'}`}>
           <strong className={`block text-sm ${connected ? 'text-[#067b37]' : 'text-amber-800'}`}>{connected ? 'LINE Messaging API 已就緒' : 'LINE 尚未完成連線'}</strong>
           <span className="block text-xs text-irent-muted leading-relaxed mt-1">通知會先記錄為 queued，再由最多兩個背景工作者發送並重試一次。</span>
         </div>
-        <button onClick={test} disabled={!connected} className="min-h-[44px] rounded-xl bg-[#06c755] text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"><Send size={16} />發送測試通知</button>
+        <button onClick={test} disabled={!connected} className="min-h-[44px] rounded-xl bg-irent-red text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"><Send size={16} />發送測試通知</button>
         <button onClick={() => navigate('/operator/settings')} className="min-h-[44px] rounded-xl border border-irent-line text-irent-muted font-bold text-sm flex items-center justify-center gap-2"><ExternalLink size={16} />管理 LINE 設定</button>
         <p className="text-xs text-irent-muted leading-relaxed m-0">所有新案件事件皆由 LINE Bot 發送，狀態與錯誤會保留在通知紀錄。</p>
       </section>

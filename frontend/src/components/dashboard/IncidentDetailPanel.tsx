@@ -65,6 +65,8 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
     <section className="surface-card incident-detail">
       <header className="incident-detail__header"><div><span className="eyebrow">INCIDENT COMMAND</span><h2>事件處理面板</h2></div><span className="live-badge"><span />即時更新</span></header>
 
+      <div className="incident-detail__identity"><div><strong>{incident.id}</strong><span>{incident.station} · {incident.time}</span><small>{incident.label}</small></div><span className={`incident-badge incident-badge--${completed ? 'success' : incident.severity === 'high' ? 'danger' : 'warning'}`}>INCIDENT · {completed ? 'PASS' : incident.severity === 'high' ? 'FAIL' : 'REVIEW'}</span></div>
+
       <div className="incident-gallery">
         <button type="button" className="incident-gallery__main" onClick={() => matchingPhotos[0]?.filePath && setPreview(`/${matchingPhotos[0].filePath}`)}>
           {matchingPhotos[0]?.filePath ? <img src={`/${matchingPhotos[0].filePath}`} alt={`${incident.plate} AI 偵測`} /> : <div className={`vehicle-placeholder vehicle-placeholder--${incident.type}`}><span>iRent AI</span><b>{incident.type === 'damage' ? '車損影像' : incident.type === 'cleaning' ? '清潔影像' : '驗車影像'}</b></div>}
@@ -75,8 +77,6 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
           {[1, 2, 3].map(index => <button type="button" key={index} onClick={() => matchingPhotos[index]?.filePath && setPreview(`/${matchingPhotos[index].filePath}`)}>{matchingPhotos[index]?.filePath ? <img src={`/${matchingPhotos[index].filePath}`} alt={`${incident.plate} 照片 ${index + 1}`} /> : <div className="gallery-empty">{index === 3 ? `+${Math.max(0, matchingPhotos.length - 3)}` : 'AI'}</div>}</button>)}
         </div>
       </div>
-
-      <div className="incident-detail__identity"><div><strong>{incident.id}</strong><span>{incident.station} · {incident.label}</span></div><span className={`incident-badge incident-badge--${completed ? 'success' : incident.severity === 'high' ? 'danger' : 'warning'}`}>INCIDENT · {completed ? 'PASS' : incident.severity === 'high' ? 'FAIL' : 'REVIEW'}</span></div>
 
       <dl className="metadata-list">{metadata.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
 

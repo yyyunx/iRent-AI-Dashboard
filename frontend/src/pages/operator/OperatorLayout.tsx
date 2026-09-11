@@ -77,8 +77,7 @@ const OperatorLayout: React.FC = () => {
           })}
         </nav>
         <div className="sidebar-spacer" />
-        <div className="sidebar-promo"><strong>讓每一次出行<br />更安心</strong><span>Powered by AI</span><div className="sidebar-promo__road"><span>iRent</span></div></div>
-        <button type="button" className="sidebar-user" onClick={() => { setCurrentRole(null); navigate('/'); }}><span className="avatar">iR</span><span><strong>營運管理員</strong><small>控制中心</small></span><LogOut size={18} aria-label="切換身分" /></button>
+        <button type="button" className="sidebar-user" onClick={() => { setCurrentRole(null); navigate('/'); }}><span className="avatar">iR</span><span><strong>營運管理員</strong><small>控制中心</small></span><LogOut size={16} strokeWidth={1.8} aria-label="切換身分" /></button>
       </aside>
 
       <main className="ops-main">

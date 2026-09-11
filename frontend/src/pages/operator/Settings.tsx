@@ -115,7 +115,7 @@ const Settings: React.FC = () => {
 
       <form onSubmit={save} className="bg-white border border-irent-line rounded-2xl shadow-premium p-5 flex flex-col gap-5">
         <div className="flex items-center justify-between gap-3 pb-3 border-b border-irent-line">
-          <h2 className="text-lg font-black text-irent-ink flex items-center gap-2"><Link2 size={20} className="text-[#06c755]" /> LINE Bot 通知設定</h2>
+          <h2 className="text-lg font-black text-irent-ink flex items-center gap-2"><Link2 size={20} className="text-irent-red" /> LINE Bot 通知設定</h2>
           <span className="text-xs font-bold text-[#067b37] bg-[#e9f9ef] px-2.5 py-1 rounded-full">Messaging API</span>
         </div>
 
@@ -123,28 +123,28 @@ const Settings: React.FC = () => {
 
         <label className="flex items-center justify-between gap-4 p-4 border border-irent-line rounded-2xl bg-[#fafafa] cursor-pointer">
           <span><strong className="block text-sm text-irent-ink">啟用 LINE 通知</strong><small className="text-xs text-irent-muted">案件建立、派工、回報與結案均會排入發送佇列。</small></span>
-          <input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} className="w-5 h-5 accent-[#06c755]" />
+          <input type="checkbox" checked={enabled} onChange={event => setEnabled(event.target.checked)} className="w-5 h-5 accent-irent-red" />
         </label>
 
         <label className="flex flex-col gap-1.5 text-sm font-bold text-irent-ink">
           顯示名稱（僅供管理介面辨識）
-          <input value={groupName} onChange={event => setGroupName(event.target.value)} maxLength={80} className="h-11 border border-irent-line rounded-xl px-3 font-normal focus:outline-none focus:border-[#06c755]" placeholder="例如：台北營運群組" />
+          <input value={groupName} onChange={event => setGroupName(event.target.value)} maxLength={80} className="h-11 border border-irent-line rounded-xl px-3 font-normal focus:outline-none focus:border-irent-red" placeholder="例如：台北營運群組" />
         </label>
 
         <label className="flex flex-col gap-1.5 text-sm font-bold text-irent-ink">
           LINE Target ID
-          <input value={targetId} onChange={event => setTargetId(event.target.value)} disabled={config?.targetSource === 'environment'} className="h-11 border border-irent-line rounded-xl px-3 font-mono font-normal disabled:bg-slate-100 focus:outline-none focus:border-[#06c755]" placeholder="U...、C... 或 R..." />
+          <input value={targetId} onChange={event => setTargetId(event.target.value)} disabled={config?.targetSource === 'environment'} className="h-11 border border-irent-line rounded-xl px-3 font-mono font-normal disabled:bg-slate-100 focus:outline-none focus:border-irent-red" placeholder="U...、C... 或 R..." />
           <small className="font-normal text-xs text-irent-muted">{config?.targetSource === 'environment' ? '目前由 LINE_TARGET_ID 環境變數管理。' : '可由 LINE webhook 自動帶入，或貼上 webhook event 取得的 userId、groupId、roomId。'}</small>
         </label>
 
         <div className="flex flex-col sm:flex-row gap-2.5">
           <button type="submit" disabled={saving} className="min-h-[44px] px-4 rounded-xl bg-irent-red text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"><Save size={16} />{saving ? '儲存中…' : '儲存設定'}</button>
-          <button type="button" onClick={testLine} disabled={testing || !config?.connected} className="min-h-[44px] px-4 rounded-xl border border-[#06c755] text-[#067b37] font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"><Send size={16} />{testing ? '送出中…' : '發送測試通知'}</button>
+          <button type="button" onClick={testLine} disabled={testing || !config?.connected} className="min-h-[44px] px-4 rounded-xl border border-red-200 text-irent-red font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"><Send size={16} />{testing ? '送出中…' : '發送測試通知'}</button>
         </div>
       </form>
 
       <aside className="bg-white border border-irent-line rounded-2xl shadow-premium p-5 flex flex-col gap-4">
-        <h2 className="text-lg font-black text-irent-ink flex items-center gap-2"><ShieldCheck size={20} className="text-[#06c755]" /> 連線狀態</h2>
+        <h2 className="text-lg font-black text-irent-ink flex items-center gap-2"><ShieldCheck size={20} className="text-irent-red" /> 連線狀態</h2>
         <Status label="Channel access token" ok={Boolean(config?.tokenConfigured)} hint="部署環境 LINE_CHANNEL_ACCESS_TOKEN" />
         <Status label="通知目標" ok={Boolean(config?.targetConfigured)} hint={config?.targetId ? `已設定 ${config.targetSource === 'environment' ? '環境變數' : '管理頁'} Target ID` : '尚未取得 userId、groupId 或 roomId'} />
         <Status label="Webhook 簽章" ok={Boolean(config?.webhookConfigured)} hint="部署環境 LINE_CHANNEL_SECRET" />
@@ -157,7 +157,7 @@ const Settings: React.FC = () => {
 
 const Status: React.FC<{ label: string; ok: boolean; hint: string }> = ({ label, ok, hint }) => (
   <div className="border border-irent-line rounded-xl p-3 flex gap-3 items-start">
-    <span className={`mt-1 w-2.5 h-2.5 rounded-full flex-none ${ok ? 'bg-[#06c755]' : 'bg-amber-400'}`} />
+    <span className={`mt-1 w-2.5 h-2.5 rounded-full flex-none ${ok ? 'bg-[#16a34a]' : 'bg-amber-400'}`} />
     <span><strong className="block text-sm text-irent-ink">{label}</strong><small className="block text-xs text-irent-muted mt-0.5">{hint}</small></span>
   </div>
 );
