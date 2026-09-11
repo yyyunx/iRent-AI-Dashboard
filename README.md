@@ -2,7 +2,7 @@
 
 這是一個 Hackathon 展示專案，將租車人的取車／還車照片轉換成可追蹤的營運案件。系統會先檢查照片品質，再以 AI 模擬邏輯判斷車損或髒污，自動建立 Incident、派工並記錄處理歷程。
 
-> LINE 通知目前處於整合規劃階段。現有程式使用 Slack Incoming Webhook；下一階段將改用 LINE Messaging API。LINE Notify 已於 2025-03-31 終止服務，請勿申請或使用 LINE Notify Token。
+
 
 ## 核心功能
 
