@@ -108,12 +108,15 @@ export interface AppState {
     webhookConfigured: boolean;
     targetSource: 'environment' | 'dashboard';
   };
-  slackConnected: boolean;
-  slackWebhook: string;
+  aiConfig: {
+    provider: 'openai';
+    model: string;
+    keyConfigured: boolean;
+    keySource: 'environment' | 'dashboard';
+  };
   lineLogs: { title: string; time: string; group: string; message: string; status: string; error: string | null }[];
   timelines: Record<string, TimelineItem[]>;
   comments: Record<string, CommentItem[]>;
-  slackNotifications: any[];
   notificationStats: { provider: string; status: string; count: number }[];
   maintenanceReports: Record<string, MaintenanceReportItem[]>;
   photoSubmissions: PhotoSubmission[];
@@ -231,7 +234,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const interval = setInterval(() => {
       // Check if user is typing in common inputs to prevent layout refresh jitter
       const activeEl = document.activeElement?.id;
-      const typingInputs = ["commentText", "photoNote", "customerPhotoNote", "reportNote"];
+      const typingInputs = ["commentText", "photoNote", "customerPhotoNote", "reportNote", "agentQuery", "aiApiKey", "aiModel"];
       if (activeEl && typingInputs.includes(activeEl)) {
         return;
       }

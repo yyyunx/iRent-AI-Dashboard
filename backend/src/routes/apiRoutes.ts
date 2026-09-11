@@ -12,8 +12,9 @@ export function createApiRouter(controller: DashboardController): Router {
   router.post('/action', controller.handleAction);
   router.post('/photos/quality-check', controller.runQualityCheck);
   router.post('/photo-submissions', controller.handlePhotoSubmission);
-  router.post('/settings/slack', controller.updateSlackSettings);
   router.post('/settings/line', controller.updateLineSettings);
+  router.post('/settings/ai', controller.updateAiSettings);
+  router.post('/agent/query', controller.runAiAgent);
   router.post('/notifications/line/test', controller.sendLineTest);
 
   return router;

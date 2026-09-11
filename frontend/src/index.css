@@ -232,6 +232,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .agent-hero::after { content: 'AI'; position: absolute; z-index: -1; right: 40px; top: 32px; color: rgba(37,99,235,.055); font-size: 140px; line-height: 1; font-weight: 950; letter-spacing: -.08em; }
 .agent-hero__status { position: absolute; top: 23px; right: 25px; padding: 9px 12px; display: grid; grid-template-columns: auto auto; gap: 1px 6px; border: 1px solid #dff3e8; border-radius: 12px; color: #147347; background: rgba(245,253,249,.9); }
 .agent-hero__status > span { width: 8px; height: 8px; grid-row: span 2; align-self: center; border-radius: 50%; background: #16b968; box-shadow: 0 0 0 5px #e0f6ea; animation: agentPulse 2s ease-in-out infinite; }
+.agent-hero__status > span.is-offline { background: #f59e0b; box-shadow: 0 0 0 5px rgba(245,158,11,.14); animation: none; }
 .agent-hero__status strong { font-size: 10px; }.agent-hero__status small { color: #719183; font-size: 8px; }
 .agent-hero__copy { max-width: 760px; padding-right: 210px; }.agent-hero__copy h1 { margin: 5px 0 7px; font-size: clamp(27px,3vw,40px); line-height: 1.08; letter-spacing: -.045em; font-weight: 950; }.agent-hero__copy p { max-width: 620px; margin: 0; color: var(--color-muted); font-size: 13px; line-height: 1.65; }
 .agent-capabilities { margin: 16px 0 14px; display: flex; gap: 7px; flex-wrap: wrap; }.agent-capabilities span { padding: 5px 9px; border: 1px solid #e4eaf2; border-radius: 999px; color: #526079; background: rgba(255,255,255,.8); font-size: 9px; font-weight: 700; }

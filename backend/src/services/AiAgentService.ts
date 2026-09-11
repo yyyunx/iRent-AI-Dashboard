@@ -1,0 +1,100 @@
+import { DatabaseRepository } from '../repositories/DatabaseRepository';
+import fs from 'fs';
+import path from 'path';
+
+export interface AiAgentAnswer {
+  title: string;
+  insight: string;
+  recommendation: string;
+  evidence: string;
+}
+
+export class AiAgentService {
+  constructor(private repo: DatabaseRepository, private secretFile: string) {}
+
+  private readDashboardKey() {
+    try {
+      return fs.readFileSync(this.secretFile, 'utf8').trim();
+    } catch {
+      return '';
+    }
+  }
+
+  public getConfig() {
+    const environmentKey = Boolean(process.env.OPENAI_API_KEY?.trim());
+    return {
+      provider: 'openai',
+      model: process.env.OPENAI_MODEL?.trim() || this.repo.getSetting('openAiModel', 'gpt-5-mini'),
+      keyConfigured: environmentKey || Boolean(this.readDashboardKey()),
+      keySource: environmentKey ? 'environment' : 'dashboard'
+    };
+  }
+
+  public updateSettings(input: { apiKey?: string; model?: string; clearApiKey?: boolean }) {
+    if (input.model !== undefined) this.repo.setSetting('openAiModel', input.model.trim());
+    if (input.clearApiKey) {
+      if (fs.existsSync(this.secretFile)) fs.unlinkSync(this.secretFile);
+    } else if (input.apiKey?.trim()) {
+      fs.mkdirSync(path.dirname(this.secretFile), { recursive: true });
+      fs.writeFileSync(this.secretFile, input.apiKey.trim(), { encoding: 'utf8', mode: 0o600 });
+    }
+  }
+
+  public async analyze(prompt: string, context: unknown): Promise<{ answer: AiAgentAnswer; model: string }> {
+    const apiKey = process.env.OPENAI_API_KEY?.trim() || this.readDashboardKey();
+    const model = process.env.OPENAI_MODEL?.trim() || this.repo.getSetting('openAiModel', 'gpt-5-mini');
+    if (!apiKey) throw new Error('OPENAI_API_KEY_NOT_CONFIGURED');
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          store: false,
+          max_output_tokens: 700,
+          instructions: [
+            '你是 iRent 營運中心的 AI Operations Copilot。',
+            '只根據提供的即時營運資料回答，不得虛構數字、預測或已執行的動作。',
+            '請使用繁體中文，回傳單一 JSON 物件，不要使用 markdown code fence。',
+            'JSON 必須含 title、insight、recommendation、evidence 四個字串欄位。'
+          ].join('\n'),
+          input: `使用者問題：${prompt}\n\n即時營運資料：${JSON.stringify(context)}`
+        })
+      });
+
+      const payload = await response.json() as any;
+      if (!response.ok) throw new Error(payload?.error?.message || `OpenAI API request failed (${response.status})`);
+      const outputText = (payload.output || [])
+        .flatMap((item: any) => item.content || [])
+        .filter((item: any) => item.type === 'output_text')
+        .map((item: any) => item.text)
+        .join('\n')
+        .trim();
+      if (!outputText) throw new Error('OpenAI API did not return text output.');
+
+      try {
+        const parsed = JSON.parse(outputText.replace(/^```(?:json)?\s*|\s*```$/g, ''));
+        if (['title', 'insight', 'recommendation', 'evidence'].every(key => typeof parsed[key] === 'string')) {
+          return { answer: parsed as AiAgentAnswer, model };
+        }
+      } catch {
+        // Keep a useful model response even if it did not follow the requested JSON shape.
+      }
+      return {
+        model,
+        answer: {
+          title: 'AI 營運分析',
+          insight: outputText,
+          recommendation: '請依上述分析確認後再執行營運動作。',
+          evidence: '依據目前後端提供的 Incident、車損熱點與營運指標。'
+        }
+      };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+}

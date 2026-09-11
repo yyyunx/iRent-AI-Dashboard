@@ -41,6 +41,8 @@ Thumbs.db
 
 outputs/__pycache__/
 outputs/uploads/
+outputs/secrets/
+backend/outputs/secrets/
 
 
 # Model weights

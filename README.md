@@ -2,7 +2,7 @@
 
 這是一個 Hackathon 展示專案，將租車人的取車／還車照片轉換成可追蹤的營運案件。系統會先檢查照片品質，再以 AI 模擬邏輯判斷車損或髒污，自動建立 Incident、派工並記錄處理歷程。
 
-> LINE 通知已整合 LINE Messaging API Push Message、非同步發送佇列與 Webhook 簽章驗證。舊有 Slack Incoming Webhook 與歷史紀錄仍保留相容性。LINE Notify 已於 2025-03-31 終止服務，請勿申請或使用 LINE Notify Token。
+> LINE 通知已整合 LINE Messaging API Push Message、非同步發送佇列與 Webhook 簽章驗證。LINE Notify 已於 2025-03-31 終止服務，請勿申請或使用 LINE Notify Token。
 
 ## 核心功能
 
@@ -27,7 +27,7 @@
 - 現況：LINE Official Account + Messaging API Push Message
 - 發送機制：通知先寫入 `NotificationLog`，再由最多兩個背景工作者非同步發送
 - Webhook：以 `LINE_CHANNEL_SECRET` 驗證 `x-line-signature`，並擷取 `userId`、`groupId` 或 `roomId`
-- 相容性：保留 Slack Incoming Webhook 設定與舊通知紀錄
+- 通知管道：只使用 LINE Bot，不提供 Slack 設定或發送端點
 - 通知事件：AI 建案、派工、客服留言、開始處理、完工回報、結案、重新開案
 
 完整流程與 LINE 串接規格請參考 [WORKFLOW.md](WORKFLOW.md)。
@@ -71,7 +71,7 @@ Express + TypeScript
        └── NotificationService
              ├── LINE 非同步發送佇列
              ├── LINE Webhook HMAC-SHA256 驗證
-             └── Slack 相容性
+             └── LINE 發送紀錄與錯誤追蹤
 ```
 
 | 層級 | 技術 |
@@ -79,7 +79,7 @@ Express + TypeScript
 | 前端 | React、Vite、TypeScript、Tailwind CSS |
 | 後端 | Express、TypeScript |
 | 資料庫 | SQLite、better-sqlite3 |
-| 通知 | LINE Messaging API、簽章驗證與非同步佇列；保留 Slack 相容性 |
+| 通知 | LINE Messaging API、簽章驗證與非同步佇列 |
 | 部署 | Render |
 | 套件管理 | pnpm |
 
@@ -103,8 +103,7 @@ iRent/
 │   │   │       ├── Tasks.tsx         派工任務
 │   │   │       ├── Notifications.tsx 通知紀錄
 │   │   │       ├── Analytics.tsx     分析指標
-│   │   │       ├── Settings.tsx      LINE／Slack 設定
-│   │   │       └── RoiCalculator.tsx ROI 試算
+│   │   │       └── Settings.tsx      LINE Bot／OpenAI Agent 設定
 │   │   ├── utils/
 │   │   │   └── blurDetection.ts      瀏覽器端照片模糊度檢查
 │   │   ├── App.tsx                   路由與頁面 lazy loading
@@ -119,6 +118,7 @@ iRent/
 │   │   │   └── apiRoutes.ts          REST API 路由
 │   │   ├── services/
 │   │   │   ├── DashboardService.ts   驗車、案件、派工與 AI 複檢
+│   │   │   ├── AiAgentService.ts     OpenAI Responses API 營運分析
 │   │   │   ├── NotificationService.ts LINE 佇列與 Webhook 驗證
 │   │   │   └── PerformanceMonitor.ts API 效能量測
 │   │   ├── repositories/
@@ -130,7 +130,8 @@ iRent/
 │   └── package.json
 ├── outputs/                          執行期資料，不屬於程式碼
 │   ├── irent_ops.db                  SQLite 資料庫
-│   └── uploads/                      驗車與完工照片
+│   ├── uploads/                      驗車與完工照片
+│   └── secrets/                      本機 API Key（Git 忽略）
 ├── ARCHITECTURE.md                   詳細技術架構
 ├── WORKFLOW.md                       業務與 LINE 通知流程
 ├── LINEBOT_SETUP.md                  LINE Bot 設定說明
@@ -158,7 +159,11 @@ iRent/
 LINE_CHANNEL_ACCESS_TOKEN=
 LINE_CHANNEL_SECRET=
 LINE_TARGET_ID=
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5-mini
 LINE_WEBHOOK_ENABLED=false
+OPENAI_API_KEY=
+OPENAI_MODEL=gpt-5-mini
 ```
 
 `LINE_TARGET_ID` 不是 LINE 顯示名稱或群組名稱，必須是由 LINE webhook event 取得的 `userId`、`groupId` 或 `roomId`。
@@ -202,8 +207,9 @@ pnpm start
 | POST | `/api/photo-submissions` | 提交整批驗車照片、執行 AI 模擬分析，必要時自動建立案件 |
 | POST | `/api/incidents` | 手動建立案件並回傳最新儀表板狀態 |
 | POST | `/api/action` | 執行案件操作；支援 `dispatch`、`comment`、`in_progress`、`resolve`、`reopen`、`maintenance_report` |
-| POST | `/api/settings/slack` | 更新 Slack Incoming Webhook 相容性設定 |
 | POST | `/api/settings/line` | 更新 LINE 目標 ID、顯示名稱及通知啟用狀態；Access Token 不寫入資料庫 |
+| POST | `/api/settings/ai` | 更新 OpenAI 模型與伺服器端 API Key；Key 不會在 state 回傳 |
+| POST | `/api/agent/query` | 以目前 Incident、熱點及營運指標呼叫 OpenAI Responses API |
 | POST | `/api/notifications/line/test` | 將 LINE 測試訊息加入非同步發送佇列 |
 | POST | `/api/line/webhook` | 驗證 LINE Webhook 簽章並擷取通知目標 ID |
 | GET | `/uploads/:filename` | 讀取已上傳的驗車或完工照片 |
@@ -223,7 +229,7 @@ LINE_TARGET_ID=
 
 ## 現有限制
 
-- 車損與髒污分析目前是 Hackathon 用的模擬 AI 邏輯。
+- 照片車損與髒污辨識目前仍是 Hackathon 用的模擬邏輯；營運分析 Agent 已使用 OpenAI Responses API。
 - LINE Messaging API 已完成整合；Token、Secret 與 Target ID 僅能設定於部署環境。
 - 尚未提供登入、角色權限與完整稽核機制。
 - SQLite 與本機照片儲存適合展示，不適合多執行個體正式環境。

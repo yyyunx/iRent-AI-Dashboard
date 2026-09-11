@@ -128,20 +128,6 @@ export class DashboardController {
     }
   };
 
-  public updateSlackSettings = async (req: Request, res: Response) => {
-    const payload = req.body;
-    const webhook = (payload.webhook || "").trim();
-    if (!webhook.startsWith("https://hooks.slack.com/services/")) {
-      return res.status(400).json({ ok: false, error: "Invalid webhook" });
-    }
-    try {
-      this.repo.setSetting("slackWebhook", webhook);
-      res.json({ ok: true, state: this.service.getProjectState() });
-    } catch (e: any) {
-      res.status(500).json({ ok: false, error: e.message || "Failed to update slack webhook" });
-    }
-  };
-
   public updateLineSettings = async (req: Request, res: Response) => {
     const { targetId, groupName, enabled } = req.body || {};
     if (targetId !== undefined && targetId !== '' && !/^[URC][A-Za-z0-9_-]{10,}$/.test(String(targetId))) {
@@ -159,6 +145,37 @@ export class DashboardController {
       res.json({ ok: true, state: this.service.getProjectState() });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e.message || 'Failed to update LINE settings' });
+    }
+  };
+
+  public updateAiSettings = async (req: Request, res: Response) => {
+    const { apiKey, model, clearApiKey } = req.body || {};
+    if (apiKey !== undefined && apiKey !== '' && (typeof apiKey !== 'string' || apiKey.trim().length < 20)) {
+      return res.status(400).json({ ok: false, error: 'API Key 格式不正確。' });
+    }
+    if (model !== undefined && (typeof model !== 'string' || !/^[A-Za-z0-9._:-]{1,80}$/.test(model.trim()))) {
+      return res.status(400).json({ ok: false, error: '模型名稱格式不正確。' });
+    }
+    try {
+      this.service.updateAiSettings({ apiKey, model, clearApiKey: Boolean(clearApiKey) });
+      res.json({ ok: true, state: this.service.getProjectState() });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message || 'Failed to update AI settings' });
+    }
+  };
+
+  public runAiAgent = async (req: Request, res: Response) => {
+    const prompt = String(req.body?.prompt || '').trim();
+    if (!prompt || prompt.length > 1200) return res.status(400).json({ ok: false, error: '請輸入 1 到 1200 字的問題。' });
+    try {
+      const result = await this.service.runAiAgent(prompt);
+      res.json({ ok: true, ...result });
+    } catch (e: any) {
+      if (e.message === 'OPENAI_API_KEY_NOT_CONFIGURED') {
+        return res.status(400).json({ ok: false, error: '尚未設定 OpenAI API Key，請先前往系統設定。' });
+      }
+      const message = e.name === 'AbortError' ? 'AI 回應逾時，請稍後再試。' : (e.message || 'AI Agent request failed');
+      res.status(502).json({ ok: false, error: message });
     }
   };
 

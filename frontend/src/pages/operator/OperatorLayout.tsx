@@ -4,7 +4,6 @@ import {
   BarChart3,
   Bell,
   BellRing,
-  Calculator,
   History,
   LayoutDashboard,
   LogOut,
@@ -36,8 +35,7 @@ const OperatorLayout: React.FC = () => {
     { path: '/operator/tasks', label: '任務派發', icon: SquareKanban, badge: openCount },
     { path: '/operator/notifications', label: 'LINE 通知', icon: BellRing, line: true },
     { path: '/operator/analytics', label: '營運分析', icon: BarChart3, textBadge: '30d' },
-    { path: '/operator/settings', label: '系統設定', icon: Settings },
-    { path: '/operator/roi', label: 'ROI 試算', icon: Calculator }
+    { path: '/operator/settings', label: '系統設定', icon: Settings }
   ];
 
   const go = (path: string) => { navigate(path); setMobileOpen(false); };

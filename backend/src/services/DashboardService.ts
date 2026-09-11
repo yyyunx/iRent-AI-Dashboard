@@ -2,6 +2,7 @@ import fs from 'fs';
 import path from 'path';
 import { DatabaseRepository } from '../repositories/DatabaseRepository';
 import { NotificationService } from './NotificationService';
+import { AiAgentService } from './AiAgentService';
 import {
   Incident,
   IncidentResponse,
@@ -14,11 +15,14 @@ export class DashboardService {
   private repo: DatabaseRepository;
   private uploadDir: string;
   private notifications: NotificationService;
+  private aiAgent: AiAgentService;
 
   constructor(repo: DatabaseRepository, uploadDir: string) {
     this.repo = repo;
     this.uploadDir = uploadDir;
     this.notifications = new NotificationService(repo);
+    const aiSecretFile = process.env.OPENAI_API_KEY_FILE || path.join(path.dirname(uploadDir), 'secrets', 'openai-api-key');
+    this.aiAgent = new AiAgentService(repo, aiSecretFile);
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
     }
@@ -73,7 +77,7 @@ export class DashboardService {
 
     const lineConfig = this.notifications.getConfig();
     const lineGroup = lineConfig.groupName;
-    const slackConnected = Boolean(this.repo.getSetting("slackWebhook"));
+    const aiConfig = this.aiAgent.getConfig();
 
     const lineLogs = notifications.filter(row => row.provider === 'line').map(row => ({
       title: `${row.status} · ${row.event_type} · ${row.incident_id || '-'}`,
@@ -92,12 +96,10 @@ export class DashboardService {
       damageHotspots: hotspotsVal,
       lineGroup,
       lineConfig,
-      slackConnected,
-      slackWebhook: "",
+      aiConfig,
       lineLogs,
       timelines,
       comments,
-      slackNotifications: notifications,
       notificationStats: this.repo.getNotificationStats(),
       maintenanceReports: reports,
       photoSubmissions: submissions,
@@ -108,6 +110,23 @@ export class DashboardService {
 
   public updateLineSettings(input: { targetId?: string; groupName?: string; enabled?: boolean }) {
     this.notifications.updateSettings(input);
+  }
+
+  public updateAiSettings(input: { apiKey?: string; model?: string; clearApiKey?: boolean }) {
+    this.aiAgent.updateSettings(input);
+  }
+
+  public runAiAgent(prompt: string) {
+    const incidents = this.repo.getIncidents().map(row => dbRowToIncidentResponse({ ...row, score: this.calculateScore(row) }));
+    const active = incidents.filter(item => !['resolved', 'done'].includes(item.status));
+    const context = {
+      generatedAt: new Date().toISOString(),
+      incidentSummary: { total: incidents.length, active: active.length, highPriority: active.filter(item => item.severity === 'high').length },
+      activeIncidents: active.map(item => ({ id: item.id, plate: item.plate, station: item.station, label: item.label, severity: item.severity, status: item.status, score: item.score, nextBooking: item.nextBooking, assignee: item.assignee })),
+      damageHotspots: JSON.parse(this.repo.getSetting('damageHotspots', '[]')),
+      opsMetrics: this.getOpsMetrics()
+    };
+    return this.aiAgent.analyze(prompt, context);
   }
 
   public queueLineTest(message: string) {
@@ -124,50 +143,6 @@ export class DashboardService {
 
   public getNotificationStats() {
     return this.repo.getNotificationStats();
-  }
-
-  // --- Slack Integration ---
-  public async sendSlack(incidentId: string | null, eventType: string, message: string): Promise<string> {
-    const webhook = this.repo.getSetting("slackWebhook");
-    let status = "not_configured";
-    let attempts = 0;
-    let lastError = "SLACK_WEBHOOK_URL or Settings.slackWebhook is not configured";
-
-    if (webhook && webhook.startsWith("https://hooks.slack.com/services/")) {
-      for (let i = 0; i < 2; i++) {
-        attempts++;
-        try {
-          const res = await fetch(webhook, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text: message })
-          });
-          const text = await res.text();
-          if (res.status >= 200 && res.status < 300) {
-            status = "sent";
-            lastError = "";
-            break;
-          }
-          status = "failed";
-          lastError = `HTTP ${res.status}: ${text}`;
-        } catch (e: any) {
-          status = "failed";
-          lastError = e.message || String(e);
-        }
-      }
-    }
-
-    this.repo.addSlackNotification(incidentId, eventType, message, status, attempts, lastError);
-
-    if (incidentId) {
-      if (status === "sent") {
-        this.repo.addTimeline(incidentId, "slack_sent", "Slack Sent", message);
-      } else {
-        this.repo.addTimeline(incidentId, "slack_failed", "Slack Failed", lastError);
-      }
-    }
-
-    return status;
   }
 
   public notifyLine(incidentId: string | null, eventType: string, message: string) {
@@ -191,31 +166,6 @@ export class DashboardService {
     ];
     if (extra) lines.push(`Note: ${extra}`);
     return lines.join('\n');
-  }
-
-  public getSlackMessage(incident: IncidentResponse, eventType: string, extra = ""): string {
-    const headlineMap: Record<string, string> = {
-      ai_detected: "AI 建立 Incident",
-      dispatch: "派工更新",
-      comment: "客服留言",
-      in_progress: "任務開始",
-      resolved: "任務完成",
-      reopen: "Incident Reopen",
-    };
-    const headline = headlineMap[eventType] || "iRent Ops 通知";
-
-    const lines = [
-      `*${headline}* | ${incident.plate}`,
-      `事件: ${incident.label}`,
-      `位置: ${incident.station}`,
-      `AI Confidence: ${incident.confidence}%`,
-      `狀態: ${incident.status}`,
-      `負責對象: ${incident.assignee}`,
-    ];
-    if (extra) {
-      lines.push(`補充: ${extra}`);
-    }
-    return lines.join("\n");
   }
 
   // --- Photo Quality and Scenario Seeding ---
@@ -469,15 +419,15 @@ export class DashboardService {
     }
 
     if (createdIncidents.length > 0) {
-      const slackMessage = [
-        `*Photo AI Incident* | ${payload.plate}`,
+      const lineMessage = [
+        `【Photo AI Incident】${payload.plate}`,
         `Rental: ${payload.rentalId}`,
         `Phase: ${payload.phase}`,
         `Incidents: ${createdIncidents.join(', ')}`,
         `Dashboard: /operator/dashboard`
       ].join('\n');
 
-      this.notifyLine(createdIncidents[0], "photo_submission", slackMessage);
+      this.notifyLine(createdIncidents[0], "photo_submission", lineMessage);
     }
 
     return {

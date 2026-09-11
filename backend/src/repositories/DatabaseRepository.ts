@@ -6,7 +6,6 @@ import {
   IncidentTimeline,
   DispatchTask,
   Comment,
-  SlackNotification,
   Settings,
   MaintenanceReport,
   PhotoSubmission,
@@ -327,10 +326,6 @@ export class DatabaseRepository {
     return map;
   }
 
-  public getSlackNotifications(limit = 50): SlackNotification[] {
-    return this.db.prepare("SELECT * FROM SlackNotification ORDER BY id DESC LIMIT ?").all(limit) as SlackNotification[];
-  }
-
   public getMaintenanceReports(): Record<string, MaintenanceReport[]> {
     const list = this.db.prepare("SELECT * FROM MaintenanceReport ORDER BY id ASC").all() as MaintenanceReport[];
     const map: Record<string, MaintenanceReport[]> = {};
@@ -439,15 +434,8 @@ export class DatabaseRepository {
     `).run(incidentId, author, body, this.nowText());
   }
 
-  public addSlackNotification(incidentId: string | null, eventType: string, message: string, status: string, attempts: number, error: string | null) {
-    this.db.prepare(`
-      INSERT INTO SlackNotification(incident_id, event_type, message, status, attempts, error, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(incidentId, eventType, message, status, attempts, error, this.nowText());
-  }
-
   public addNotification(notification: {
-    provider: 'line' | 'slack'; incidentId: string | null; eventType: string; targetId?: string | null;
+    provider: 'line'; incidentId: string | null; eventType: string; targetId?: string | null;
     message: string; status: string; attempts?: number; error?: string | null;
   }): number {
     const ts = this.nowText();

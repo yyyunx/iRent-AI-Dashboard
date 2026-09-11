@@ -79,20 +79,9 @@ export interface Comment {
   created_at: string;
 }
 
-export interface SlackNotification {
-  id?: number;
-  incident_id?: string | null;
-  event_type: string;
-  message: string;
-  status: string;
-  attempts: number;
-  error?: string | null;
-  created_at: string;
-}
-
 export interface NotificationLog {
   id?: number;
-  provider: 'line' | 'slack';
+  provider: 'line';
   incident_id?: string | null;
   event_type: string;
   target_id?: string | null;

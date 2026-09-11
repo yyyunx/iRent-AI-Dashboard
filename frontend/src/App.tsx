@@ -14,7 +14,6 @@ const Tasks = React.lazy(() => import('./pages/operator/Tasks'));
 const Notifications = React.lazy(() => import('./pages/operator/Notifications'));
 const Analytics = React.lazy(() => import('./pages/operator/Analytics'));
 const Settings = React.lazy(() => import('./pages/operator/Settings'));
-const RoiCalculator = React.lazy(() => import('./pages/operator/RoiCalculator'));
 
 // Standard loading fallback for chunk resolve
 const PageLoader: React.FC = () => (
@@ -43,7 +42,6 @@ const App: React.FC = () => {
               <Route path="notifications" element={<Notifications />} />
               <Route path="analytics" element={<Analytics />} />
               <Route path="settings" element={<Settings />} />
-              <Route path="roi" element={<RoiCalculator />} />
             </Route>
 
             {/* Catch-all redirect */}
