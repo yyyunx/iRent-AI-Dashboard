@@ -2,7 +2,7 @@
 
 這是一個 Hackathon 展示專案，將租車人的取車／還車照片轉換成可追蹤的營運案件。系統會先檢查照片品質，再以 AI 模擬邏輯判斷車損或髒污，自動建立 Incident、派工並記錄處理歷程。
 
-
+> LINE 通知已整合 LINE Messaging API Push Message、非同步發送佇列與 Webhook 簽章驗證。舊有 Slack Incoming Webhook 與歷史紀錄仍保留相容性。LINE Notify 已於 2025-03-31 終止服務，請勿申請或使用 LINE Notify Token。
 
 ## 核心功能
 
@@ -24,8 +24,10 @@
 
 ### 通知整合
 
-- 現況：Slack Incoming Webhook
-- 規劃：LINE Official Account + Messaging API Push Message
+- 現況：LINE Official Account + Messaging API Push Message
+- 發送機制：通知先寫入 `NotificationLog`，再由最多兩個背景工作者非同步發送
+- Webhook：以 `LINE_CHANNEL_SECRET` 驗證 `x-line-signature`，並擷取 `userId`、`groupId` 或 `roomId`
+- 相容性：保留 Slack Incoming Webhook 設定與舊通知紀錄
 - 通知事件：AI 建案、派工、客服留言、開始處理、完工回報、結案、重新開案
 
 完整流程與 LINE 串接規格請參考 [WORKFLOW.md](WORKFLOW.md)。
@@ -58,12 +60,18 @@ flowchart TD
 
 ```text
 React + Vite + TypeScript
-           │ REST API
+           │ REST API／每 3 秒同步狀態
            ▼
 Express + TypeScript
-       ├── SQLite
-       ├── Local Upload Storage
-       └── LINE Messaging API（規劃中）
+       ├── DashboardController：HTTP 輸入與回應
+       ├── DashboardService：驗車、AI 模擬、案件與派工流程
+       ├── DatabaseRepository：SQLite schema 與資料存取
+       ├── PerformanceMonitor：API 平均值、P50、P95 與錯誤率
+       ├── Local Upload Storage：驗車及完工照片
+       └── NotificationService
+             ├── LINE 非同步發送佇列
+             ├── LINE Webhook HMAC-SHA256 驗證
+             └── Slack 相容性
 ```
 
 | 層級 | 技術 |
@@ -71,7 +79,7 @@ Express + TypeScript
 | 前端 | React、Vite、TypeScript、Tailwind CSS |
 | 後端 | Express、TypeScript |
 | 資料庫 | SQLite、better-sqlite3 |
-| 通知 | Slack Webhook（現況）、LINE Messaging API（規劃） |
+| 通知 | LINE Messaging API、簽章驗證與非同步佇列；保留 Slack 相容性 |
 | 部署 | Render |
 | 套件管理 | pnpm |
 
@@ -79,20 +87,56 @@ Express + TypeScript
 
 ```text
 iRent/
-├── frontend/                 React 使用者端與營運後台
-├── backend/                  Express API、服務及資料存取
-│   └── src/
-│       ├── controllers/
-│       ├── routes/
-│       ├── services/
-│       ├── repositories/
-│       └── models/
-├── outputs/
-│   ├── irent_ops.db          SQLite 資料庫
-│   └── uploads/              本機上傳照片
-├── WORKFLOW.md               業務與 LINE 通知流程
-├── render.yaml               Render 部署設定
-└── package.json              根目錄指令
+├── frontend/                         React 使用者端與營運後台
+│   ├── src/
+│   │   ├── components/
+│   │   │   └── ToastContainer.tsx    全域操作提示
+│   │   ├── context/
+│   │   │   └── AppContext.tsx        共用狀態、API 呼叫與三秒輪詢
+│   │   ├── pages/
+│   │   │   ├── RoleSelection.tsx     租車人／營運人員角色入口
+│   │   │   ├── CustomerFlow.tsx      取還車驗車與照片上傳流程
+│   │   │   └── operator/
+│   │   │       ├── Dashboard.tsx     營運總覽
+│   │   │       ├── Submissions.tsx   照片送件
+│   │   │       ├── MapView.tsx       案件地圖
+│   │   │       ├── Tasks.tsx         派工任務
+│   │   │       ├── Notifications.tsx 通知紀錄
+│   │   │       ├── Analytics.tsx     分析指標
+│   │   │       ├── Settings.tsx      LINE／Slack 設定
+│   │   │       └── RoiCalculator.tsx ROI 試算
+│   │   ├── utils/
+│   │   │   └── blurDetection.ts      瀏覽器端照片模糊度檢查
+│   │   ├── App.tsx                   路由與頁面 lazy loading
+│   │   └── main.tsx                  前端進入點
+│   ├── vite.config.ts
+│   └── package.json
+├── backend/                          Express API 與領域邏輯
+│   ├── src/
+│   │   ├── controllers/
+│   │   │   └── DashboardController.ts HTTP 輸入驗證與回應
+│   │   ├── routes/
+│   │   │   └── apiRoutes.ts          REST API 路由
+│   │   ├── services/
+│   │   │   ├── DashboardService.ts   驗車、案件、派工與 AI 複檢
+│   │   │   ├── NotificationService.ts LINE 佇列與 Webhook 驗證
+│   │   │   └── PerformanceMonitor.ts API 效能量測
+│   │   ├── repositories/
+│   │   │   └── DatabaseRepository.ts SQLite schema 與資料存取
+│   │   ├── models/
+│   │   │   └── types.ts              資料模型與 API 映射
+│   │   ├── app.ts                    Middleware、路由與前端靜態檔
+│   │   └── server.ts                 後端啟動點與環境設定
+│   └── package.json
+├── outputs/                          執行期資料，不屬於程式碼
+│   ├── irent_ops.db                  SQLite 資料庫
+│   └── uploads/                      驗車與完工照片
+├── ARCHITECTURE.md                   詳細技術架構
+├── WORKFLOW.md                       業務與 LINE 通知流程
+├── LINEBOT_SETUP.md                  LINE Bot 設定說明
+├── render.yaml                       Render 服務與持久磁碟設定
+├── Dockerfile                        容器建置設定
+└── package.json                      根目錄建置與啟動指令
 ```
 
 ## LINE 串接前需要準備
@@ -145,20 +189,26 @@ pnpm build
 pnpm start
 ```
 
-## 主要 API
+## API
 
 | Method | Path | 用途 |
 |---|---|---|
 | GET | `/healthz` | 健康檢查 |
-| GET | `/api/state` | 取得儀表板狀態 |
+| GET | `/api/state` | 取得案件、Timeline、留言、通知、送件、照片及營運指標等完整儀表板狀態 |
+| GET | `/api/performance` | 取得最近 200 次 API 請求的平均延遲、P50、P95、錯誤率及通知統計 |
 | GET | `/api/submissions` | 取得照片送件清單 |
-| GET | `/api/submissions/:submissionId` | 取得送件明細 |
-| POST | `/api/photos/quality-check` | 照片品質檢查 |
-| POST | `/api/photo-submissions` | 提交整批驗車照片 |
-| POST | `/api/incidents` | 建立案件 |
-| POST | `/api/action` | 派工、留言、處理及結案 |
-| POST | `/api/settings/slack` | 現有 Slack 設定 |
-| POST | `/api/line/webhook` | 規劃中的 LINE webhook |
+| GET | `/api/submissions/:submissionId` | 依 `submissionId` 取得送件資料與照片明細 |
+| POST | `/api/photos/quality-check` | 儲存單張照片並執行模糊、車牌、角度與距離品質檢查 |
+| POST | `/api/photo-submissions` | 提交整批驗車照片、執行 AI 模擬分析，必要時自動建立案件 |
+| POST | `/api/incidents` | 手動建立案件並回傳最新儀表板狀態 |
+| POST | `/api/action` | 執行案件操作；支援 `dispatch`、`comment`、`in_progress`、`resolve`、`reopen`、`maintenance_report` |
+| POST | `/api/settings/slack` | 更新 Slack Incoming Webhook 相容性設定 |
+| POST | `/api/settings/line` | 更新 LINE 目標 ID、顯示名稱及通知啟用狀態；Access Token 不寫入資料庫 |
+| POST | `/api/notifications/line/test` | 將 LINE 測試訊息加入非同步發送佇列 |
+| POST | `/api/line/webhook` | 驗證 LINE Webhook 簽章並擷取通知目標 ID |
+| GET | `/uploads/:filename` | 讀取已上傳的驗車或完工照片 |
+
+`POST /api/action` 的共用請求欄位為 `incidentId` 與 `action`。`comment` 另接受 `author`、`body`；`maintenance_report` 另接受 `note` 與 Base64 編碼的 `photo`。所有 JSON／Base64 請求的大小上限為 50 MB。
 
 ## 部署環境變數
 
