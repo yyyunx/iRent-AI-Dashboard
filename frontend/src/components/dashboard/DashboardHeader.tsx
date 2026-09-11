@@ -32,9 +32,7 @@ const DashboardHeader: React.FC<DashboardHeaderProps> = ({ state, onCreateIncide
     <>
       <section className="dashboard-hero">
         <div className="dashboard-hero__copy">
-          <span className="dashboard-hero__hello">Hi, 營運控制中心 <span aria-hidden="true">👋</span></span>
           <h1>iRent AI 智慧營運中控台</h1>
-          <p>把「AI 有看到問題」變成「營運已經開始處理」。</p>
         </div>
         <div className="dashboard-hero__actions">
           <button type="button" className="btn btn-line" onClick={() => navigate('/operator/notifications')}>
