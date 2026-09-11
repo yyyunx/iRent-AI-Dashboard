@@ -28,7 +28,7 @@ const Notifications: React.FC = () => {
         </div>
         <button onClick={test} disabled={!connected} className="min-h-[44px] rounded-xl bg-[#06c755] text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"><Send size={16} />發送測試通知</button>
         <button onClick={() => navigate('/operator/settings')} className="min-h-[44px] rounded-xl border border-irent-line text-irent-muted font-bold text-sm flex items-center justify-center gap-2"><ExternalLink size={16} />管理 LINE 設定</button>
-        <p className="text-xs text-irent-muted leading-relaxed m-0">Slack 的歷史資料仍留在資料庫；所有新案件事件會走 LINE Bot。</p>
+        <p className="text-xs text-irent-muted leading-relaxed m-0">所有新案件事件皆由 LINE Bot 發送，狀態與錯誤會保留在通知紀錄。</p>
       </section>
 
       <section className="bg-white border border-irent-line rounded-2xl shadow-premium p-5 flex flex-col gap-4">

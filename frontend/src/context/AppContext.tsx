@@ -127,6 +127,8 @@ export interface AppState {
 
 interface AppContextType {
   state: AppState | null;
+  isLoading: boolean;
+  loadError: string | null;
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
   currentRole: 'customer' | 'operator' | null;
@@ -138,18 +140,23 @@ interface AppContextType {
   apiPost: (path: string, payload: any) => Promise<any>;
   developerMode: boolean;
   setDeveloperMode: (val: boolean) => void;
+  searchQuery: string;
+  setSearchQuery: (value: string) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [state, setState] = useState<AppState | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [currentRole, setCurrentRole] = useState<'customer' | 'operator' | null>(null);
   const [toastStack, setToastStack] = useState<Toast[]>([]);
   const [developerMode, setDeveloperModeState] = useState<boolean>(() => {
     return localStorage.getItem('developerMode') === 'true';
   });
+  const [searchQuery, setSearchQuery] = useState('');
 
   const setDeveloperMode = useCallback((val: boolean) => {
     setDeveloperModeState(val);
@@ -171,9 +178,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshState = useCallback(async () => {
     try {
       const response = await fetch('/api/state');
-      if (!response.ok) return false;
+      if (!response.ok) {
+        setLoadError('資料載入失敗，請稍後再試。');
+        return false;
+      }
       const data = await response.json();
       setState(data);
+      setLoadError(null);
       if (data.incidents && data.incidents.length > 0 && !selectedId) {
         // Find first active or first incident
         const active = data.incidents.find((i: Incident) => i.status !== 'resolved' && i.status !== 'done');
@@ -182,7 +193,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return true;
     } catch (error) {
       console.error("Failed to load state", error);
+      setLoadError('無法連線至營運資料服務。');
       return false;
+    } finally {
+      setIsLoading(false);
     }
   }, [selectedId]);
 
@@ -231,6 +245,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     <AppContext.Provider
       value={{
         state,
+        isLoading,
+        loadError,
         selectedId,
         setSelectedId,
         currentRole,
@@ -241,7 +257,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         refreshState,
         apiPost,
         developerMode,
-        setDeveloperMode
+        setDeveloperMode,
+        searchQuery,
+        setSearchQuery
       }}
     >
       {children}

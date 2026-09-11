@@ -1,237 +1,98 @@
-import React from 'react';
-import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { useApp } from '../../context/AppContext';
-import { 
-  LayoutDashboard, 
-  History, 
-  MapPin, 
-  KanbanSquare, 
-  BellRing, 
-  BarChart3, 
-  LogOut, 
-  PlusCircle, 
-  MessageSquare,
-  Activity,
-  AlertOctagon,
-  ShieldAlert,
-  CheckCircle,
-  TrendingUp,
-  Award,
-  Zap,
+import React, { useMemo, useState } from 'react';
+import { Outlet, useLocation, useNavigate } from 'react-router-dom';
+import {
+  BarChart3,
+  Bell,
+  BellRing,
+  Calculator,
+  ChevronRight,
+  History,
+  LayoutDashboard,
+  LogOut,
+  MapPin,
+  Menu,
+  Search,
   Settings,
-  Calculator
+  SquareKanban,
+  X
 } from 'lucide-react';
+import { useApp } from '../../context/AppContext';
+import DashboardHeader from '../../components/dashboard/DashboardHeader';
 
 const OperatorLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { state, apiPost, showToast, setCurrentRole } = useApp();
+  const { state, apiPost, showToast, setCurrentRole, searchQuery, setSearchQuery } = useApp();
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const isDashboard = location.pathname === '/operator/dashboard';
 
-  const activePath = location.pathname;
+  const now = useMemo(() => new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hour12: false }).format(new Date()), [location.pathname]);
+  const openCount = state?.incidents.filter(item => !['resolved', 'done'].includes(item.status)).length || 0;
 
   const navItems = [
-    { path: '/operator/dashboard', label: 'Dashboard', icon: LayoutDashboard, badge: state?.incidents.filter(i => i.status !== 'resolved' && i.status !== 'done').length },
+    { path: '/operator/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { path: '/operator/submissions', label: '提交紀錄', icon: History, badge: state?.photoSubmissions?.length },
-    { path: '/operator/map', label: '地圖模式', icon: MapPin, textBadge: 'Live' },
-    { path: '/operator/tasks', label: '任務派發', icon: KanbanSquare, badge: state?.incidents.filter(i => i.status !== 'resolved' && i.status !== 'done' && i.type !== 'normal').length },
-    { path: '/operator/notifications', label: 'Slack 通知', icon: BellRing, badge: state?.lineLogs?.length },
+    { path: '/operator/map', label: '地圖模式', icon: MapPin },
+    { path: '/operator/tasks', label: '任務派發', icon: SquareKanban, badge: openCount },
+    { path: '/operator/notifications', label: 'LINE 通知', icon: BellRing, line: true },
     { path: '/operator/analytics', label: '營運分析', icon: BarChart3, textBadge: '30d' },
     { path: '/operator/settings', label: '系統設定', icon: Settings },
-    { path: '/operator/roi', label: 'ROI 試算', icon: Calculator },
+    { path: '/operator/roi', label: 'ROI 試算', icon: Calculator }
   ];
 
-  const handleSimulate = async () => {
+  const go = (path: string) => { navigate(path); setMobileOpen(false); };
+
+  const createIncident = async () => {
+    setCreating(true);
     const next = 308 + (state?.incidents.length || 0);
     const isDamage = Math.random() > 0.45;
-    const newItem = {
+    const incident = {
       id: `INC-${next}`,
-      plate: "NEW-" + Math.floor(1000 + Math.random() * 8999),
-      station: "板橋車站",
-      type: isDamage ? "damage" : "cleaning",
-      label: isDamage ? "新增左前保桿擦傷" : "車內地墊髒污",
-      severity: "high",
-      confidence: 92 + Math.floor(Math.random() * 7),
-      time: new Date().toLocaleTimeString('zh-TW', { hour12: false }).substring(0, 5),
-      nextBooking: 22,
-      hotStation: true,
-      x: 47 + Math.random() * 20,
-      y: 46 + Math.random() * 22,
-      assignee: "pending",
-      status: "todo",
-      score: 0
+      plate: `NEW-${Math.floor(1000 + Math.random() * 8999)}`,
+      station: '板橋車站',
+      type: isDamage ? 'damage' : 'cleaning',
+      label: isDamage ? '新增左前保桿擦傷' : '車內地墊髒污',
+      severity: 'high', confidence: 95, time: new Date().toLocaleTimeString('zh-TW', { hour12: false }).substring(0, 5),
+      nextBooking: 22, hotStation: true, x: 55, y: 51, assignee: 'pending', status: 'todo', score: 0
     };
-
     try {
-      await apiPost('/api/incidents', newItem);
-      showToast("AI 新增 Incident", `${newItem.plate} 已寫入 SQLite 並自動通知 Slack。`);
+      await apiPost('/api/incidents', incident);
+      showToast('AI 新增 Incident', `${incident.plate} 已建立並排入 LINE 通知。`);
       navigate('/operator/dashboard');
     } catch (error: any) {
-      showToast("模擬失敗", error.message);
+      showToast('建立失敗', error.message);
+    } finally {
+      setCreating(false);
     }
   };
 
-  const highCount = state?.incidents.filter(i => i.severity === 'high' && i.status !== 'resolved' && i.status !== 'done').length || 0;
-  const mediumCount = state?.incidents.filter(i => i.severity === 'medium' && i.status !== 'resolved' && i.status !== 'done').length || 0;
-  const normalCount = Math.max(0, 18 - highCount - mediumCount);
-
   return (
-    <div className="min-h-screen grid grid-cols-1 lg:grid-cols-[276px_minmax(0,1fr)] pt-2 border-t-8 border-irent-red bg-irent-bg overflow-x-hidden">
-      {/* Sidebar */}
-      <aside className="bg-white border-r border-irent-line p-3 sm:p-5 lg:p-[26px_20px] shadow-sm flex flex-col gap-4 lg:gap-6 lg:h-[calc(100vh-8px)] lg:sticky lg:top-2 min-w-0">
-        <div className="brand flex items-center gap-3 pb-[18px] border-b border-irent-line min-h-[52px]">
-          <div className="w-11 h-11 rounded-2xl bg-irent-red text-white flex items-center justify-center font-extrabold text-lg shadow-[0_10px_22px_rgba(198,40,40,0.22)]">
-            iR
-          </div>
-          <div className="min-w-0">
-            <strong className="text-irent-red text-[17px] font-extrabold block">iRent Ops AI</strong>
-            <small className="text-irent-muted text-xs">Incident to Action</small>
-          </div>
-        </div>
-
-        {/* Navigation */}
-        <nav className="flex lg:flex-col gap-2 overflow-x-auto lg:overflow-x-visible pb-2 lg:pb-0" aria-label="主選單">
+    <div className="ops-shell">
+      {mobileOpen && <button className="sidebar-scrim" aria-label="關閉選單" onClick={() => setMobileOpen(false)} />}
+      <aside className={`ops-sidebar ${mobileOpen ? 'is-open' : ''}`}>
+        <div className="sidebar-brand"><span className="sidebar-brand__mark">iR</span><span><strong>iRent Ops AI</strong><small>Incident to Action</small></span><button className="sidebar-close" onClick={() => setMobileOpen(false)} aria-label="關閉選單"><X size={19} /></button></div>
+        <nav aria-label="營運後台選單">
           {navItems.map(item => {
-            const isActive = activePath === item.path;
+            const active = location.pathname === item.path;
             const Icon = item.icon;
-            return (
-              <button
-                key={item.path}
-                onClick={() => navigate(item.path)}
-                className={`flex items-center justify-between gap-3 px-3 sm:px-4 py-3 rounded-2xl text-sm font-bold min-w-[118px] sm:min-w-[130px] lg:min-w-0 flex-shrink-0 transition-all ${
-                  isActive 
-                    ? 'bg-irent-red text-white shadow-[0_12px_24px_rgba(198,40,40,0.20)]' 
-                    : 'text-[#404040] hover:bg-irent-soft-red hover:text-irent-red'
-                }`}
-              >
-                <div className="flex items-center gap-2.5 min-w-0">
-                  <Icon size={18} />
-                  <span className="whitespace-nowrap lg:whitespace-normal break-anywhere">{item.path === '/operator/notifications' ? 'LINE 通知' : item.label}</span>
-                </div>
-                {item.badge !== undefined && item.badge > 0 && (
-                  <span className={`text-[11px] font-black rounded-full px-2 py-0.5 ${
-                    isActive ? 'bg-white/20 text-white' : 'bg-irent-soft-red text-irent-red'
-                  }`}>
-                    {item.badge}
-                  </span>
-                )}
-                {item.textBadge && (
-                  <span className={`text-[11px] font-black rounded-full px-2 py-0.5 ${
-                    isActive ? 'bg-white/20 text-white' : 'bg-irent-soft-red text-irent-red'
-                  }`}>
-                    {item.textBadge}
-                  </span>
-                )}
-              </button>
-            );
+            return <button key={item.path} className={`${active ? 'active' : ''} ${item.line ? 'line-item' : ''}`} onClick={() => go(item.path)}><span><Icon size={19} /><b>{item.label}</b></span>{item.badge ? <em>{item.badge}</em> : item.textBadge ? <em>{item.textBadge}</em> : null}</button>;
           })}
         </nav>
-
-        {/* Bottom Exit */}
-        <div className="mt-auto hidden lg:flex flex-col gap-3">
-          <div className="border border-irent-line rounded-2xl p-3.5 text-xs text-irent-muted leading-relaxed bg-[#fafafa]">
-            AI 辨識結果會先轉成 Incident，再依優先分數建立任務、推播通知，最後由人員回報並更新車輛狀態。
-          </div>
-          <button
-            onClick={() => { setCurrentRole(null); navigate('/'); }}
-            className="flex items-center justify-center gap-2 min-h-[42px] w-full rounded-2xl border border-irent-line text-irent-muted hover:bg-irent-soft-red hover:text-irent-red hover:border-irent-red transition-all text-sm font-bold"
-          >
-            <LogOut size={16} />
-            切換身分
-          </button>
-        </div>
+        <div className="sidebar-spacer" />
+        <div className="sidebar-promo"><strong>讓每一次出行<br />更安心</strong><span>Powered by AI</span><div className="sidebar-promo__road"><span>iRent</span></div></div>
+        <button className="sidebar-user" onClick={() => { setCurrentRole(null); navigate('/'); }}><span className="avatar">YL</span><span><strong>李芸希</strong><small>營運管理員</small></span><LogOut size={18} /></button>
       </aside>
 
-      {/* Main Content Area */}
-      <main className="p-[12px] sm:p-5 lg:p-7 min-w-0 max-w-full overflow-x-hidden">
-        {/* Topbar */}
-        <section className="bg-white border border-irent-line rounded-2xl p-4 sm:p-5 shadow-premium flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-6 min-w-0">
-          <div className="min-w-0">
-            <div className="inline-flex items-center gap-1.5 px-3 py-0.5 mb-2.5 rounded-full bg-irent-soft-red text-irent-red text-[13px] font-black">
-              <Zap size={13} />
-              iRent AI Dashboard
-            </div>
-            <h1 className="text-[#161616] text-2xl sm:text-3xl font-black leading-tight break-anywhere">iRent AI 智慧營運中控台</h1>
-            <p className="text-irent-muted text-sm mt-1 break-anywhere">把「AI 有看到問題」變成「營運已經開始處理」。</p>
-          </div>
-          <div className="flex flex-col sm:flex-row gap-2.5 w-full md:w-auto">
-            <button 
-              onClick={() => navigate('/operator/notifications')}
-              className="w-full sm:flex-1 md:flex-initial min-h-[44px] px-4 rounded-2xl border border-irent-red text-irent-red font-bold hover:shadow-hover hover:-translate-y-0.5 transition-all text-sm flex items-center justify-center gap-2 break-anywhere"
-            >
-              <MessageSquare size={16} />
-              查看 Slack 通知
-            </button>
-            <button 
-              onClick={handleSimulate}
-              className="w-full sm:flex-1 md:flex-initial min-h-[44px] px-4 rounded-2xl bg-irent-red text-white font-bold hover:shadow-hover hover:-translate-y-0.5 transition-all text-sm flex items-center justify-center gap-2 break-anywhere"
-            >
-              <PlusCircle size={16} />
-              模擬新增 Incident
-            </button>
-          </div>
-        </section>
+      <main className="ops-main">
+        <header className="topbar">
+          <button className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="開啟選單"><Menu size={21} /></button>
+          <label className="topbar-search"><Search size={18} /><input value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="搜尋事件、車號、站點或關鍵字…" /></label>
+          <div className="topbar-actions"><button className="notification-button" onClick={() => navigate('/operator/notifications')} aria-label="查看 LINE 通知"><Bell size={19} /><span /></button><time>{now}</time><button className="topbar-user" onClick={() => navigate('/operator/settings')}><span className="avatar avatar--small">YL</span><span>李芸希</span><ChevronRight size={15} /></button></div>
+        </header>
 
-        {/* Metrics Grid */}
-        <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 gap-3 mb-6" aria-label="即時指標">
-          <div className="bg-white border border-irent-line rounded-2xl p-4 shadow-premium hover:-translate-y-0.5 hover:shadow-hover transition-all flex flex-col gap-1">
-            <div className="flex items-center gap-1.5 text-irent-muted text-xs font-bold">
-              <Activity size={14} className="text-blue-500" />
-              目前車輛
-            </div>
-            <strong className="text-blue-500 text-3xl font-black">18</strong>
-          </div>
-
-          <div className="bg-white border border-irent-line rounded-2xl p-4 shadow-premium hover:-translate-y-0.5 hover:shadow-hover transition-all flex flex-col gap-1">
-            <div className="flex items-center gap-1.5 text-irent-muted text-xs font-bold">
-              <ShieldAlert size={14} className="text-irent-danger" />
-              高優先異常
-            </div>
-            <strong className="text-irent-danger text-3xl font-black">{highCount}</strong>
-          </div>
-
-          <div className="bg-white border border-irent-line rounded-2xl p-4 shadow-premium hover:-translate-y-0.5 hover:shadow-hover transition-all flex flex-col gap-1">
-            <div className="flex items-center gap-1.5 text-irent-muted text-xs font-bold">
-              <AlertOctagon size={14} className="text-irent-orange" />
-              中度異常
-            </div>
-            <strong className="text-irent-orange text-3xl font-black">{mediumCount}</strong>
-          </div>
-
-          <div className="bg-white border border-irent-line rounded-2xl p-4 shadow-premium hover:-translate-y-0.5 hover:shadow-hover transition-all flex flex-col gap-1">
-            <div className="flex items-center gap-1.5 text-irent-muted text-xs font-bold">
-              <CheckCircle size={14} className="text-irent-green" />
-              正常車輛
-            </div>
-            <strong className="text-irent-green text-3xl font-black">{normalCount}</strong>
-          </div>
-
-          <div className="bg-white border border-irent-line rounded-2xl p-4 shadow-premium hover:-translate-y-0.5 hover:shadow-hover transition-all flex flex-col gap-1">
-            <div className="flex items-center gap-1.5 text-irent-muted text-xs font-bold">
-              <TrendingUp size={14} className="text-irent-red" />
-              自動結案率
-            </div>
-            <strong className="text-irent-red text-3xl font-black">{state?.opsMetrics?.autoCloseRate || '0%'}</strong>
-          </div>
-
-          <div className="bg-white border border-irent-line rounded-2xl p-4 shadow-premium hover:-translate-y-0.5 hover:shadow-hover transition-all flex flex-col gap-1">
-            <div className="flex items-center gap-1.5 text-irent-muted text-xs font-bold">
-              <Award size={14} className="text-irent-orange" />
-              審核減少
-            </div>
-            <strong className="text-irent-orange text-3xl font-black">{state?.opsMetrics?.manualReviewReduced ?? 0}</strong>
-          </div>
-
-          <div className="bg-white border border-irent-line rounded-2xl p-4 shadow-premium hover:-translate-y-0.5 hover:shadow-hover transition-all flex flex-col gap-1">
-            <div className="flex items-center gap-1.5 text-irent-muted text-xs font-bold">
-              <Zap size={14} className="text-irent-green" />
-              時間節省
-            </div>
-            <strong className="text-irent-green text-3xl font-black">{state?.opsMetrics?.avgTimeSaved || '0分'}</strong>
-          </div>
-        </section>
-
-        {/* Page Outlet */}
-        <Outlet />
+        {isDashboard && <DashboardHeader state={state} onCreateIncident={createIncident} creating={creating} />}
+        <div className={isDashboard ? '' : 'page-surface'}><Outlet /></div>
       </main>
     </div>
   );

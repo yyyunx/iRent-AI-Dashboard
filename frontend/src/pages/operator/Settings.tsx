@@ -81,7 +81,7 @@ const Settings: React.FC = () => {
         <Status label="通知目標" ok={Boolean(config?.targetConfigured)} hint={config?.targetId ? `已設定 ${config.targetSource === 'environment' ? '環境變數' : '管理頁'} Target ID` : '尚未取得 userId、groupId 或 roomId'} />
         <Status label="Webhook 簽章" ok={Boolean(config?.webhookConfigured)} hint="部署環境 LINE_CHANNEL_SECRET" />
         <div className={`rounded-2xl p-4 text-sm font-bold ${config?.connected ? 'bg-[#e9f9ef] text-[#067b37]' : 'bg-amber-50 text-amber-800'}`}>{config?.connected ? 'LINE Bot 已可發送通知' : '尚有 LINE 設定未完成'}</div>
-        <p className="text-xs text-irent-muted leading-relaxed m-0">保留原 Slack 設定與歷史資料作為相容性資料；新的案件事件已改由 LINE 處理。</p>
+        <p className="text-xs text-irent-muted leading-relaxed m-0">新的案件、派工、回報與結案事件皆由 LINE Messaging API 處理。</p>
       </aside>
     </div>
   );

@@ -27,7 +27,7 @@ const PageLoader: React.FC = () => (
 const App: React.FC = () => {
   return (
     <AppProvider>
-      <BrowserRouter>
+      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Suspense fallback={<PageLoader />}>
           <Routes>
             <Route path="/" element={<RoleSelection />} />
