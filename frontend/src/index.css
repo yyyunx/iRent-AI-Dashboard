@@ -571,9 +571,190 @@ button { -webkit-tap-highlight-color: transparent; }
 .topbar-settings-btn:hover { color: var(--color-primary); transform: rotate(30deg); }
 
 /* Hero and KPI cards */
-.dashboard-hero { min-height: 148px; position: relative; isolation: isolate; overflow: hidden; display: grid; grid-template-columns: minmax(0,3fr) minmax(310px,2fr); align-items: center; gap: 24px; padding: 20px 24px; border: 1px solid #f0e5e7; border-radius: var(--radius-xl); background: linear-gradient(105deg,#fff 0%,#fffdfd 58%,#fff4f4 100%); box-shadow: var(--shadow-sm); }
-.dashboard-hero::before { content: ''; position: absolute; z-index: -1; width: 42%; height: 66%; right: 15%; bottom: 0; opacity: .055; background: repeating-linear-gradient(90deg,#e60023 0 2px,transparent 2px 34px); clip-path: polygon(0 100%,0 70%,8% 70%,8% 42%,15% 42%,15% 62%,23% 62%,23% 28%,31% 28%,31% 58%,40% 58%,40% 36%,49% 36%,49% 68%,58% 68%,58% 20%,67% 20%,67% 53%,75% 53%,75% 39%,84% 39%,84% 65%,92% 65%,92% 48%,100% 48%,100% 100%); }
-.dashboard-hero::after { content: ''; position: absolute; z-index: -1; width: 460px; height: 150px; right: 19%; bottom: -118px; border-radius: 50%; border: 1px solid rgba(230,0,35,.1); transform: rotate(-5deg); }
+/* =========================================================
+   Dashboard Hero
+   - 紅白 iRent 品牌風格
+   - 背景直條具有高低、深淺、粗細落差
+   - 弧線從底部長出，不漂浮
+   - 小汽車節點貼在主弧線上
+   ========================================================= */
+
+.dashboard-hero {
+  min-height: 148px;
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+
+  display: grid;
+  grid-template-columns: minmax(0, 3fr) minmax(310px, 2fr);
+  align-items: center;
+  gap: 24px;
+
+  padding: 20px 24px;
+
+  border: 1px solid rgba(230, 0, 35, 0.10);
+  border-radius: var(--radius-xl);
+
+  background:
+    linear-gradient(
+      105deg,
+      #ffffff 0%,
+      #fffdfd 56%,
+      #fff8f8 78%,
+      #fff3f4 100%
+    );
+
+  box-shadow:
+    0 1px 2px rgba(15, 23, 42, 0.025),
+    0 8px 24px rgba(230, 0, 35, 0.035);
+}
+
+
+/* =========================================================
+   背景資訊柱
+   - 全部從底部長出
+   - 高度、粗細、透明度刻意做不一致
+   - 整體像 telemetry / skyline，不像柵欄
+   ========================================================= */
+
+.dashboard-hero::before {
+  content: '';
+  position: absolute;
+  z-index: -2;
+
+  right: 4%;
+  bottom: 0;
+
+  width: 53%;
+  height: 76%;
+
+  background:
+    linear-gradient(to top, rgba(230,0,35,.10), rgba(230,0,35,.035))  1% 100% / 1px  42px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.16), rgba(230,0,35,.045))  7% 100% / 2px  74px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.08), rgba(230,0,35,.020)) 12% 100% / 1px  55px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.20), rgba(230,0,35,.055)) 18% 100% / 3px  98px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.11), rgba(230,0,35,.030)) 23% 100% / 2px  66px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.24), rgba(230,0,35,.070)) 29% 100% / 4px 118px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.09), rgba(230,0,35,.020)) 35% 100% / 1px  82px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.17), rgba(230,0,35,.045)) 41% 100% / 3px 104px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.07), rgba(230,0,35,.015)) 47% 100% / 1px  58px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.14), rgba(230,0,35,.035)) 52% 100% / 2px  91px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.10), rgba(230,0,35,.022)) 57% 100% / 1px  70px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.23), rgba(230,0,35,.060)) 63% 100% / 4px 126px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.12), rgba(230,0,35,.028)) 69% 100% / 2px  84px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.18), rgba(230,0,35,.045)) 75% 100% / 3px 108px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.08), rgba(230,0,35,.020)) 81% 100% / 1px  64px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.15), rgba(230,0,35,.038)) 87% 100% / 2px  94px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.09), rgba(230,0,35,.020)) 92% 100% / 1px  52px no-repeat,
+    linear-gradient(to top, rgba(230,0,35,.19), rgba(230,0,35,.048)) 97% 100% / 3px  76px no-repeat;
+
+  opacity: 0.95;
+  pointer-events: none;
+}
+
+
+/* =========================================================
+   底部 Mobility Flow
+   - 圓心放在 Hero 底部以下
+   - 只露出上緣，所以不會漂到上方
+   - 主弧 + 次弧 + 三個小節點
+   ========================================================= */
+
+.dashboard-hero::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+
+  right: 3%;
+  bottom: -8px;
+
+  width: 58%;
+  height: 92px;
+
+  background:
+    /* 主弧線：較清楚 */
+    radial-gradient(
+      82% 185% at 50% 165%,
+      transparent 62.0%,
+      rgba(230, 0, 35, 0.20) 62.3%,
+      rgba(230, 0, 35, 0.20) 62.75%,
+      transparent 63.05%
+    ),
+
+    /* 次弧線：較淡、較低 */
+    radial-gradient(
+      72% 165% at 55% 178%,
+      transparent 68.8%,
+      rgba(230, 0, 35, 0.10) 69.1%,
+      rgba(230, 0, 35, 0.10) 69.45%,
+      transparent 69.75%
+    ),
+
+    /* 節點 */
+    radial-gradient(circle at 22% 72%, rgba(230,0,35,.42) 0 2px, transparent 3px),
+    radial-gradient(circle at 54% 43%, rgba(230,0,35,.36) 0 2.5px, transparent 3.5px),
+    radial-gradient(circle at 84% 70%, rgba(230,0,35,.40) 0 2px, transparent 3px);
+
+  background-repeat: no-repeat;
+  pointer-events: none;
+}
+
+
+/* =========================================================
+   小汽車節點
+   - 直接貼在主弧線最高點附近
+   - 不使用大圓 focal point
+   ========================================================= */
+
+.dashboard-hero__vehicle-node {
+  position: absolute;
+  z-index: 1;
+
+  right: 25.5%;
+  bottom: 24px;
+
+  width: 30px;
+  height: 30px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 999px;
+
+  color: #e60023;
+  background: rgba(255, 246, 247, 0.96);
+
+  border: 1px solid rgba(230, 0, 35, 0.11);
+
+  box-shadow:
+    0 4px 12px rgba(230, 0, 35, 0.08);
+
+  pointer-events: none;
+}
+
+.dashboard-hero__vehicle-node svg {
+  display: block;
+  width: 14px;
+  height: 14px;
+}
+
+
+/* 如果之前有舊的 Hero decorative DOM，直接關掉避免重複 */
+.dashboard-hero__visual,
+.dashboard-hero__flow,
+.dashboard-hero__city,
+.dashboard-hero__ai-mark {
+  display: none !important;
+}
+
+
+/* Hero 內容永遠在裝飾上方 */
+.dashboard-hero__copy,
+.dashboard-hero__actions {
+  position: relative;
+  z-index: 2;
+}
+
 .dashboard-hero__copy { min-width: 0; max-width: 680px; }
 .dashboard-hero__hello { display: block; font-size: 15px; font-weight: 800; }
 .dashboard-hero h1 { margin: 6px 0 8px; font-size: clamp(25px,2.5vw,35px); line-height: 1.12; letter-spacing: -.04em; font-weight: 900; }
