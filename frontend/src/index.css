@@ -15,24 +15,24 @@
   --color-text: #0f172a;
   --color-muted: #64748b;
   --color-border: #e5e7eb;
-  --sidebar-bg: #fff8f8;
-  --sidebar-bg-top: #fff9f9;
-  --sidebar-bg-bottom: #fff4f4;
+  --sidebar-bg: #fdeeee;
+  --sidebar-bg-top: #fff4f4;
+  --sidebar-bg-bottom: #fbe7e7;
   --sidebar-accent: #e60023;
-  --sidebar-accent-soft: #fff1f1;
-  --sidebar-accent-border: #f5caca;
-  --sidebar-hover-bg: rgba(230, 0, 35, 0.035);
+  --sidebar-accent-soft: #ffe9eb;
+  --sidebar-accent-border: #efb4bc;
+  --sidebar-hover-bg: rgba(230, 0, 35, 0.07);
   --sidebar-active-bg: #ffffff;
-  --sidebar-border: rgba(230, 0, 35, 0.08);
-  --sidebar-divider: rgba(230, 0, 35, 0.08);
-  --sidebar-flow-main: rgba(230, 0, 35, 0.08);
-  --sidebar-flow-soft: rgba(230, 0, 35, 0.04);
-  --sidebar-flow-warm: rgba(255, 120, 130, 0.05);
+  --sidebar-border: rgba(230, 0, 35, 0.12);
+  --sidebar-divider: rgba(230, 0, 35, 0.11);
+  --sidebar-flow-main: rgba(230, 0, 35, 0.18);
+  --sidebar-flow-soft: rgba(255, 72, 96, 0.13);
+  --sidebar-flow-warm: rgba(255, 135, 148, 0.11);
   --sidebar-text: #1f2937;
   --sidebar-text-muted: #6b7280;
   --sidebar-icon: #475569;
   --sidebar-icon-active: #e60023;
-  --sidebar-badge-bg: #ffe8e8;
+  --sidebar-badge-bg: #ffdfe3;
   --sidebar-badge-text: #e60023;
   --radius-sm: 8px;
   --radius-md: 12px;
@@ -81,38 +81,482 @@ button { -webkit-tap-highlight-color: transparent; }
 
 /* Modern SaaS operations shell */
 .ops-shell { min-height: 100vh; display: grid; grid-template-columns: 242px minmax(0, 1fr); background: radial-gradient(circle at 85% 0%, #eaf3ff 0, transparent 32%), var(--color-bg); }
-.ops-sidebar { position: sticky; top: 0; height: 100vh; z-index: 40; isolation: isolate; overflow: hidden; display: flex; flex-direction: column; padding: 20px 20px 18px; color: var(--sidebar-text); background: linear-gradient(180deg, var(--sidebar-bg-top) 0%, var(--sidebar-bg) 48%, var(--sidebar-bg-bottom) 100%); border-right: 1px solid var(--sidebar-border); box-shadow: 6px 0 20px rgba(230,0,35,.02); }
-.ops-sidebar::before { content: ''; position: absolute; z-index: -1; height: 230px; right: -54px; bottom: -16px; left: -72px; background: radial-gradient(140% 92% at 4% 112%, transparent 58.7%, var(--sidebar-flow-main) 59%, var(--sidebar-flow-main) 59.45%, transparent 59.8%), radial-gradient(132% 86% at 9% 112%, transparent 67.1%, var(--sidebar-flow-soft) 67.4%, var(--sidebar-flow-soft) 67.75%, transparent 68.05%), radial-gradient(124% 80% at 14% 114%, transparent 75.2%, var(--sidebar-flow-warm) 75.5%, var(--sidebar-flow-warm) 75.85%, transparent 76.15%); transform: rotate(-3deg); transform-origin: bottom left; pointer-events: none; }
-.ops-sidebar::after { content: none; }
-.sidebar-brand { min-height: 66px; display: flex; align-items: center; gap: 12px; padding: 0 2px 17px; border-bottom: 1px solid var(--sidebar-divider); }
-.sidebar-brand__mark { width: 50px; height: 50px; flex: none; display: grid; place-items: center; border-radius: 16px; color: white; background: linear-gradient(145deg, #ed1734, #d71920); box-shadow: 0 1px 2px rgba(94,20,30,.08), 0 7px 16px rgba(230,0,35,.13); font-size: 19px; font-weight: 900; }
-.sidebar-brand strong, .sidebar-brand small { display: block; }
-.sidebar-brand strong { color: var(--sidebar-text); font-size: 17px; font-weight: 750; letter-spacing: -.025em; }
-.sidebar-brand small { color: var(--sidebar-text-muted); font-size: 10px; margin-top: 2px; letter-spacing: .01em; }
-.sidebar-close { display: none; margin-left: auto; padding: 7px; border: 0; background: transparent; color: var(--sidebar-text-muted); }
-.ops-sidebar nav { display: flex; flex-direction: column; gap: 6px; margin-top: 20px; }
-.ops-sidebar nav button { min-height: 46px; width: 100%; position: relative; border: 1px solid transparent; border-radius: 13px; padding: 0 11px; display: flex; align-items: center; justify-content: space-between; color: var(--sidebar-text); background: transparent; cursor: pointer; transition: background .18s ease, color .18s ease, border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
-.ops-sidebar nav button > span { display: flex; align-items: center; gap: 11px; }
-.ops-sidebar nav button svg { color: var(--sidebar-icon); transition: color .18s ease; }
-.ops-sidebar nav button b { font-size: 13px; line-height: 1; font-weight: 700; }
-.ops-sidebar nav button:not(.active)::before { content: ''; position: absolute; width: 2px; height: 20px; top: 50%; left: -1px; border-radius: 999px; background: var(--sidebar-accent); opacity: 0; transform: translateY(-50%); transition: opacity .17s ease; }
-.ops-sidebar nav button:hover { color: #b82035; background: var(--sidebar-hover-bg); border-color: rgba(230,0,35,.045); transform: translateX(1px); }
-.ops-sidebar nav button:hover svg { color: var(--sidebar-accent); }
-.ops-sidebar nav button:not(.active):hover::before { opacity: .36; }
-.ops-sidebar nav button.active { color: var(--sidebar-accent); background: var(--sidebar-active-bg); border-color: var(--sidebar-border); box-shadow: 0 1px 2px rgba(31,41,55,.025), 0 6px 16px rgba(31,41,55,.035); }
-.ops-sidebar nav button.active::before { content: ''; position: absolute; width: 3px; height: 30px; top: 50%; left: -1px; border-radius: 999px; background: var(--sidebar-accent); transform: translateY(-50%); }
-.ops-sidebar nav button.active svg { color: var(--sidebar-icon-active); }
-.ops-sidebar nav button.line-item:not(.active) svg { color: var(--sidebar-icon); }
-.ops-sidebar nav em { min-width: 24px; height: 24px; display: grid; place-items: center; border: 1px solid rgba(230,0,35,.035); border-radius: 999px; padding: 0 8px; color: var(--sidebar-badge-text); background: var(--sidebar-badge-bg); font-size: 10px; line-height: 1; font-weight: 750; font-style: normal; }
-.sidebar-spacer { flex: 1; }
-.sidebar-user { width: 100%; margin-top: 20px; border: 1px solid var(--sidebar-border); border-radius: 14px; background: rgba(255,255,255,.94); min-height: 62px; padding: 9px 11px; display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 10px; text-align: left; cursor: pointer; box-shadow: 0 1px 2px rgba(31,41,55,.025), 0 6px 16px rgba(31,41,55,.035); color: var(--sidebar-text); transition: border-color .18s ease, box-shadow .18s ease, transform .18s ease; }
-.sidebar-user:hover { border-color: var(--sidebar-accent-border); box-shadow: 0 1px 2px rgba(31,41,55,.03), 0 8px 18px rgba(31,41,55,.045); transform: translateY(-1px); }
-.sidebar-user > span:not(.avatar) strong, .sidebar-user > span:not(.avatar) small { display: block; }
-.sidebar-user > span:not(.avatar) strong { font-size: 13px; font-weight: 700; }
-.sidebar-user small { color: var(--sidebar-text-muted); font-size: 10px; margin-top: 2px; }
-.sidebar-user > svg { color: var(--sidebar-icon); }
-.avatar { width: 38px; height: 38px; display: grid; place-items: center; border-radius: 50%; color: white; background: linear-gradient(145deg, #ed1734, #d71920); box-shadow: 0 2px 6px rgba(230,0,35,.12); font-size: 11px; font-weight: 800; }
-.avatar--small { width: 31px; height: 31px; font-size: 10px; }
+/* =========================================================
+   iRent Ops AI — Sidebar / Toolbar
+   設計原則：
+   1) iRent 紅白品牌為主，不使用大面積高飽和紅
+   2) 中下段有完整的品牌底紋，不留大片死白
+   3) 底部流線與背景使用同一套「柔和但有輪廓」語言
+   4) Sidebar 與 Main Content 之間使用柔和邊界，不硬切
+   ========================================================= */
+
+.ops-sidebar {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  z-index: 40;
+  isolation: isolate;
+  overflow: hidden;
+
+  display: flex;
+  flex-direction: column;
+
+  padding: 20px 20px 18px;
+
+  color: var(--sidebar-text);
+
+  /* 主背景：比純白更有 iRent 品牌感，但仍保持企業系統的乾淨感 */
+  background:
+    linear-gradient(
+      180deg,
+      #fff6f6 0%,
+      #fff1f2 38%,
+      #fcebed 72%,
+      #fae5e8 100%
+    );
+
+  /* 右側不再使用明顯硬線，改成柔和的品牌邊界 */
+  border-right: 1px solid rgba(230, 0, 35, 0.055);
+
+  box-shadow:
+    10px 0 30px rgba(230, 0, 35, 0.025),
+    inset -1px 0 0 rgba(255, 255, 255, 0.78);
+}
+
+/* ---------------------------------------------------------
+   大範圍品牌底紋
+   用來填滿「系統設定」以下原本過空的中下段。
+   這一層不是線條，而是很淡的紅粉色流動面積。
+   --------------------------------------------------------- */
+.ops-sidebar::before {
+  content: '';
+  position: absolute;
+  z-index: -2;
+
+  left: -115px;
+  right: -95px;
+  bottom: -70px;
+  height: 530px;
+
+  background:
+    /* 左下方主要色塊：讓中下段不再是一大片空白 */
+    radial-gradient(
+      125% 78% at 4% 108%,
+      rgba(230, 0, 35, 0.115) 0%,
+      rgba(230, 0, 35, 0.075) 35%,
+      rgba(248, 91, 108, 0.045) 53%,
+      transparent 72%
+    ),
+
+    /* 右側較淡的延伸，避免只集中在左下角 */
+    radial-gradient(
+      85% 58% at 94% 72%,
+      rgba(230, 0, 35, 0.07) 0%,
+      rgba(230, 0, 35, 0.025) 48%,
+      transparent 74%
+    ),
+
+    /* 從中段一路到底部的暖紅薄霧 */
+    linear-gradient(
+      165deg,
+      transparent 9%,
+      rgba(255, 255, 255, 0.02) 28%,
+      rgba(230, 0, 35, 0.022) 55%,
+      rgba(230, 0, 35, 0.055) 100%
+    );
+
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------
+   Mobility Flow Lines
+   這層才是真正的「線條」。
+   線條有明顯存在感，但不再像上一版一樣變成超厚色帶。
+   --------------------------------------------------------- */
+.ops-sidebar::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+
+  left: -190px;
+  right: -130px;
+  bottom: -85px;
+  height: 455px;
+
+  background:
+    /* 第一條：最高、最淡 */
+    radial-gradient(
+      170% 112% at 0% 118%,
+      transparent 51.0%,
+      rgba(230, 0, 35, 0.075) 51.4%,
+      rgba(230, 0, 35, 0.075) 53.6%,
+      transparent 54.1%
+    ),
+
+    /* 第二條：主線，稍粗且較明顯 */
+    radial-gradient(
+      154% 103% at 10% 119%,
+      transparent 62.2%,
+      rgba(230, 0, 35, 0.12) 62.7%,
+      rgba(230, 0, 35, 0.12) 65.7%,
+      transparent 66.2%
+    ),
+
+    /* 第三條：底部亮紅粉，建立層次 */
+    radial-gradient(
+      139% 94% at 21% 121%,
+      transparent 73.6%,
+      rgba(250, 91, 108, 0.105) 74.0%,
+      rgba(250, 91, 108, 0.105) 76.7%,
+      transparent 77.2%
+    );
+
+  transform: rotate(-3deg);
+  transform-origin: bottom left;
+
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------
+   Brand / Logo
+   --------------------------------------------------------- */
+.sidebar-brand {
+  min-height: 66px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+
+  padding: 0 2px 17px;
+
+  /* 使用很淡的紅色 divider，保持結構但不硬 */
+  border-bottom: 1px solid rgba(230, 0, 35, 0.09);
+}
+
+.sidebar-brand__mark {
+  width: 50px;
+  height: 50px;
+  flex: none;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 16px;
+
+  color: white;
+  background: linear-gradient(145deg, #f21e3a 0%, #e60023 52%, #cf1426 100%);
+
+  box-shadow:
+    0 3px 7px rgba(94, 20, 30, 0.09),
+    0 10px 24px rgba(230, 0, 35, 0.17);
+
+  font-size: 19px;
+  font-weight: 900;
+}
+
+.sidebar-brand strong,
+.sidebar-brand small {
+  display: block;
+}
+
+.sidebar-brand strong {
+  color: var(--sidebar-text);
+  font-size: 17px;
+  font-weight: 750;
+  letter-spacing: -0.025em;
+}
+
+.sidebar-brand small {
+  margin-top: 2px;
+
+  color: var(--sidebar-text-muted);
+
+  font-size: 10px;
+  letter-spacing: 0.01em;
+}
+
+.sidebar-close {
+  display: none;
+  margin-left: auto;
+  padding: 7px;
+
+  border: 0;
+  background: transparent;
+
+  color: var(--sidebar-text-muted);
+}
+
+/* ---------------------------------------------------------
+   Navigation
+   --------------------------------------------------------- */
+.ops-sidebar nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  margin-top: 20px;
+}
+
+.ops-sidebar nav button {
+  min-height: 46px;
+  width: 100%;
+
+  position: relative;
+
+  border: 1px solid transparent;
+  border-radius: 13px;
+
+  padding: 0 11px;
+
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  color: var(--sidebar-text);
+  background: transparent;
+
+  cursor: pointer;
+
+  transition:
+    background 0.18s ease,
+    color 0.18s ease,
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.ops-sidebar nav button > span {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+
+.ops-sidebar nav button svg {
+  color: var(--sidebar-icon);
+
+  transition: color 0.18s ease;
+}
+
+.ops-sidebar nav button b {
+  font-size: 13px;
+  line-height: 1;
+  font-weight: 700;
+}
+
+/* 非 active 項目 hover 時的短紅線 */
+.ops-sidebar nav button:not(.active)::before {
+  content: '';
+
+  position: absolute;
+
+  width: 2px;
+  height: 20px;
+
+  top: 50%;
+  left: -1px;
+
+  border-radius: 999px;
+
+  background: var(--sidebar-accent);
+
+  opacity: 0;
+
+  transform: translateY(-50%);
+
+  transition: opacity 0.17s ease;
+}
+
+.ops-sidebar nav button:hover {
+  color: #b81d33;
+
+  background: rgba(230, 0, 35, 0.06);
+  border-color: rgba(230, 0, 35, 0.045);
+
+  transform: translateX(1px);
+}
+
+.ops-sidebar nav button:hover svg {
+  color: var(--sidebar-accent);
+}
+
+.ops-sidebar nav button:not(.active):hover::before {
+  opacity: 0.48;
+}
+
+/* Active item：白卡 + 左側紅線，作為整個 Sidebar 的主要焦點 */
+.ops-sidebar nav button.active {
+  color: var(--sidebar-accent);
+
+  background: rgba(255, 255, 255, 0.97);
+
+  border-color: rgba(230, 0, 35, 0.11);
+
+  box-shadow:
+    0 2px 5px rgba(31, 41, 55, 0.022),
+    0 8px 20px rgba(230, 0, 35, 0.075);
+}
+
+.ops-sidebar nav button.active::before {
+  content: '';
+
+  position: absolute;
+
+  width: 3px;
+  height: 30px;
+
+  top: 50%;
+  left: -1px;
+
+  border-radius: 0 999px 999px 0;
+
+  background: var(--sidebar-accent);
+
+  box-shadow: 2px 0 8px rgba(230, 0, 35, 0.10);
+
+  transform: translateY(-50%);
+}
+
+.ops-sidebar nav button.active svg {
+  color: var(--sidebar-icon-active);
+}
+
+/* LINE 是功能，不是整個產品的主品牌色。
+   因此 Sidebar 中 LINE icon 使用 neutral / iRent red，不使用 LINE 綠。 */
+.ops-sidebar nav button.line-item:not(.active) svg {
+  color: var(--sidebar-icon);
+}
+
+.ops-sidebar nav button.line-item:hover svg,
+.ops-sidebar nav button.line-item.active svg {
+  color: var(--sidebar-accent);
+}
+
+/* Badge：1 / 9 / 30d */
+.ops-sidebar nav em {
+  min-width: 24px;
+  height: 24px;
+
+  display: grid;
+  place-items: center;
+
+  padding: 0 8px;
+
+  border: 1px solid rgba(230, 0, 35, 0.085);
+  border-radius: 999px;
+
+  color: var(--sidebar-badge-text);
+  background: #ffe1e4;
+
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.38);
+
+  font-size: 10px;
+  line-height: 1;
+  font-weight: 800;
+  font-style: normal;
+}
+
+.sidebar-spacer {
+  flex: 1;
+}
+
+/* ---------------------------------------------------------
+   User card
+   放在品牌底紋之上，讓底部看起來是一個完整區域，
+   而不是「卡片 + 突然出現的波浪」。
+   --------------------------------------------------------- */
+.sidebar-user {
+  width: 100%;
+
+  position: relative;
+  z-index: 3;
+
+  margin-top: 20px;
+
+  min-height: 62px;
+
+  padding: 9px 11px;
+
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 10px;
+
+  border: 1px solid rgba(230, 0, 35, 0.105);
+  border-radius: 14px;
+
+  color: var(--sidebar-text);
+  background: rgba(255, 255, 255, 0.965);
+
+  text-align: left;
+
+  cursor: pointer;
+
+  box-shadow:
+    0 3px 7px rgba(31, 41, 55, 0.028),
+    0 10px 26px rgba(230, 0, 35, 0.06);
+
+  transition:
+    border-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
+}
+
+.sidebar-user:hover {
+  border-color: rgba(230, 0, 35, 0.18);
+
+  box-shadow:
+    0 4px 8px rgba(31, 41, 55, 0.032),
+    0 13px 30px rgba(230, 0, 35, 0.085);
+
+  transform: translateY(-1px);
+}
+
+.sidebar-user > span:not(.avatar) strong,
+.sidebar-user > span:not(.avatar) small {
+  display: block;
+}
+
+.sidebar-user > span:not(.avatar) strong {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.sidebar-user small {
+  margin-top: 2px;
+
+  color: var(--sidebar-text-muted);
+
+  font-size: 10px;
+}
+
+.sidebar-user > svg {
+  color: var(--sidebar-icon);
+}
+
+.avatar {
+  width: 38px;
+  height: 38px;
+
+  display: grid;
+  place-items: center;
+
+  border-radius: 50%;
+
+  color: white;
+  background: linear-gradient(145deg, #f21e3a 0%, #e60023 58%, #d1152a 100%);
+
+  box-shadow: 0 4px 10px rgba(230, 0, 35, 0.17);
+
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.avatar--small {
+  width: 31px;
+  height: 31px;
+
+  font-size: 10px;
+}
+
 .ops-main { min-width: 0; padding: 0 24px 28px; }
 .topbar { min-height: 64px; display: flex; align-items: center; gap: 16px; }
 .mobile-menu { display: none; width: 40px; height: 40px; place-items: center; border: 1px solid var(--color-border); background: white; border-radius: 12px; color: var(--color-text); }
