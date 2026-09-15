@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Hardened uploads with signature, decode, dimension, and size validation; added JSON compression, restart-safe LINE retry recovery, opaque resource IDs, bounded AI context, and minimal mutation responses.
 - Added Argon2id user authentication with hashed opaque server-side sessions.
 - Added backend RBAC, resource ownership enforcement, CSRF protection, login throttling, and security headers.
 - Added admin action audit logging with secret-field redaction.

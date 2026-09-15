@@ -2,7 +2,7 @@ import { Request, Response } from 'express';
 import path from 'path';
 import { DatabaseRepository } from '../repositories/DatabaseRepository';
 import { DashboardService } from '../services/DashboardService';
-import { dbRowToSubmissionResponse, dbRowToPhotoResponse } from '../models/types';
+import { dbRowToIncidentResponse, dbRowToSubmissionResponse, dbRowToPhotoResponse } from '../models/types';
 
 export class DashboardController {
   constructor(
@@ -21,10 +21,20 @@ export class DashboardController {
 
   public getPhotoSubmissions = async (req: Request, res: Response) => {
     try {
-      const rows = req.authUser!.role === 'admin'
-        ? this.repo.getAllPhotoSubmissions()
-        : this.repo.getPhotoSubmissionsForUser(req.authUser!.id);
-      res.json({ ok: true, submissions: rows.map(dbRowToSubmissionResponse) });
+      const rawLimit = Number(req.query.limit ?? 50);
+      const rawOffset = Number(req.query.offset ?? 0);
+      const limit = Number.isInteger(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 50;
+      const offset = Number.isInteger(rawOffset) ? Math.max(rawOffset, 0) : 0;
+      const pageRows = req.authUser!.role === 'admin'
+        ? this.repo.getPhotoSubmissions(limit + 1, offset)
+        : this.repo.getPhotoSubmissionsForUser(req.authUser!.id, limit + 1, offset);
+      const hasMore = pageRows.length > limit;
+      const rows = pageRows.slice(0, limit);
+      res.json({
+        ok: true,
+        submissions: rows.map(dbRowToSubmissionResponse),
+        page: { limit, offset, hasMore }
+      });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e.message || 'Failed to get submissions' });
     }
@@ -47,7 +57,7 @@ export class DashboardController {
     const payload = req.body;
     try {
       const dbItem = {
-        id: payload.id, plate: payload.plate, station: payload.station, type: payload.type,
+        id: this.service.createOpaqueId('INC'), plate: payload.plate, station: payload.station, type: payload.type,
         label: payload.label, severity: payload.severity, confidence: Number(payload.confidence),
         detected_time: payload.time, next_booking: Number(payload.nextBooking ?? payload.next_booking ?? 24),
         hot_station: payload.hotStation ? 1 : 0, map_x: Number(payload.x ?? payload.map_x),
@@ -55,7 +65,11 @@ export class DashboardController {
       };
       this.repo.insertIncident(dbItem);
       this.repo.addAuditLog(req.authUser!.id, 'CREATE_INCIDENT', 'incident', String(dbItem.id), {});
-      res.json({ ok: true, state: this.service.getProjectState(req.authUser!) });
+      res.json({
+        ok: true,
+        changedResource: { type: 'incident', data: dbRowToIncidentResponse(this.repo.getIncidentById(dbItem.id)!) },
+        minimalSummary: { action: 'created', incidentId: dbItem.id }
+      });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e.message || 'Failed to insert incident' });
     }
@@ -71,9 +85,13 @@ export class DashboardController {
         comment: 'COMMENT_INCIDENT', in_progress: 'START_INCIDENT', maintenance_report: 'MAINTENANCE_REPORT'
       };
       this.repo.addAuditLog(req.authUser!.id, actions[payload.action] || 'INCIDENT_ACTION', 'incident', String(payload.incidentId), { action: payload.action });
-      res.json({ ok: true, state: this.service.getProjectState(req.authUser!) });
+      res.json({
+        ok: true,
+        changedResource: { type: 'incident', data: result.incident },
+        minimalSummary: { action: payload.action, incidentId: payload.incidentId }
+      });
     } catch (e: any) {
-      const status = ['Invalid image payload', 'Image exceeds 10 MB limit'].includes(e.message) ? 400 : 500;
+      const status = ['Invalid image payload', 'Image exceeds 10 MB limit', 'Image MIME type does not match file signature', 'Image dimensions exceed limit', 'Image decode failed'].includes(e.message) ? 400 : 500;
       res.status(status).json({ ok: false, error: e.message || 'Failed to handle action' });
     }
   };
@@ -81,9 +99,15 @@ export class DashboardController {
   public runQualityCheck = async (req: Request, res: Response) => {
     try {
       const result = await this.service.handleQualityCheckAction(req.body, req.authUser!.id);
-      res.json({ ok: true, photoId: result.photoId, quality: result.quality, state: this.service.getProjectState(req.authUser!) });
+      res.json({
+        ok: true,
+        photoId: result.photoId,
+        quality: result.quality,
+        changedResource: { type: 'photo', data: result.photo },
+        minimalSummary: { action: 'quality_checked', photoId: result.photoId }
+      });
     } catch (e: any) {
-      const status = ['Invalid image payload', 'Image exceeds 10 MB limit'].includes(e.message) ? 400 : 500;
+      const status = ['Invalid image payload', 'Image exceeds 10 MB limit', 'Image MIME type does not match file signature', 'Image dimensions exceed limit', 'Image decode failed'].includes(e.message) ? 400 : 500;
       res.status(status).json({ ok: false, error: e.message || 'Failed to run quality check' });
     }
   };
@@ -91,9 +115,20 @@ export class DashboardController {
   public handlePhotoSubmission = async (req: Request, res: Response) => {
     try {
       const result = await this.service.handlePhotoSubmissionAction(req.body, req.authUser!.id);
-      res.json({ ok: true, ...result, state: this.service.getProjectState(req.authUser!) });
+      res.json({
+        ok: true,
+        submissionId: result.submissionId,
+        overallStatus: result.overallStatus,
+        results: result.results,
+        createdIncidents: result.createdIncidents,
+        changedResource: {
+          type: 'submission',
+          data: { submission: result.submission, photos: result.photos, incidents: result.incidents }
+        },
+        minimalSummary: { action: 'submitted', submissionId: result.submissionId, createdIncidentCount: result.createdIncidents.length }
+      });
     } catch (e: any) {
-      const status = e.message === 'Photo not found' ? 404 : ['Invalid image payload', 'Image exceeds 10 MB limit'].includes(e.message) ? 400 : 500;
+      const status = e.message === 'Photo not found' ? 404 : ['Invalid image payload', 'Image exceeds 10 MB limit', 'Image MIME type does not match file signature', 'Image dimensions exceed limit', 'Image decode failed'].includes(e.message) ? 400 : 500;
       res.status(status).json({ ok: false, error: e.message || 'Failed to handle photo submission' });
     }
   };
@@ -110,7 +145,7 @@ export class DashboardController {
         groupName: groupName === undefined ? undefined : String(groupName), enabled
       });
       this.repo.addAuditLog(req.authUser!.id, 'LINE_CONFIG_CHANGE', 'settings', 'line', { enabled });
-      res.json({ ok: true, state: this.service.getProjectState(req.authUser!) });
+      res.json({ ok: true, changedResource: { type: 'settings', key: 'line', data: this.service.getLineConfig() }, minimalSummary: { action: 'line_settings_updated' } });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e.message || 'Failed to update LINE settings' });
     }
@@ -127,7 +162,7 @@ export class DashboardController {
     try {
       this.service.updateAiSettings({ apiKey, model, clearApiKey: Boolean(clearApiKey) });
       this.repo.addAuditLog(req.authUser!.id, 'CHANGE_SETTINGS', 'settings', 'ai', { model, clearApiKey: Boolean(clearApiKey) });
-      res.json({ ok: true, state: this.service.getProjectState(req.authUser!) });
+      res.json({ ok: true, changedResource: { type: 'settings', key: 'ai', data: this.service.getAiConfig() }, minimalSummary: { action: 'ai_settings_updated' } });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e.message || 'Failed to update AI settings' });
     }
@@ -148,7 +183,7 @@ export class DashboardController {
     try {
       const status = this.service.queueLineTest(String(req.body?.message || ''));
       this.repo.addAuditLog(req.authUser!.id, 'LINE_CONFIG_CHANGE', 'notification', 'line-test', {});
-      res.json({ ok: true, status, state: this.service.getProjectState(req.authUser!) });
+      res.json({ ok: true, status, changedResource: { type: 'notification', data: { status } }, minimalSummary: { action: 'line_test_queued', status } });
     } catch (e: any) {
       res.status(500).json({ ok: false, error: e.message || 'Failed to queue LINE test' });
     }

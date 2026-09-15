@@ -47,10 +47,8 @@ const OperatorLayout: React.FC = () => {
 
   const createIncident = async () => {
     setCreating(true);
-    const next = 308 + (state?.incidents.length || 0);
     const isDamage = Math.random() > 0.45;
     const incident = {
-      id: `INC-${next}`,
       plate: `NEW-${Math.floor(1000 + Math.random() * 8999)}`,
       station: '板橋車站',
       type: isDamage ? 'damage' : 'cleaning',

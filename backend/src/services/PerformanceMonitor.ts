@@ -1,6 +1,12 @@
 import { Request, Response, NextFunction } from 'express';
 
-type Sample = { path: string; status: number; durationMs: number; at: number };
+type Sample = { method: string; path: string; status: number; durationMs: number; at: number };
+
+function normalizedPath(path: string): string {
+  return path
+    .replace(/^\/uploads\/[^/]+$/, '/uploads/:filename')
+    .replace(/\/(?:SUB|INC|PHOTO)-[^/]+/gi, '/:id');
+}
 
 export class PerformanceMonitor {
   private readonly samples: Sample[] = [];
@@ -12,7 +18,7 @@ export class PerformanceMonitor {
     const started = process.hrtime.bigint();
     res.on('finish', () => {
       const durationMs = Number(process.hrtime.bigint() - started) / 1_000_000;
-      this.samples.push({ path: req.path, status: res.statusCode, durationMs, at: Date.now() });
+      this.samples.push({ method: req.method, path: normalizedPath(req.path), status: res.statusCode, durationMs, at: Date.now() });
       if (this.samples.length > this.limit) this.samples.shift();
     });
     next();
@@ -21,19 +27,24 @@ export class PerformanceMonitor {
   public snapshot() {
     const byEndpoint = new Map<string, Sample[]>();
     for (const sample of this.samples) {
-      const list = byEndpoint.get(sample.path) || [];
+      const key = `${sample.method} ${sample.path}`;
+      const list = byEndpoint.get(key) || [];
       list.push(sample);
-      byEndpoint.set(sample.path, list);
+      byEndpoint.set(key, list);
     }
-    const endpoints = [...byEndpoint.entries()].map(([path, samples]) => {
+    const endpoints = [...byEndpoint.entries()].map(([key, samples]) => {
       const timings = samples.map(s => s.durationMs).sort((a, b) => a - b);
       const percentile = (p: number) => timings[Math.min(timings.length - 1, Math.ceil(timings.length * p) - 1)] || 0;
       return {
-        path,
+        method: samples[0].method,
+        path: samples[0].path,
+        endpoint: key,
         requests: samples.length,
         avgMs: Math.round((timings.reduce((sum, ms) => sum + ms, 0) / timings.length) * 10) / 10,
         p50Ms: Math.round(percentile(0.5) * 10) / 10,
         p95Ms: Math.round(percentile(0.95) * 10) / 10,
+        p99Ms: Math.round(percentile(0.99) * 10) / 10,
+        maxMs: Math.round(timings[timings.length - 1] * 10) / 10,
         errorRate: Math.round((samples.filter(s => s.status >= 400).length / samples.length) * 1000) / 10
       };
     }).sort((a, b) => b.p95Ms - a.p95Ms);

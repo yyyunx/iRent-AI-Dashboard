@@ -29,7 +29,11 @@ export function attachAuthentication(repo: DatabaseRepository) {
     req.authUser = { id: session.user_id, email: session.email, role: session.role };
     req.authSession = session;
     req.authSessionToken = token;
-    repo.touchAuthSession(tokenHash);
+    // /api/state is polled by active clients. Updating last_seen_at on every request turns
+    // read traffic into SQLite write contention, so touch at a bounded interval instead.
+    const configured = Number(process.env.SESSION_TOUCH_INTERVAL_SECONDS || 60);
+    const intervalMs = Math.min(Math.max(Number.isFinite(configured) ? configured : 60, 15), 3600) * 1000;
+    if (Date.parse(session.last_seen_at) <= Date.now() - intervalMs) repo.touchAuthSession(tokenHash);
     next();
   };
 }

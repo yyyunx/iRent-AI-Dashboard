@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import compression from 'compression';
 import path from 'path';
 import fs from 'fs';
 import { DatabaseRepository } from './repositories/DatabaseRepository';
@@ -40,9 +41,17 @@ export function createApp(dbPath: string, uploadDir: string) {
     next();
   });
 
+  // Do not spend CPU recompressing already-compressed uploads. JSON API responses over 1 KB
+  // are compressed by the backend even when the hosting proxy does not guarantee compression.
+  app.use(compression({
+    threshold: 1024,
+    filter: (req, res) => !req.path.startsWith('/uploads/') && compression.filter(req, res)
+  }));
+
+  app.use(performanceMonitor.middleware);
+
   // LINE requires the exact bytes to verify x-line-signature. It must run before express.json().
   app.post('/api/line/webhook', express.raw({ type: 'application/json', limit: '2mb' }), controller.receiveLineWebhook);
-  app.use(performanceMonitor.middleware);
   
   // Increase payload limit for base64 image uploads
   app.use(express.json({ limit: '50mb' }));

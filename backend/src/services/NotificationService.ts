@@ -19,6 +19,8 @@ export class NotificationService {
   private readonly maxWorkers = 2;
 
   constructor(private readonly repo: DatabaseRepository) {
+    const configured = Number(process.env.LINE_SENDING_STALE_SECONDS || 300);
+    this.repo.recoverStaleLineNotifications(Number.isFinite(configured) ? configured : 300);
     for (const row of this.repo.getPendingNotifications()) {
       if (row.target_id) {
         this.queue.push({ id: row.id, incidentId: row.incident_id, eventType: row.event_type, targetId: row.target_id, message: row.message });

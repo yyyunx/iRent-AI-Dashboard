@@ -10,9 +10,11 @@ const { AuthService } = require('../src/auth/AuthService');
 const { DatabaseRepository } = require('../src/repositories/DatabaseRepository');
 const express = require('express');
 const { setAuthCookies } = require('../src/auth/cookies');
+const { NotificationService } = require('../src/services/NotificationService');
 
 process.env.NODE_ENV = 'test';
 process.env.CORS_ORIGIN = 'http://localhost:5173';
+const VALID_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAOUlEQVR4nO3WywkAMBBCwaj995wqAjkM7F1Y/LyT7ukdAvWicVEEbaoi2rQGJyazqGLAq9BxX9P1BYyfGAFvvlyBAAAAAElFTkSuQmCC';
 
 function cookieValue(response, name) {
   const cookies = response.headers['set-cookie'] || [];
@@ -94,18 +96,31 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
       .expect(400);
   });
 
+  await t.test('mismatched magic bytes and undecodable images are rejected', async () => {
+    await userAAgent.post('/api/photos/quality-check')
+      .set('X-CSRF-Token', userACsrf)
+      .send({ rentalId: 'R-MAGIC', plate: 'AAA-0001', slot: 'front', filename: 'fake.png', imageData: 'data:image/png;base64,/9j/4AAQSkZJRg==' })
+      .expect(400);
+    await userAAgent.post('/api/photos/quality-check')
+      .set('X-CSRF-Token', userACsrf)
+      .send({ rentalId: 'R-DECODE', plate: 'AAA-0001', slot: 'front', filename: 'broken.png', imageData: 'data:image/png;base64,iVBORw0KGgo=' })
+      .expect(400);
+  });
+
   let submissionId;
   await t.test('resource owner can read submission while another user receives 404', async () => {
     const created = await userAAgent.post('/api/photo-submissions')
       .set('X-CSRF-Token', userACsrf)
       .send({
         rentalId: 'R-OWNER-A', plate: 'AAA-0001', phase: 'return', station: '台北站',
-        photos: [{ slot: 'right_side', filename: 'scratch.jpg', imageData: 'data:image/jpeg;base64,SGVsbG8=' }]
+        photos: [{ slot: 'right_side', filename: 'scratch.png', imageData: VALID_PNG }]
       })
       .expect(200);
     submissionId = created.body.submissionId;
     const incidentId = created.body.createdIncidents[0];
-    const ownPhoto = created.body.state.uploadedPhotos.find(photo => photo.submissionId === submissionId);
+    const ownPhoto = created.body.changedResource.data.photos.find(photo => photo.submissionId === submissionId);
+    assert.match(submissionId, /^SUB-[A-Za-z0-9_-]{16}$/);
+    assert.match(ownPhoto.photoId, /^PHOTO-[A-Za-z0-9_-]{16}$/);
     await userAAgent.get(`/api/submissions/${submissionId}`).expect(200);
     await userAAgent.get(`/${ownPhoto.filePath}`).expect(200);
 
@@ -124,6 +139,31 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
       .set('X-CSRF-Token', response.body.csrfToken)
       .send({ enabled: false })
       .expect(200);
+  });
+
+  await t.test('JSON API responses use backend compression when accepted', async () => {
+    const agent = request.agent(app);
+    await login(agent, 'admin@example.com', password);
+    const response = await agent.get('/api/state').set('Accept-Encoding', 'gzip').expect(200);
+    assert.equal(response.headers['content-encoding'], 'gzip');
+  });
+
+  await t.test('stale LINE sending rows recover to queued during startup', async () => {
+    const recoveryDb = new Database(dbPath);
+    recoveryDb.prepare(`
+      INSERT INTO NotificationLog(provider, incident_id, event_type, target_id, message, status, attempts, error, created_at, updated_at)
+      VALUES ('line', NULL, 'test', NULL, 'restart recovery', 'sending', 1, NULL, ?, ?)
+    `).run('2000-01-01 00:00:00', '2000-01-01 00:00:00');
+    const id = recoveryDb.prepare('SELECT last_insert_rowid() AS id').get().id;
+    recoveryDb.close();
+    const recoveryRepo = new DatabaseRepository(dbPath);
+    new NotificationService(recoveryRepo);
+    const checkDb = new Database(dbPath, { readonly: true });
+    const row = checkDb.prepare('SELECT status, error FROM NotificationLog WHERE id = ?').get(id);
+    checkDb.close();
+    recoveryRepo.close();
+    assert.equal(row.status, 'queued');
+    assert.equal(row.error, 'Recovered after process restart');
   });
 
   await t.test('raw session token is never stored in AuthSession', async () => {

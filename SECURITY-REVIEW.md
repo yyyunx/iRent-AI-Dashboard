@@ -16,6 +16,8 @@
 - Browser/API: HttpOnly session cookie, production Secure flag, configurable SameSite/CORS credentials, double-submit plus session-bound CSRF, CSP and defensive headers.
 - SQL: values are parameterized; the one dynamic Incident update field list is allowlisted.
 - Files: image data URLs are allowlisted to JPEG/PNG/WebP, capped at 10 MB, server-renamed, and served only after authentication/ownership checks.
+- Files (hardening update): data URL MIME is cross-checked against magic bytes; Sharp fully decodes JPEG/PNG/WebP and rejects malformed, oversized, or excessive-dimension images before disk write.
+- Operations (hardening update): JSON compression is enabled while `/uploads` is excluded; stale LINE `sending` rows recover to queued on startup; opaque resource IDs remove count-based collision risk.
 - Secrets/audit: no credentials are returned by auth APIs; audit metadata recursively redacts password/token/secret/cookie/API-key field names.
 - Webhook: existing LINE HMAC signature verification remains outside cookie auth; target changes now produce an audit event.
 - Change safety: migrations use `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ADD COLUMN`; a migration run against a temporary copy preserved all existing record counts.

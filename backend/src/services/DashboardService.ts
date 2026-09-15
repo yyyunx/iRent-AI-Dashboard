@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { randomBytes } from 'crypto';
 import { DatabaseRepository } from '../repositories/DatabaseRepository';
 import { NotificationService } from './NotificationService';
 import { AiAgentService } from './AiAgentService';
@@ -11,6 +12,7 @@ import {
   dbRowToSubmissionResponse,
   dbRowToPhotoResponse
 } from '../models/types';
+import { validateImageDataUrl } from './ImageValidation';
 
 export class DashboardService {
   private repo: DatabaseRepository;
@@ -41,8 +43,7 @@ export class DashboardService {
     return Math.min(score, 100);
   }
 
-  public getOpsMetrics() {
-    const incidents = this.repo.getIncidents();
+  public getOpsMetrics(incidents = this.repo.getIncidents()) {
     const reportsCount = this.repo.getMaintenanceReportCount();
     const autoClosedCount = incidents.filter(i => i.auto_closed === 1).length;
     const waitingCount = incidents.filter(i => i.status === 'waiting_review').length;
@@ -111,8 +112,12 @@ export class DashboardService {
       maintenanceReports: reports,
       photoSubmissions: submissions,
       uploadedPhotos,
-      opsMetrics: isAdmin ? this.getOpsMetrics() : { autoCloseRate: '0%', manualReviewReduced: 0, avgTimeSaved: '0分' }
+      opsMetrics: isAdmin ? this.getOpsMetrics(incidentsRaw) : { autoCloseRate: '0%', manualReviewReduced: 0, avgTimeSaved: '0分' }
     };
+  }
+
+  public createOpaqueId(prefix: string): string {
+    return `${prefix}-${randomBytes(12).toString('base64url')}`;
   }
 
   public updateLineSettings(input: { targetId?: string; groupName?: string; enabled?: boolean }) {
@@ -123,13 +128,37 @@ export class DashboardService {
     this.aiAgent.updateSettings(input);
   }
 
+  public getLineConfig() {
+    return this.notifications.getConfig();
+  }
+
+  public getAiConfig() {
+    return this.aiAgent.getConfig();
+  }
+
   public runAiAgent(prompt: string) {
-    const incidents = this.repo.getIncidents().map(row => dbRowToIncidentResponse({ ...row, score: this.calculateScore(row) }));
-    const active = incidents.filter(item => !['resolved', 'done'].includes(item.status));
+    const incidents = this.repo.getIncidents().map(row => ({ response: dbRowToIncidentResponse({ ...row, score: this.calculateScore(row) }), createdAt: row.created_at }));
+    const active = incidents.filter(item => !['resolved', 'done'].includes(item.response.status));
+    const configuredLimit = Number(process.env.AGENT_CONTEXT_INCIDENT_LIMIT || 30);
+    const incidentLimit = Math.min(Math.max(Number.isFinite(configuredLimit) ? Math.floor(configuredLimit) : 30, 10), 100);
+    const severityRank: Record<string, number> = { high: 0, medium: 1, low: 2 };
+    const contextIncidents = [...active]
+      .sort((left, right) => {
+        const severity = (severityRank[left.response.severity] ?? 3) - (severityRank[right.response.severity] ?? 3);
+        if (severity !== 0) return severity;
+        if (left.response.nextBooking !== right.response.nextBooking) return left.response.nextBooking - right.response.nextBooking;
+        return right.createdAt.localeCompare(left.createdAt);
+      })
+      .slice(0, incidentLimit);
     const context = {
       generatedAt: new Date().toISOString(),
-      incidentSummary: { total: incidents.length, active: active.length, highPriority: active.filter(item => item.severity === 'high').length },
-      activeIncidents: active.map(item => ({ id: item.id, plate: item.plate, station: item.station, label: item.label, severity: item.severity, status: item.status, score: item.score, nextBooking: item.nextBooking, assignee: item.assignee })),
+      incidentSummary: {
+        total: incidents.length,
+        active: active.length,
+        includedActiveIncidents: contextIncidents.length,
+        highPriority: active.filter(item => item.response.severity === 'high').length
+      },
+      activeIncidents: contextIncidents.map(({ response: item }) => ({ id: item.id, plate: item.plate, station: item.station, label: item.label, severity: item.severity, status: item.status, score: item.score, nextBooking: item.nextBooking, assignee: item.assignee })),
       damageHotspots: JSON.parse(this.repo.getSetting('damageHotspots', '[]')),
       opsMetrics: this.getOpsMetrics()
     };
@@ -176,20 +205,12 @@ export class DashboardService {
   }
 
   // --- Photo Quality and Scenario Seeding ---
-  private savePhotoFile(prefix: string, _filename: string, dataUrl: string): string {
+  private async savePhotoFile(prefix: string, _filename: string, dataUrl: string): Promise<string> {
     if (!dataUrl) return "";
-    const match = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=\r\n]+)$/i.exec(dataUrl);
-    if (!match) throw new Error('Invalid image payload');
-    const base64Data = match[2].replace(/[\r\n]/g, '');
-    const estimatedBytes = Math.floor(base64Data.length * 0.75);
-    if (estimatedBytes > 10 * 1024 * 1024) throw new Error('Image exceeds 10 MB limit');
-    const ext = match[1].toLowerCase() === 'jpeg' ? '.jpg' : `.${match[1].toLowerCase()}`;
-    const storedName = `${prefix}_${Date.now()}${ext}`;
+    const image = await validateImageDataUrl(dataUrl);
+    const storedName = `${prefix}_${randomBytes(8).toString('base64url')}${image.extension}`;
     const filePath = path.join(this.uploadDir, storedName);
-
-    const decoded = Buffer.from(base64Data, 'base64');
-    if (!decoded.length) throw new Error('Invalid image payload');
-    fs.writeFileSync(filePath, decoded);
+    await fs.promises.writeFile(filePath, image.buffer, { flag: 'wx' });
     return `uploads/${storedName}`;
   }
 
@@ -215,11 +236,12 @@ export class DashboardService {
   }
 
   public async handleQualityCheckAction(payload: any, userId: number) {
-    const photoId = "PHOTO-" + (this.repo.getUploadedPhotoCount() + 1).toString().padStart(3, '0');
-    const relativePath = this.savePhotoFile(photoId, payload.filename || `${photoId}.jpg`, payload.imageData || payload.data || "");
+    const photoId = this.createOpaqueId('PHOTO');
+    const relativePath = await this.savePhotoFile(photoId, payload.filename || `${photoId}.jpg`, payload.imageData || payload.data || "");
 
-    const textPayload = `${payload.filename || ''} ${payload.slot || ''} ${payload.imageData || ''} ${payload.data || ''} ${payload.note || ''}`;
-    const quality = this.runQualityCheck(payload.filename || '', payload.slot || '', textPayload);
+    // Base64 data can be 10 MB. Quality heuristics are metadata-based, so never duplicate or
+    // lowercase the image payload merely to inspect a filename/slot/note.
+    const quality = this.runQualityCheck(payload.filename || '', payload.slot || '', String(payload.note || ''));
 
     // If frontend computed metrics are provided, override backend simulation
     const finalSharpness = payload.frontendSharpness !== undefined ? Number(payload.frontendSharpness) : quality.blurScore;
@@ -253,7 +275,8 @@ export class DashboardService {
 
     return {
       photoId,
-      quality
+      quality,
+      photo: dbRowToPhotoResponse(this.repo.getUploadedPhotoById(photoId)!)
     };
   }
 
@@ -306,7 +329,7 @@ export class DashboardService {
       const shouldCreate = result.damageDetected || result.cleanliness === "dirty";
       if (!shouldCreate) continue;
 
-      const incidentId = "INC-AI-" + (this.repo.getIncidentCount() + 1).toString().padStart(3, '0');
+      const incidentId = this.createOpaqueId('INC-AI');
       const isDirty = result.cleanliness === "dirty";
       const label = isDirty ? "車內清潔異常" : `${result.damageLocation || result.slot} 新增車損`;
 
@@ -357,7 +380,7 @@ export class DashboardService {
   }
 
   public async handlePhotoSubmissionAction(payload: any, userId: number) {
-    const submissionId = "SUB-" + (this.repo.getPhotoSubmissionCount() + 1).toString().padStart(3, '0');
+    const submissionId = this.createOpaqueId('SUB');
     const photos = payload.photos || [];
 
     const submissionObj = {
@@ -397,7 +420,7 @@ export class DashboardService {
     for (let i = 0; i < photos.length; i++) {
       const p = photos[i];
       const aiResult = aiResults[i];
-      const photoId = p.photoId || "PHOTO-" + (this.repo.getUploadedPhotoCount() + 1).toString().padStart(3, '0');
+      const photoId = p.photoId || this.createOpaqueId('PHOTO');
 
       const photoPayload = {
         rentalId: payload.rentalId,
@@ -412,7 +435,7 @@ export class DashboardService {
         if (!this.repo.userOwnsPhoto(userId, p.photoId)) throw new Error('Photo not found');
         this.repo.updateUploadedPhotoSubmission(p.photoId, submissionId, JSON.stringify(aiResult), userId);
       } else {
-        const fileRelPath = this.savePhotoFile(photoId, photoPayload.filename, photoPayload.imageData);
+        const fileRelPath = await this.savePhotoFile(photoId, photoPayload.filename, photoPayload.imageData);
         this.repo.insertUploadedPhoto({
           photo_id: photoId,
           submission_id: submissionId,
@@ -449,7 +472,10 @@ export class DashboardService {
       submissionId,
       overallStatus,
       results: aiResults,
-      createdIncidents
+      createdIncidents,
+      submission: dbRowToSubmissionResponse(this.repo.getPhotoSubmissionDetail(submissionId)!),
+      photos: this.repo.getUploadedPhotosBySubmission(submissionId).map(dbRowToPhotoResponse),
+      incidents: createdIncidents.map(id => dbRowToIncidentResponse(this.repo.getIncidentById(id)!))
     };
   }
 
@@ -554,11 +580,11 @@ export class DashboardService {
     } else if (action === "maintenance_report") {
       const note = (payload.note || "").trim();
       const photoPayload = payload.photo;
-      const photoId = `MR-${incidentId}`;
+      const photoId = this.createOpaqueId(`MR-${incidentId}`);
 
       let savedPath = "";
       if (photoPayload) {
-        savedPath = this.savePhotoFile(photoId, photoPayload.name || "report.jpg", photoPayload.data || "");
+        savedPath = await this.savePhotoFile(photoId, photoPayload.name || "report.jpg", photoPayload.data || "");
       }
 
       const review = this.runAiReview(note, savedPath);
@@ -606,6 +632,6 @@ export class DashboardService {
       return { status: 400, ok: false, error: "Unknown action" };
     }
 
-    return { status: 200, ok: true };
+    return { status: 200, ok: true, incident: dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!) };
   }
 }

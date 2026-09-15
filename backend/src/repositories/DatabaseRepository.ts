@@ -44,6 +44,11 @@ export class DatabaseRepository {
     }
     this.db = new Database(dbPath);
     this.db.pragma('foreign_keys = ON');
+    // This deployment uses a single backend instance. WAL allows readers to proceed while
+    // a short write is in progress; busy_timeout turns transient SQLite contention into a wait
+    // rather than an immediate "database is locked" response.
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('busy_timeout = 5000');
     this.initDb();
   }
 
@@ -291,7 +296,12 @@ export class DatabaseRepository {
     this.addColumnIfMissing('UploadedPhoto', 'user_id', 'INTEGER');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_submission_user ON PhotoSubmission(user_id, id DESC)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_photo_user ON UploadedPhoto(user_id, id DESC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_photo_submission ON UploadedPhoto(submission_id, id ASC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_photo_path ON UploadedPhoto(file_path)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_incident_owner ON Incident(owner_user_id, created_at DESC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_timeline_incident ON IncidentTimeline(incident_id, id ASC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_comment_incident ON Comment(incident_id, id ASC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_report_incident ON MaintenanceReport(incident_id, id ASC)');
     this.db.prepare('DELETE FROM AuthSession WHERE expires_at <= ? OR revoked_at IS NOT NULL').run(new Date().toISOString());
   }
 
@@ -401,16 +411,16 @@ export class DatabaseRepository {
     return map;
   }
 
-  public getPhotoSubmissions(limit = 50): PhotoSubmission[] {
-    return this.db.prepare("SELECT * FROM PhotoSubmission ORDER BY id DESC LIMIT ?").all(limit) as PhotoSubmission[];
+  public getPhotoSubmissions(limit = 50, offset = 0): PhotoSubmission[] {
+    return this.db.prepare("SELECT * FROM PhotoSubmission ORDER BY id DESC LIMIT ? OFFSET ?").all(limit, offset) as PhotoSubmission[];
   }
 
   public getAllPhotoSubmissions(): PhotoSubmission[] {
     return this.db.prepare("SELECT * FROM PhotoSubmission ORDER BY id DESC").all() as PhotoSubmission[];
   }
 
-  public getPhotoSubmissionsForUser(userId: number, limit = 50): PhotoSubmission[] {
-    return this.db.prepare("SELECT * FROM PhotoSubmission WHERE user_id = ? ORDER BY id DESC LIMIT ?").all(userId, limit) as PhotoSubmission[];
+  public getPhotoSubmissionsForUser(userId: number, limit = 50, offset = 0): PhotoSubmission[] {
+    return this.db.prepare("SELECT * FROM PhotoSubmission WHERE user_id = ? ORDER BY id DESC LIMIT ? OFFSET ?").all(userId, limit, offset) as PhotoSubmission[];
   }
 
   public getPhotoSubmissionDetail(submissionId: string): PhotoSubmission | null {
@@ -424,6 +434,11 @@ export class DatabaseRepository {
 
   public getUploadedPhotos(limit = 100): UploadedPhoto[] {
     return this.db.prepare("SELECT * FROM UploadedPhoto ORDER BY id DESC LIMIT ?").all(limit) as UploadedPhoto[];
+  }
+
+  public getUploadedPhotoById(photoId: string): UploadedPhoto | null {
+    const row = this.db.prepare("SELECT * FROM UploadedPhoto WHERE photo_id = ?").get(photoId);
+    return row ? row as UploadedPhoto : null;
   }
 
   public getUploadedPhotosForUser(userId: number, limit = 100): UploadedPhoto[] {
@@ -558,6 +573,17 @@ export class DatabaseRepository {
     `).all(limit) as any[];
   }
 
+  public recoverStaleLineNotifications(staleAfterSeconds: number): number {
+    const seconds = Math.min(Math.max(Math.floor(staleAfterSeconds), 30), 86_400);
+    const cutoff = new Date(Date.now() - seconds * 1000).toISOString();
+    const result = this.db.prepare(`
+      UPDATE NotificationLog
+      SET status = 'queued', error = 'Recovered after process restart', updated_at = ?
+      WHERE provider = 'line' AND status = 'sending' AND updated_at <= ?
+    `).run(this.nowText(), cutoff);
+    return result.changes;
+  }
+
   public getNotificationStats() {
     return this.db.prepare(`
       SELECT provider, status, COUNT(*) AS count
@@ -588,21 +614,6 @@ export class DatabaseRepository {
       report.incident_id, report.photo_path || null, report.result, report.note || null,
       report.ai_review_result || null, report.ai_review_confidence || null, report.ai_review_summary || null, ts
     );
-  }
-
-  public getIncidentCount(): number {
-    const row = this.db.prepare("SELECT COUNT(*) as count FROM Incident").get() as any;
-    return row ? row.count : 0;
-  }
-
-  public getUploadedPhotoCount(): number {
-    const row = this.db.prepare("SELECT COUNT(*) as count FROM UploadedPhoto").get() as any;
-    return row ? row.count : 0;
-  }
-
-  public getPhotoSubmissionCount(): number {
-    const row = this.db.prepare("SELECT COUNT(*) as count FROM PhotoSubmission").get() as any;
-    return row ? row.count : 0;
   }
 
   public insertPhotoSubmission(sub: Partial<PhotoSubmission>) {
