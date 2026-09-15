@@ -6,6 +6,7 @@ import { AiAgentService } from './AiAgentService';
 import {
   Incident,
   IncidentResponse,
+  SafeUser,
   dbRowToIncidentResponse,
   dbRowToSubmissionResponse,
   dbRowToPhotoResponse
@@ -56,8 +57,9 @@ export class DashboardService {
     };
   }
 
-  public getProjectState() {
-    const incidentsRaw = this.repo.getIncidents();
+  public getProjectState(user: SafeUser) {
+    const isAdmin = user.role === 'admin';
+    const incidentsRaw = isAdmin ? this.repo.getIncidents() : this.repo.getIncidentsForUser(user.id);
     const incidents = incidentsRaw.map(row => {
       const enriched = { ...row, score: this.calculateScore(row) };
       return dbRowToIncidentResponse(enriched);
@@ -66,18 +68,23 @@ export class DashboardService {
     // Sort by priority score desc
     incidents.sort((a, b) => b.score - a.score);
 
-    const timelines = this.repo.getTimelines();
-    const comments = this.repo.getComments();
-    const notifications = this.repo.getNotifications();
-    const reports = this.repo.getMaintenanceReports();
-    const submissionsRaw = this.repo.getPhotoSubmissions();
+    const allowedIncidentIds = new Set(incidents.map(item => item.id));
+    const filterByIncident = <T>(records: Record<string, T[]>) => Object.fromEntries(Object.entries(records).filter(([id]) => allowedIncidentIds.has(id)));
+    const timelines = filterByIncident(this.repo.getTimelines());
+    const comments = isAdmin ? this.repo.getComments() : {};
+    const notifications = isAdmin ? this.repo.getNotifications() : [];
+    const reports = isAdmin ? this.repo.getMaintenanceReports() : {};
+    const submissionsRaw = isAdmin ? this.repo.getPhotoSubmissions() : this.repo.getPhotoSubmissionsForUser(user.id);
     const submissions = submissionsRaw.map(row => dbRowToSubmissionResponse(row));
-    const uploadedPhotosRaw = this.repo.getUploadedPhotos();
+    const uploadedPhotosRaw = isAdmin ? this.repo.getUploadedPhotos() : this.repo.getUploadedPhotosForUser(user.id);
     const uploadedPhotos = uploadedPhotosRaw.map(row => dbRowToPhotoResponse(row));
 
-    const lineConfig = this.notifications.getConfig();
+    const lineConfig = isAdmin ? this.notifications.getConfig() : {
+      enabled: false, groupName: '', targetId: '', targetConfigured: false, tokenConfigured: false,
+      connected: false, webhookConfigured: false, targetSource: 'dashboard' as const
+    };
     const lineGroup = lineConfig.groupName;
-    const aiConfig = this.aiAgent.getConfig();
+    const aiConfig = isAdmin ? this.aiAgent.getConfig() : { provider: 'openai' as const, model: '', keyConfigured: false, keySource: 'dashboard' as const };
 
     const lineLogs = notifications.filter(row => row.provider === 'line').map(row => ({
       title: `${row.status} · ${row.event_type} · ${row.incident_id || '-'}`,
@@ -100,11 +107,11 @@ export class DashboardService {
       lineLogs,
       timelines,
       comments,
-      notificationStats: this.repo.getNotificationStats(),
+      notificationStats: isAdmin ? this.repo.getNotificationStats() : [],
       maintenanceReports: reports,
       photoSubmissions: submissions,
       uploadedPhotos,
-      opsMetrics: this.getOpsMetrics()
+      opsMetrics: isAdmin ? this.getOpsMetrics() : { autoCloseRate: '0%', manualReviewReduced: 0, avgTimeSaved: '0分' }
     };
   }
 
@@ -169,18 +176,20 @@ export class DashboardService {
   }
 
   // --- Photo Quality and Scenario Seeding ---
-  private savePhotoFile(prefix: string, filename: string, dataUrl: string): string {
+  private savePhotoFile(prefix: string, _filename: string, dataUrl: string): string {
     if (!dataUrl) return "";
-    let base64Data = dataUrl;
-    if (dataUrl.includes(",")) {
-      base64Data = dataUrl.split(",")[1];
-    }
-    const cleanName = filename.replace(/[^A-Za-z0-9_.-]/g, "_");
-    const ext = path.extname(cleanName) || ".jpg";
+    const match = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=\r\n]+)$/i.exec(dataUrl);
+    if (!match) throw new Error('Invalid image payload');
+    const base64Data = match[2].replace(/[\r\n]/g, '');
+    const estimatedBytes = Math.floor(base64Data.length * 0.75);
+    if (estimatedBytes > 10 * 1024 * 1024) throw new Error('Image exceeds 10 MB limit');
+    const ext = match[1].toLowerCase() === 'jpeg' ? '.jpg' : `.${match[1].toLowerCase()}`;
     const storedName = `${prefix}_${Date.now()}${ext}`;
     const filePath = path.join(this.uploadDir, storedName);
 
-    fs.writeFileSync(filePath, Buffer.from(base64Data, 'base64'));
+    const decoded = Buffer.from(base64Data, 'base64');
+    if (!decoded.length) throw new Error('Invalid image payload');
+    fs.writeFileSync(filePath, decoded);
     return `uploads/${storedName}`;
   }
 
@@ -205,7 +214,7 @@ export class DashboardService {
     };
   }
 
-  public async handleQualityCheckAction(payload: any) {
+  public async handleQualityCheckAction(payload: any, userId: number) {
     const photoId = "PHOTO-" + (this.repo.getUploadedPhotoCount() + 1).toString().padStart(3, '0');
     const relativePath = this.savePhotoFile(photoId, payload.filename || `${photoId}.jpg`, payload.imageData || payload.data || "");
 
@@ -238,7 +247,8 @@ export class DashboardService {
       plate_visible: quality.plateVisible ? 1 : 0,
       angle_valid: quality.angleValid ? 1 : 0,
       distance_valid: quality.distanceValid ? 1 : 0,
-      ai_result_json: ''
+      ai_result_json: '',
+      user_id: userId
     });
 
     return {
@@ -290,7 +300,7 @@ export class DashboardService {
     return results;
   }
 
-  public async createIncidentFromAiResult(submission: any, aiResults: any[]): Promise<string[]> {
+  public async createIncidentFromAiResult(submission: any, aiResults: any[], userId: number, submissionId: string): Promise<string[]> {
     const created: string[] = [];
     for (const result of aiResults) {
       const shouldCreate = result.damageDetected || result.cleanliness === "dirty";
@@ -324,7 +334,9 @@ export class DashboardService {
         map_x: 24 + Math.floor(Math.random() * 52),
         map_y: 24 + Math.floor(Math.random() * 52),
         status: "assigned",
-        score
+        score,
+        owner_user_id: userId,
+        source_submission_id: submissionId
       };
 
       this.repo.insertIncident(item);
@@ -344,7 +356,7 @@ export class DashboardService {
     return created;
   }
 
-  public async handlePhotoSubmissionAction(payload: any) {
+  public async handlePhotoSubmissionAction(payload: any, userId: number) {
     const submissionId = "SUB-" + (this.repo.getPhotoSubmissionCount() + 1).toString().padStart(3, '0');
     const photos = payload.photos || [];
 
@@ -359,7 +371,7 @@ export class DashboardService {
     };
 
     const aiResults = this.mockVehicleAiAnalysis(submissionObj);
-    const createdIncidents = await this.createIncidentFromAiResult(submissionObj, aiResults);
+    const createdIncidents = await this.createIncidentFromAiResult(submissionObj, aiResults, userId, submissionId);
 
     const overallStatus = createdIncidents.length > 0 ? "warning" : "ok";
     const status = createdIncidents.length > 0 ? "incident_created" : "clear";
@@ -377,7 +389,8 @@ export class DashboardService {
       parking_location: payload.parkingLocation || "",
       status,
       overall_status: overallStatus,
-      ai_summary: aiSummary
+      ai_summary: aiSummary,
+      user_id: userId
     });
 
     // Save individual photos
@@ -396,7 +409,8 @@ export class DashboardService {
       };
 
       if (p.photoId) {
-        this.repo.updateUploadedPhotoSubmission(p.photoId, submissionId, JSON.stringify(aiResult));
+        if (!this.repo.userOwnsPhoto(userId, p.photoId)) throw new Error('Photo not found');
+        this.repo.updateUploadedPhotoSubmission(p.photoId, submissionId, JSON.stringify(aiResult), userId);
       } else {
         const fileRelPath = this.savePhotoFile(photoId, photoPayload.filename, photoPayload.imageData);
         this.repo.insertUploadedPhoto({
@@ -413,7 +427,8 @@ export class DashboardService {
           plate_visible: 1,
           angle_valid: 1,
           distance_valid: 1,
-          ai_result_json: JSON.stringify(aiResult)
+          ai_result_json: JSON.stringify(aiResult),
+          user_id: userId
         });
       }
     }

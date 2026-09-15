@@ -22,6 +22,8 @@ export interface Incident {
   ai_review_summary?: string | null;
   manual_review_required: number; // 0 or 1
   resolved_at?: string | null;
+  owner_user_id?: number | null;
+  source_submission_id?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -122,6 +124,7 @@ export interface PhotoSubmission {
   status: string;
   overall_status: string;
   ai_summary?: string | null;
+  user_id?: number | null;
   created_at: string;
 }
 
@@ -155,6 +158,7 @@ export interface UploadedPhoto {
   angle_valid: number; // 0 or 1
   distance_valid: number; // 0 or 1
   ai_result_json?: string | null;
+  user_id?: number | null;
   created_at: string;
 }
 
@@ -175,6 +179,39 @@ export interface UploadedPhotoResponse {
   distanceValid: boolean;
   aiResult: any;
   createdAt: string;
+}
+
+export type UserRole = 'user' | 'admin';
+
+export interface UserAccount {
+  id: number;
+  email: string;
+  password_hash: string;
+  role: UserRole;
+  is_active: number;
+  created_at: string;
+  updated_at: string;
+  last_login_at: string | null;
+}
+
+export interface SafeUser {
+  id: number;
+  email: string;
+  role: UserRole;
+}
+
+export interface AuthSessionRecord {
+  id: number;
+  user_id: number;
+  token_hash: string;
+  csrf_token_hash: string;
+  expires_at: string;
+  revoked_at: string | null;
+  created_at: string;
+  last_seen_at: string;
+  email: string;
+  role: UserRole;
+  is_active: number;
 }
 
 // Helpers for data mapping

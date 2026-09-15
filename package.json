@@ -7,6 +7,8 @@
     "dev:frontend": "pnpm --dir frontend dev",
     "dev": "concurrently -k -s first \"pnpm dev:backend\" \"pnpm dev:frontend\"",
     "build": "pnpm --dir frontend build && pnpm --dir backend build",
+    "lint": "pnpm --dir frontend lint",
+    "test:security": "pnpm --dir backend test:security",
     "start": "pnpm --dir backend start"
   },
   "devDependencies": {

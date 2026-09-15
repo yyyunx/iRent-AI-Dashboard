@@ -4,9 +4,12 @@ import { useApp, Incident } from '../../context/AppContext';
 import IncidentQueue, { QueueTab } from '../../components/dashboard/IncidentQueue';
 import IncidentDetailPanel from '../../components/dashboard/IncidentDetailPanel';
 import ActivityTimeline from '../../components/dashboard/ActivityTimeline';
+import { useAuth } from '../../context/AuthContext';
 
 const Dashboard: React.FC = () => {
   const { state, isLoading, loadError, refreshState, selectedId, setSelectedId, searchQuery, setSearchQuery, apiPost, showToast } = useApp();
+  const { user } = useAuth();
+  const canManage = user?.role === 'admin';
   const [severityFilter, setSeverityFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [queueTab, setQueueTab] = useState<QueueTab>('all');
@@ -89,9 +92,9 @@ const Dashboard: React.FC = () => {
     <div className="dashboard-workspace">
       {loadError && <div className="inline-error"><AlertCircle size={15} />{loadError}<button onClick={() => refreshState()}>重試</button></div>}
       <div className="dashboard-columns">
-        <IncidentQueue incidents={incidents} photos={state?.uploadedPhotos || []} selectedId={selected?.id || null} onSelect={setSelectedId} onDispatch={incident => runAction('dispatch', incident)} dispatchingId={dispatchingId} searchQuery={searchQuery} onSearch={setSearchQuery} severity={severityFilter} onSeverityChange={setSeverityFilter} type={typeFilter} onTypeChange={setTypeFilter} tab={queueTab} onTabChange={setQueueTab} />
+        <IncidentQueue incidents={incidents} photos={state?.uploadedPhotos || []} selectedId={selected?.id || null} onSelect={setSelectedId} onDispatch={incident => runAction('dispatch', incident)} dispatchingId={dispatchingId} searchQuery={searchQuery} onSearch={setSearchQuery} severity={severityFilter} onSeverityChange={setSeverityFilter} type={typeFilter} onTypeChange={setTypeFilter} tab={queueTab} onTabChange={setQueueTab} canManage={canManage} />
         <aside className="dashboard-side-stack">
-          <IncidentDetailPanel incident={selected} photos={state?.uploadedPhotos || []} comments={comments} reports={reports} commentText={commentText} onCommentChange={setCommentText} onCommentSubmit={handleAddComment} commentSubmitting={commentSubmitting} reportNote={reportNote} onReportNoteChange={setReportNote} reportResult={reportResult} onReportResultChange={setReportResult} onReportSubmit={handleMaintenanceReport} reportSubmitting={reportSubmitting} onAction={action => runAction(action)} />
+          <IncidentDetailPanel incident={selected} photos={state?.uploadedPhotos || []} comments={comments} reports={reports} commentText={commentText} onCommentChange={setCommentText} onCommentSubmit={handleAddComment} commentSubmitting={commentSubmitting} reportNote={reportNote} onReportNoteChange={setReportNote} reportResult={reportResult} onReportResultChange={setReportResult} onReportSubmit={handleMaintenanceReport} reportSubmitting={reportSubmitting} onAction={action => runAction(action)} canManage={canManage} />
           <ActivityTimeline incidentId={selected?.id} events={timeline} />
         </aside>
       </div>

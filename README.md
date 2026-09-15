@@ -4,6 +4,13 @@
 
 ## 核心功能
 
+### Authentication 與權限
+
+- 單一登入入口，角色由 SQLite `User` 資料決定。
+- 密碼使用 Argon2id；瀏覽器只保存 HttpOnly opaque session cookie，資料庫只保存 session token 的 SHA-256 hash。
+- 所有寫入 API 使用 CSRF token；admin API 由後端 RBAC 強制檢查。
+- 一般使用者只能查看自己的送件、照片與相關 Incident；管理員可操作完整營運流程。
+
 ### 租車人端
 
 - 選擇取車或還車驗車流程
@@ -211,6 +218,10 @@ pnpm start
 | POST | `/api/notifications/line/test` | 將 LINE 測試訊息加入非同步發送佇列 |
 | POST | `/api/line/webhook` | 驗證 LINE Webhook 簽章並擷取通知目標 ID |
 | GET | `/uploads/:filename` | 讀取已上傳的驗車或完工照片 |
+| GET | `/api/auth/csrf` | 取得 CSRF token 並設定 CSRF cookie |
+| POST | `/api/auth/login` | 建立並 rotate server-side session |
+| POST | `/api/auth/logout` | 撤銷 server-side session 並清除 cookie |
+| GET | `/api/auth/me` | 取得目前登入者的安全欄位 |
 
 `POST /api/action` 的共用請求欄位為 `incidentId` 與 `action`。`comment` 另接受 `author`、`body`；`maintenance_report` 另接受 `note` 與 Base64 編碼的 `photo`。所有 JSON／Base64 請求的大小上限為 50 MB。
 
@@ -220,17 +231,35 @@ pnpm start
 NODE_ENV=production
 DATABASE_PATH=/var/data/irent_ops.db
 UPLOAD_DIR=/var/data/uploads
+SESSION_TTL_SECONDS=28800
+COOKIE_SAME_SITE=Lax
+CORS_ORIGIN=https://your-frontend.example
 LINE_CHANNEL_ACCESS_TOKEN=
 LINE_CHANNEL_SECRET=
 LINE_TARGET_ID=
 ```
 
+正式環境的 session cookie 會自動加上 `HttpOnly` 與 `Secure`。同網域部署維持 `SameSite=Lax`；只有確實跨站且全程 HTTPS 時才設定 `COOKIE_SAME_SITE=None`，並將允許的前端 origin 寫入 `CORS_ORIGIN`。
+
+首次建立管理員時，以一次性環境變數執行：
+
+```powershell
+$env:ADMIN_EMAIL='admin@example.com'
+$env:ADMIN_INITIAL_PASSWORD='use-a-strong-one-time-value'
+pnpm --dir backend create-admin
+Remove-Item Env:ADMIN_INITIAL_PASSWORD
+```
+
+CLI 只允許在尚無 admin 時建立第一個管理員；若 admin 已存在，命令會拒絕執行且不會重設密碼。不要把上述值寫入 `.env` 或提交到 Git。
+
+一般使用者可用相同的一次性方式設定 `USER_EMAIL`、`USER_INITIAL_PASSWORD` 後執行 `pnpm --dir backend create-user`；同 email 已存在時不會覆寫密碼。
+
 ## 現有限制
 
 - 照片車損與髒污辨識目前仍是 Hackathon 用的模擬邏輯；營運分析 Agent 已使用 OpenAI Responses API。
 - LINE Messaging API 已完成整合；Token、Secret 與 Target ID 僅能設定於部署環境。
-- 尚未提供登入、角色權限與完整稽核機制。
-- SQLite 與本機照片儲存適合展示，不適合多執行個體正式環境。
+- 登入限流目前位於單一 backend process；水平擴充前需移至 shared store。
+- SQLite 與本機照片儲存以 Render persistent disk、單一 backend instance 為前提；備份與監控限制請見 `SECURITY-CAVEATS.md`。
 
 ## LINE 官方文件
 

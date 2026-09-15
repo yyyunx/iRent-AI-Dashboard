@@ -1,21 +1,31 @@
 import { Router } from 'express';
 import { DashboardController } from '../controllers/DashboardController';
+import { AuthController } from '../auth/AuthController';
+import { csrfProtection, loginRequired, roleRequired } from '../auth/middleware';
 
-export function createApiRouter(controller: DashboardController): Router {
+export function createApiRouter(controller: DashboardController, authController: AuthController): Router {
   const router = Router();
+
+  router.get('/auth/csrf', authController.csrf);
+  router.post('/auth/login', authController.rateLimiter.middleware, csrfProtection, authController.login);
+  router.get('/auth/me', loginRequired, authController.me);
+  router.post('/auth/logout', loginRequired, csrfProtection, authController.logout);
+
+  router.use(loginRequired);
 
   router.get('/state', controller.getProjectState);
   router.get('/submissions', controller.getPhotoSubmissions);
   router.get('/submissions/:submissionId', controller.getPhotoSubmissionDetail);
-  
-  router.post('/incidents', controller.insertIncident);
-  router.post('/action', controller.handleAction);
-  router.post('/photos/quality-check', controller.runQualityCheck);
-  router.post('/photo-submissions', controller.handlePhotoSubmission);
-  router.post('/settings/line', controller.updateLineSettings);
-  router.post('/settings/ai', controller.updateAiSettings);
-  router.post('/agent/query', controller.runAiAgent);
-  router.post('/notifications/line/test', controller.sendLineTest);
+
+  router.post('/photos/quality-check', csrfProtection, controller.runQualityCheck);
+  router.post('/photo-submissions', csrfProtection, controller.handlePhotoSubmission);
+
+  router.post('/incidents', roleRequired('admin'), csrfProtection, controller.insertIncident);
+  router.post('/action', roleRequired('admin'), csrfProtection, controller.handleAction);
+  router.post('/settings/line', roleRequired('admin'), csrfProtection, controller.updateLineSettings);
+  router.post('/settings/ai', roleRequired('admin'), csrfProtection, controller.updateAiSettings);
+  router.post('/agent/query', roleRequired('admin'), csrfProtection, controller.runAiAgent);
+  router.post('/notifications/line/test', roleRequired('admin'), csrfProtection, controller.sendLineTest);
 
   return router;
 }
