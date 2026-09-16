@@ -14,6 +14,7 @@ const { NotificationService } = require('../src/services/NotificationService');
 
 process.env.NODE_ENV = 'test';
 process.env.CORS_ORIGIN = 'http://localhost:5173';
+process.env.OPENAI_API_KEY = '';
 const VALID_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAOUlEQVR4nO3WywkAMBBCwaj995wqAjkM7F1Y/LyT7ukdAvWicVEEbaoi2rQGJyazqGLAq9BxX9P1BYyfGAFvvlyBAAAAAElFTkSuQmCC';
 
 function cookieValue(response, name) {
@@ -196,6 +197,40 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
       .set('X-CSRF-Token', response.body.csrfToken)
       .send({ enabled: false })
       .expect(200);
+  });
+
+  await t.test('agent operations and history are admin-only and drafts do not mutate incidents', async () => {
+    await userAAgent.get('/api/agent/operations').expect(403);
+    await userAAgent.get('/api/agent/history').expect(403);
+
+    const agent = request.agent(app);
+    const response = await login(agent, 'admin01', password);
+    const beforeRepo = new DatabaseRepository(dbPath);
+    const before = beforeRepo.getIncidents().map(item => ({ id: item.id, status: item.status, assignee: item.assignee }));
+    beforeRepo.close();
+
+    const operations = await agent.get('/api/agent/operations').expect(200);
+    assert.equal(operations.body.ok, true);
+    assert.ok(operations.body.operations.shiftBriefing);
+    assert.ok(Array.isArray(operations.body.operations.slaAlerts));
+    assert.ok(Array.isArray(operations.body.operations.dispatchDraft));
+    assert.ok(Array.isArray(operations.body.operations.clusters));
+
+    const afterRepo = new DatabaseRepository(dbPath);
+    const after = afterRepo.getIncidents().map(item => ({ id: item.id, status: item.status, assignee: item.assignee }));
+    afterRepo.close();
+    assert.deepEqual(after, before);
+
+    await agent.post('/api/agent/query')
+      .set('X-CSRF-Token', response.body.csrfToken)
+      .send({ prompt: '產生交班摘要 token=must-not-be-stored' })
+      .expect(400);
+    const history = await agent.get('/api/agent/history?limit=6').expect(200);
+    assert.ok(history.body.history.length >= 1);
+    const serialized = JSON.stringify(history.body.history);
+    assert.equal(serialized.includes('must-not-be-stored'), false);
+    assert.match(serialized, /\[REDACTED\]/);
+    assert.equal(/password_hash|sessionToken|csrfToken|apiKey/.test(serialized), false);
   });
 
   await t.test('JSON API responses use backend compression when accepted', async () => {

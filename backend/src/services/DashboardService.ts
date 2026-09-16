@@ -136,6 +136,135 @@ export class DashboardService {
     return this.aiAgent.getConfig();
   }
 
+  private incidentAgeMinutes(incident: Incident): number {
+    const raw = incident.created_at || incident.detected_time;
+    const timestamp = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T')).getTime();
+    return Number.isFinite(timestamp) ? Math.max(0, Math.floor((Date.now() - timestamp) / 60_000)) : 0;
+  }
+
+  public getAgentOperations() {
+    const rows = this.repo.getIncidents();
+    const active = rows.filter(item => !['resolved', 'done'].includes(item.status));
+    const notifications = this.repo.getNotificationStats();
+    const lineWaiting = notifications
+      .filter(item => item.provider === 'line' && ['queued', 'sending', 'failed'].includes(item.status))
+      .reduce((sum, item) => sum + item.count, 0);
+
+    const slaAlerts = active.map(item => {
+      const ageMinutes = this.incidentAgeMinutes(item);
+      const threshold = item.status === 'todo' ? 60 : item.status === 'assigned' ? 120 : 240;
+      const bookingRisk = item.next_booking <= 30;
+      const overdue = ageMinutes >= threshold;
+      if (!overdue && !bookingRisk) return null;
+      const urgency = item.next_booking <= 15 || ageMinutes >= threshold * 2 ? 'critical' : 'warning';
+      return {
+        incidentId: item.id,
+        plate: item.plate,
+        station: item.station,
+        status: item.status,
+        urgency,
+        ageMinutes,
+        thresholdMinutes: threshold,
+        nextBookingMinutes: item.next_booking,
+        reasons: [overdue ? `案件已停留 ${ageMinutes} 分鐘` : '', bookingRisk ? `${item.next_booking} 分鐘後有預約` : ''].filter(Boolean)
+      };
+    }).filter(Boolean).sort((left: any, right: any) => {
+      if (left.urgency !== right.urgency) return left.urgency === 'critical' ? -1 : 1;
+      return left.nextBookingMinutes - right.nextBookingMinutes || right.ageMinutes - left.ageMinutes;
+    }).slice(0, 20);
+
+    const dispatchDraft = active
+      .filter(item => ['todo', 'waiting_review'].includes(item.status))
+      .map(item => {
+        const score = this.calculateScore(item);
+        const [recommendedTeam, region] = this.repo.assignTeam(item.station);
+        return {
+          incidentId: item.id,
+          plate: item.plate,
+          station: item.station,
+          label: item.label,
+          severity: item.severity,
+          score,
+          nextBookingMinutes: item.next_booking,
+          recommendedTeam,
+          region,
+          reason: `${item.severity === 'high' ? '高嚴重度；' : ''}${item.next_booking <= 30 ? `${item.next_booking} 分鐘後有預約；` : ''}Priority Score ${score}`
+        };
+      })
+      .sort((left, right) => right.score - left.score || left.nextBookingMinutes - right.nextBookingMinutes)
+      .slice(0, 8);
+
+    const groupCounts = (keyOf: (item: Incident) => string, dimension: string) => {
+      const groups = new Map<string, Incident[]>();
+      for (const item of rows) {
+        const key = keyOf(item);
+        groups.set(key, [...(groups.get(key) || []), item]);
+      }
+      return [...groups.entries()].filter(([, items]) => items.length >= 2).map(([key, items]) => ({
+        dimension,
+        key,
+        count: items.length,
+        incidentIds: items.slice(0, 10).map(item => item.id),
+        evidence: `${items.length} 件 Incident`
+      }));
+    };
+    const clusters = [
+      ...groupCounts(item => item.plate, 'vehicle'),
+      ...groupCounts(item => `${item.station} / ${item.label}`, 'station_damage'),
+      ...groupCounts(item => item.type, 'incident_type')
+    ].sort((left, right) => right.count - left.count).slice(0, 10);
+
+    return {
+      generatedAt: new Date().toISOString(),
+      shiftBriefing: {
+        activeIncidents: active.length,
+        highRiskIncidents: active.filter(item => item.severity === 'high').length,
+        bookingRiskIncidents: active.filter(item => item.next_booking <= 30).length,
+        overdueIncidents: slaAlerts.filter((item: any) => item.ageMinutes >= item.thresholdMinutes).length,
+        pendingMaintenance: active.filter(item => ['assigned', 'in_progress', 'waiting_review'].includes(item.status)).length,
+        lineNotificationsNeedingAttention: lineWaiting
+      },
+      slaAlerts,
+      dispatchDraft,
+      clusters
+    };
+  }
+
+  public getAgentTaskHistory(limit = 20) {
+    return this.repo.getAgentTaskHistory(limit).map(row => ({
+      id: row.id,
+      taskType: row.task_type,
+      promptSummary: row.prompt_summary,
+      resultSummary: row.result_summary,
+      model: row.model,
+      status: row.status,
+      username: row.username || null,
+      createdAt: row.created_at
+    }));
+  }
+
+  private redactAgentHistoryText(value: string, maxLength: number) {
+    return value
+      .replace(/(password|session|csrf|token|secret|api[ _-]?key)\s*[:=]?\s*[^\s,;]+/gi, '$1=[REDACTED]')
+      .replace(/[\r\n\t]+/g, ' ')
+      .trim()
+      .slice(0, maxLength);
+  }
+
+  public recordAgentTask(userId: number, prompt: string, result: any, status: 'completed' | 'failed') {
+    const resultText = status === 'completed'
+      ? [result?.title, result?.insight, result?.recommendation].filter(Boolean).join(' — ')
+      : String(result?.error || 'AI request failed');
+    return this.repo.addAgentTaskHistory({
+      userId,
+      taskType: 'operations_query',
+      promptSummary: this.redactAgentHistoryText(prompt, 180),
+      resultSummary: this.redactAgentHistoryText(resultText, 600),
+      model: result?.model || this.aiAgent.getConfig().model,
+      status
+    });
+  }
+
   public runAiAgent(prompt: string) {
     const incidents = this.repo.getIncidents().map(row => ({ response: dbRowToIncidentResponse({ ...row, score: this.calculateScore(row) }), createdAt: row.created_at }));
     const active = incidents.filter(item => !['resolved', 'done'].includes(item.response.status));

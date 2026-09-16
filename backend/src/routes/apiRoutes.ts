@@ -25,6 +25,8 @@ export function createApiRouter(controller: DashboardController, authController:
   router.post('/settings/line', roleRequired('admin'), csrfProtection, controller.updateLineSettings);
   router.post('/settings/ai', roleRequired('admin'), csrfProtection, controller.updateAiSettings);
   router.post('/agent/query', roleRequired('admin'), csrfProtection, controller.runAiAgent);
+  router.get('/agent/operations', roleRequired('admin'), controller.getAgentOperations);
+  router.get('/agent/history', roleRequired('admin'), controller.getAgentTaskHistory);
   router.post('/notifications/line/test', roleRequired('admin'), csrfProtection, controller.sendLineTest);
 
   return router;

@@ -237,6 +237,20 @@ export class DatabaseRepository {
         FOREIGN KEY (user_id) REFERENCES User(id) ON DELETE SET NULL
       );
       CREATE INDEX IF NOT EXISTS idx_audit_log_user_time ON AuditLog(user_id, timestamp DESC);
+
+      CREATE TABLE IF NOT EXISTS AgentTaskHistory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        task_type TEXT NOT NULL,
+        prompt_summary TEXT NOT NULL,
+        result_summary TEXT NOT NULL,
+        model TEXT,
+        status TEXT NOT NULL CHECK(status IN ('completed', 'failed')),
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES User(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_task_history_time ON AgentTaskHistory(created_at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_agent_task_history_user ON AgentTaskHistory(user_id, created_at DESC);
     `);
 
     this.migrateDb();
@@ -849,6 +863,33 @@ export class DatabaseRepository {
 
   public getAuditLogs() {
     return this.db.prepare('SELECT * FROM AuditLog ORDER BY id ASC').all() as any[];
+  }
+
+  public addAgentTaskHistory(input: {
+    userId: number | null;
+    taskType: string;
+    promptSummary: string;
+    resultSummary: string;
+    model?: string | null;
+    status: 'completed' | 'failed';
+  }): number {
+    const result = this.db.prepare(`
+      INSERT INTO AgentTaskHistory(user_id, task_type, prompt_summary, result_summary, model, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(input.userId, input.taskType, input.promptSummary, input.resultSummary, input.model || null, input.status, new Date().toISOString());
+    return Number(result.lastInsertRowid);
+  }
+
+  public getAgentTaskHistory(limit = 20) {
+    const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 50);
+    return this.db.prepare(`
+      SELECT h.id, h.task_type, h.prompt_summary, h.result_summary, h.model, h.status, h.created_at,
+             u.username
+      FROM AgentTaskHistory h
+      LEFT JOIN User u ON u.id = h.user_id
+      ORDER BY h.created_at DESC, h.id DESC
+      LIMIT ?
+    `).all(safeLimit) as any[];
   }
 
   public close() {

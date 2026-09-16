@@ -264,6 +264,8 @@ Remove-Item Env:USER_INITIAL_PASSWORD
 ## 現有限制
 
 - 照片車損與髒污辨識目前仍是 Hackathon 用的模擬邏輯；營運分析 Agent 已使用 OpenAI Responses API。
+- Analytics 另提供不依賴模型猜測的交班摘要、SLA 逾時／近期預約預警、Incident 群聚證據與智慧派工草稿。這些端點僅限 admin，派工草稿目前不會直接寫入資料庫。
+- Agent 查詢歷史會保存使用者、模型、狀態與截斷去敏後的問題／結果摘要，不保存 API key、session/CSRF token 或完整敏感 prompt。
 - LINE Messaging API 已完成整合；Token、Secret 與 Target ID 僅能設定於部署環境。
 - 登入限流目前位於單一 backend process；水平擴充前需移至 shared store。
 - SQLite 與本機照片儲存以 Render persistent disk、單一 backend instance 為前提；備份與監控限制請見 `SECURITY-CAVEATS.md`。

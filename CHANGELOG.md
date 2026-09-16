@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added admin-only deterministic shift briefings, SLA warnings, evidence-backed incident clusters, non-mutating dispatch drafts, and persistent redacted Agent task history.
 - Replaced email login identifiers with normalized, case-insensitive unique usernames across the additive SQLite migration, auth/session APIs, CLI bootstrap commands, and frontend identity display.
 - Hardened uploads with signature, decode, dimension, and size validation; added JSON compression, restart-safe LINE retry recovery, opaque resource IDs, bounded AI context, and minimal mutation responses.
 - Added Argon2id user authentication with hashed opaque server-side sessions.

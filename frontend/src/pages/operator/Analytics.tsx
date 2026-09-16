@@ -6,6 +6,7 @@ import AgentInsightGrid from '../../components/analytics/AgentInsightGrid';
 import DamageHotspotCard from '../../components/analytics/DamageHotspotCard';
 import FleetHealthCard from '../../components/analytics/FleetHealthCard';
 import AgentDispatchCard from '../../components/analytics/AgentDispatchCard';
+import AgentOperationsPanel from '../../components/analytics/AgentOperationsPanel';
 
 const Analytics: React.FC = () => {
   const { state } = useApp();
@@ -21,6 +22,7 @@ const Analytics: React.FC = () => {
     <div className="analytics-copilot-page">
       <AgentHero state={state} onOpenTasks={openTasks} requestedCommand={command} />
       <AgentInsightGrid state={state} onPrompt={runPrompt} onOpenTasks={openTasks} />
+      <AgentOperationsPanel />
       <section className="intelligence-grid" aria-label="AI Operations Intelligence">
         <DamageHotspotCard hotspots={state?.damageHotspots || []} />
         <FleetHealthCard incidents={state?.incidents || []} />

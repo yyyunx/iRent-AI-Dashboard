@@ -172,11 +172,24 @@ export class DashboardController {
     const prompt = String(req.body?.prompt || '').trim();
     if (!prompt || prompt.length > 1200) return res.status(400).json({ ok: false, error: '請輸入 1 到 1200 字的問題。' });
     try {
-      res.json({ ok: true, ...await this.service.runAiAgent(prompt) });
+      const result = await this.service.runAiAgent(prompt);
+      this.service.recordAgentTask(req.authUser!.id, prompt, result, 'completed');
+      res.json({ ok: true, ...result });
     } catch (e: any) {
+      this.service.recordAgentTask(req.authUser!.id, prompt, { error: e.message }, 'failed');
       if (e.message === 'OPENAI_API_KEY_NOT_CONFIGURED') return res.status(400).json({ ok: false, error: '尚未設定 OpenAI API Key，請先前往系統設定。' });
       res.status(502).json({ ok: false, error: e.name === 'AbortError' ? 'AI 回應逾時，請稍後再試。' : (e.message || 'AI Agent request failed') });
     }
+  };
+
+  public getAgentOperations = (_req: Request, res: Response) => {
+    res.json({ ok: true, operations: this.service.getAgentOperations() });
+  };
+
+  public getAgentTaskHistory = (req: Request, res: Response) => {
+    const rawLimit = Number(req.query.limit ?? 20);
+    const limit = Number.isInteger(rawLimit) ? Math.min(Math.max(rawLimit, 1), 50) : 20;
+    res.json({ ok: true, history: this.service.getAgentTaskHistory(limit) });
   };
 
   public sendLineTest = async (req: Request, res: Response) => {
