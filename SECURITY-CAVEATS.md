@@ -10,5 +10,6 @@
 - SQLite remains a single-writer datastore despite WAL; migrate before horizontally scaling or supporting sustained write-heavy upload traffic. LINE retry processing remains in-process, and AI requests remain synchronous with a bounded 30-second upstream timeout.
 - SLA warning thresholds and team recommendations are deterministic application rules, not contractual SLA configuration. Operations owners must review thresholds before production rollout; execution requires a separate, short-lived server draft and explicit admin confirmation.
 - Confirmed LINE drafts are queued by the same in-process single-instance delivery mechanism as existing notifications. A confirmed draft can therefore be recorded as `not_configured` or later fail delivery; operators must monitor notification status and retry operationally.
+- The bundled SOP corpus is intentionally small and code-managed; it is not yet a document ingestion/version-approval system. Audit natural-language parsing supports only documented intent keywords and returns a bounded recent window, so it is not a replacement for formal forensic export or SIEM retention.
 
 These are Medium/Low operational limitations. The current security decision is **CONDITIONAL** until monitoring and backup controls are configured and evidenced.

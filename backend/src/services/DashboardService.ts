@@ -13,6 +13,7 @@ import {
   dbRowToPhotoResponse
 } from '../models/types';
 import { validateImageDataUrl } from './ImageValidation';
+import { OPERATIONS_SOP } from '../knowledge/operationsSop';
 
 export class DashboardService {
   private repo: DatabaseRepository;
@@ -251,18 +252,72 @@ export class DashboardService {
       .slice(0, maxLength);
   }
 
-  public recordAgentTask(userId: number, prompt: string, result: any, status: 'completed' | 'failed') {
+  public recordAgentTask(userId: number, prompt: string, result: any, status: 'completed' | 'failed', taskType = 'operations_query') {
+    const answer = result?.answer || result;
     const resultText = status === 'completed'
-      ? [result?.title, result?.insight, result?.recommendation].filter(Boolean).join(' — ')
+      ? [answer?.title, answer?.insight, answer?.recommendation].filter(Boolean).join(' — ')
       : String(result?.error || 'AI request failed');
     return this.repo.addAgentTaskHistory({
       userId,
-      taskType: 'operations_query',
+      taskType,
       promptSummary: this.redactAgentHistoryText(prompt, 180),
       resultSummary: this.redactAgentHistoryText(resultText, 600),
       model: result?.model || this.aiAgent.getConfig().model,
       status
     });
+  }
+
+  public querySop(prompt: string) {
+    const normalized = prompt.toLowerCase();
+    const ranked = OPERATIONS_SOP.map(section => ({
+      section,
+      score: section.keywords.reduce((score, keyword) => score + (normalized.includes(keyword.toLowerCase()) ? 1 : 0), 0)
+    })).sort((left, right) => right.score - left.score);
+    const matches = ranked.filter(item => item.score > 0).slice(0, 3).map(item => item.section);
+    const selected = matches.length ? matches : [OPERATIONS_SOP[0]];
+    return {
+      answer: {
+        title: selected[0].title,
+        insight: selected.map(item => item.content).join(' '),
+        recommendation: '請依引用章節執行，涉及派工、通知、結案或求償時仍需管理員確認。',
+        evidence: selected.map(item => `${item.source} § ${item.chapter}`).join('；')
+      },
+      model: 'bounded-sop-retrieval',
+      sources: selected.map(item => ({ id: item.id, source: item.source, chapter: item.chapter, title: item.title }))
+    };
+  }
+
+  public queryAuditLogs(prompt: string) {
+    const normalized = prompt.toLowerCase();
+    const action = /reopen|重開|重新開啟/.test(normalized) ? 'REOPEN_INCIDENT'
+      : /line/.test(normalized) && /設定|config|修改/.test(normalized) ? 'LINE_CONFIG_CHANGE'
+        : /降權|拒絕|forbidden|admin api|權限/.test(normalized) ? 'AUTHZ_DENIED' : null;
+    const today = /今天|今日|today/.test(normalized);
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const matches = this.repo.getRecentAuditLogs(200).filter(row => {
+      if (action && row.action !== action) return false;
+      if (today && Date.parse(row.timestamp) < todayStart.getTime()) return false;
+      return true;
+    }).slice(0, 50).map(row => ({
+      id: row.id,
+      username: row.username || 'system',
+      action: row.action,
+      resourceType: row.resource_type,
+      resourceId: row.resource_id,
+      timestamp: row.timestamp
+    }));
+    return {
+      answer: {
+        title: action ? `Audit 查詢：${action}` : '最近 Audit Log',
+        insight: matches.length ? `找到 ${matches.length} 筆符合條件的紀錄。` : '沒有找到符合條件的紀錄。',
+        recommendation: '如需調查，請以回傳的事件 ID、操作者與時間進一步核對；查詢本身不會修改資料。',
+        evidence: matches.slice(0, 8).map(row => `${row.timestamp} ${row.username} ${row.action} ${row.resourceId || ''}`.trim()).join('；') || '限定查詢最近 200 筆 AuditLog。'
+      },
+      model: 'allowlisted-audit-query',
+      query: { action, today, scannedLimit: 200 },
+      records: matches
+    };
   }
 
   public createDispatchDraft(incidentId: string, userId: number) {

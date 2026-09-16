@@ -46,7 +46,11 @@ export function loginRequired(req: Request, res: Response, next: NextFunction) {
 export function roleRequired(...roles: UserRole[]) {
   return (req: Request, res: Response, next: NextFunction) => {
     if (!req.authUser) return res.status(401).json({ ok: false, error: 'Unauthorized' });
-    if (!roles.includes(req.authUser.role)) return res.status(403).json({ ok: false, error: 'Forbidden' });
+    if (!roles.includes(req.authUser.role)) {
+      const repo = req.app.locals.databaseRepository as DatabaseRepository | undefined;
+      repo?.addAuditLog(req.authUser.id, 'AUTHZ_DENIED', 'api', req.path, { method: req.method, requiredRoles: roles });
+      return res.status(403).json({ ok: false, error: 'Forbidden' });
+    }
     next();
   };
 }

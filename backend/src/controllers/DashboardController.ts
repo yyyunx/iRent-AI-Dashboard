@@ -192,6 +192,23 @@ export class DashboardController {
     res.json({ ok: true, history: this.service.getAgentTaskHistory(limit) });
   };
 
+  public querySop = (req: Request, res: Response) => {
+    const prompt = String(req.body?.prompt || '').trim();
+    if (!prompt || prompt.length > 600) return res.status(400).json({ ok: false, error: '請輸入 1 到 600 字的 SOP 問題。' });
+    const result = this.service.querySop(prompt);
+    this.service.recordAgentTask(req.authUser!.id, prompt, result, 'completed', 'sop_query');
+    res.json({ ok: true, ...result });
+  };
+
+  public queryAuditLogs = (req: Request, res: Response) => {
+    const prompt = String(req.body?.prompt || '').trim();
+    if (!prompt || prompt.length > 600) return res.status(400).json({ ok: false, error: '請輸入 1 到 600 字的 Audit 問題。' });
+    const result = this.service.queryAuditLogs(prompt);
+    this.service.recordAgentTask(req.authUser!.id, prompt, result, 'completed', 'audit_query');
+    this.repo.addAuditLog(req.authUser!.id, 'QUERY_AUDIT_LOG', 'audit', undefined, { parsedQuery: result.query });
+    res.json({ ok: true, ...result });
+  };
+
   public createDispatchDraft = (req: Request, res: Response) => {
     const result = this.service.createDispatchDraft(String(req.body?.incidentId || ''), req.authUser!.id);
     if (!result.ok) return res.status(result.status || 400).json(result);

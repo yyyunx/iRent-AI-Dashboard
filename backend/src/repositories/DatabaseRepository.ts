@@ -880,6 +880,17 @@ export class DatabaseRepository {
     return this.db.prepare('SELECT * FROM AuditLog ORDER BY id ASC').all() as any[];
   }
 
+  public getRecentAuditLogs(limit = 200) {
+    const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 500);
+    return this.db.prepare(`
+      SELECT a.id, a.user_id, a.action, a.resource_type, a.resource_id, a.timestamp, a.metadata, u.username
+      FROM AuditLog a
+      LEFT JOIN User u ON u.id = a.user_id
+      ORDER BY a.timestamp DESC, a.id DESC
+      LIMIT ?
+    `).all(safeLimit) as any[];
+  }
+
   public addAgentTaskHistory(input: {
     userId: number | null;
     taskType: string;

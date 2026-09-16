@@ -298,6 +298,56 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
     assert.equal(lineConfirmed.body.minimalSummary.action, 'line');
   });
 
+  await t.test('SOP and Audit assistants use bounded admin-only retrieval with cited evidence', async () => {
+    await userAAgent.post('/api/agent/sop-query').set('X-CSRF-Token', userACsrf)
+      .send({ prompt: '維修完工照片不足怎麼辦？' }).expect(403);
+    await userAAgent.post('/api/agent/audit-query').set('X-CSRF-Token', userACsrf)
+      .send({ prompt: '列出權限遭拒紀錄' }).expect(403);
+
+    const agent = request.agent(app);
+    const response = await login(agent, 'admin01', password);
+    const sop = await agent.post('/api/agent/sop-query').set('X-CSRF-Token', response.body.csrfToken)
+      .send({ prompt: '維修完工照片不足怎麼辦？' }).expect(200);
+    assert.equal(sop.body.model, 'bounded-sop-retrieval');
+    assert.ok(sop.body.sources.some(source => source.chapter === '4.4 Maintenance Completion'));
+    assert.match(sop.body.answer.evidence, /iRent Ops SOP/);
+
+    const audit = await agent.post('/api/agent/audit-query').set('X-CSRF-Token', response.body.csrfToken)
+      .send({ prompt: '列出被降權後仍嘗試操作 admin API 的帳號；DROP TABLE User;' }).expect(200);
+    assert.equal(audit.body.model, 'allowlisted-audit-query');
+    assert.equal(audit.body.query.action, 'AUTHZ_DENIED');
+    assert.ok(audit.body.records.some(record => record.username === 'user-a' && record.action === 'AUTHZ_DENIED'));
+    await agent.get('/api/auth/me').expect(200);
+  });
+
+  await t.test('OpenAI operations query requests strict structured output without storage', async () => {
+    const originalFetch = global.fetch;
+    const originalKey = process.env.OPENAI_API_KEY;
+    let requestBody;
+    process.env.OPENAI_API_KEY = 'test-only-key';
+    global.fetch = async (_url, options) => {
+      requestBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ output: [{ content: [{ type: 'output_text', text: JSON.stringify({ title: '摘要', insight: '洞察', recommendation: '建議', evidence: '證據' }) }] }] })
+      };
+    };
+    try {
+      const agent = request.agent(app);
+      const response = await login(agent, 'admin01', password);
+      await agent.post('/api/agent/query').set('X-CSRF-Token', response.body.csrfToken)
+        .send({ prompt: '產生今日摘要' }).expect(200);
+      assert.equal(requestBody.store, false);
+      assert.equal(requestBody.text.format.type, 'json_schema');
+      assert.equal(requestBody.text.format.strict, true);
+      assert.deepEqual(requestBody.text.format.schema.required, ['title', 'insight', 'recommendation', 'evidence']);
+    } finally {
+      global.fetch = originalFetch;
+      process.env.OPENAI_API_KEY = originalKey;
+    }
+  });
+
   await t.test('JSON API responses use backend compression when accepted', async () => {
     const agent = request.agent(app);
     await login(agent, 'admin01', password);

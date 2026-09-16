@@ -59,9 +59,26 @@ export class AiAgentService {
           instructions: [
             '你是 iRent 營運中心的 AI Operations Copilot。',
             '只根據提供的即時營運資料回答，不得虛構數字、預測或已執行的動作。',
-            '請使用繁體中文，回傳單一 JSON 物件，不要使用 markdown code fence。',
-            'JSON 必須含 title、insight、recommendation、evidence 四個字串欄位。'
+            '請使用繁體中文，並遵守指定的 JSON schema。'
           ].join('\n'),
+          text: {
+            format: {
+              type: 'json_schema',
+              name: 'irent_operations_answer',
+              strict: true,
+              schema: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  title: { type: 'string' },
+                  insight: { type: 'string' },
+                  recommendation: { type: 'string' },
+                  evidence: { type: 'string' }
+                },
+                required: ['title', 'insight', 'recommendation', 'evidence']
+              }
+            }
+          },
           input: `使用者問題：${prompt}\n\n即時營運資料：${JSON.stringify(context)}`
         })
       });
