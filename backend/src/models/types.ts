@@ -185,7 +185,7 @@ export type UserRole = 'user' | 'admin';
 
 export interface UserAccount {
   id: number;
-  email: string;
+  username: string;
   password_hash: string;
   role: UserRole;
   is_active: number;
@@ -196,7 +196,7 @@ export interface UserAccount {
 
 export interface SafeUser {
   id: number;
-  email: string;
+  username: string;
   role: UserRole;
 }
 
@@ -209,7 +209,7 @@ export interface AuthSessionRecord {
   revoked_at: string | null;
   created_at: string;
   last_seen_at: string;
-  email: string;
+  username: string;
   role: UserRole;
   is_active: number;
 }

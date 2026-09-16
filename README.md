@@ -244,15 +244,22 @@ LINE_TARGET_ID=
 首次建立管理員時，以一次性環境變數執行：
 
 ```powershell
-$env:ADMIN_EMAIL='admin@example.com'
 $env:ADMIN_INITIAL_PASSWORD='use-a-strong-one-time-value'
-pnpm --dir backend create-admin
+pnpm create-admin --username admin01
 Remove-Item Env:ADMIN_INITIAL_PASSWORD
 ```
 
 CLI 只允許在尚無 admin 時建立第一個管理員；若 admin 已存在，命令會拒絕執行且不會重設密碼。不要把上述值寫入 `.env` 或提交到 Git。
 
-一般使用者可用相同的一次性方式設定 `USER_EMAIL`、`USER_INITIAL_PASSWORD` 後執行 `pnpm --dir backend create-user`；同 email 已存在時不會覆寫密碼。
+一般使用者以相同的一次性方式建立：
+
+```powershell
+$env:USER_INITIAL_PASSWORD='use-a-strong-one-time-value'
+pnpm create-user --username user01
+Remove-Item Env:USER_INITIAL_PASSWORD
+```
+
+使用者名稱會正規化為小寫，須為 3～32 個英文字母、數字、底線或減號；同 username 已存在時不會覆寫密碼。舊版 email schema 會以 additive migration 增加 username，登入不再使用 email。
 
 ## 現有限制
 

@@ -18,13 +18,13 @@ export class AuthController {
   };
 
   public login = async (req: Request, res: Response) => {
-    const email = typeof req.body?.email === 'string' ? req.body.email : '';
+    const username = typeof req.body?.username === 'string' ? req.body.username : '';
     const password = typeof req.body?.password === 'string' ? req.body.password : '';
     const prior = parseCookies(req.header('cookie'))[SESSION_COOKIE];
-    const result = await this.auth.login(email, password, prior);
+    const result = await this.auth.login(username, password, prior);
     if (!result) {
       this.rateLimiter.recordFailure(req);
-      return res.status(401).json({ ok: false, error: '帳號或密碼錯誤' });
+      return res.status(401).json({ ok: false, error: '使用者名稱或密碼錯誤' });
     }
     this.rateLimiter.clear(req);
     setAuthCookies(res, result.sessionToken, result.csrfToken, result.maxAgeSeconds);

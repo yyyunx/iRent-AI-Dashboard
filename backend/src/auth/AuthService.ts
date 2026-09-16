@@ -33,17 +33,31 @@ export class AuthService {
     return argon2.hash(password, ARGON2_OPTIONS);
   }
 
-  public async createUser(email: string, password: string, role: UserRole, isActive = true) {
-    if (!/^\S+@\S+\.\S+$/.test(email) || email.length > 254) throw new Error('A valid email is required.');
-    if (password.length < 12 || password.length > 256) throw new Error('Password must contain 12 to 256 characters.');
-    return this.repo.createUser(email, await this.hashPassword(password), role, isActive);
+  public static normalizeUsername(username: string): string {
+    return String(username || '').trim().toLowerCase();
   }
 
-  public async login(email: string, password: string, priorSessionToken?: string) {
-    const normalizedEmail = String(email || '').trim().toLowerCase();
+  public static isValidUsername(username: string): boolean {
+    return /^[a-z0-9_-]{3,32}$/.test(username);
+  }
+
+  public async createUser(username: string, password: string, role: UserRole, isActive = true) {
+    const normalizedUsername = AuthService.normalizeUsername(username);
+    if (!AuthService.isValidUsername(normalizedUsername)) {
+      throw new Error('Username must be 3 to 32 characters using only letters, numbers, underscores, or hyphens.');
+    }
+    if (password.length < 12 || password.length > 256) throw new Error('Password must contain 12 to 256 characters.');
+    if (this.repo.getUserByUsername(normalizedUsername)) throw new Error('Username already exists.');
+    return this.repo.createUser(normalizedUsername, await this.hashPassword(password), role, isActive);
+  }
+
+  public async login(username: string, password: string, priorSessionToken?: string) {
+    const normalizedUsername = AuthService.normalizeUsername(username);
     const candidatePassword = String(password || '');
-    const validShape = normalizedEmail.length <= 254 && candidatePassword.length > 0 && candidatePassword.length <= 256;
-    const user = validShape ? this.repo.getUserByEmail(normalizedEmail) : null;
+    const validShape = AuthService.isValidUsername(normalizedUsername)
+      && candidatePassword.length > 0
+      && candidatePassword.length <= 256;
+    const user = validShape ? this.repo.getUserByUsername(normalizedUsername) : null;
     const hash = user?.password_hash || await this.dummyHash;
     const verified = await argon2.verify(hash, candidatePassword.slice(0, 256)).catch(() => false);
 
@@ -77,7 +91,7 @@ export class AuthService {
     return csrfToken;
   }
 
-  public safeUser(user: { id: number; email: string; role: UserRole }): SafeUser {
-    return { id: user.id, email: user.email, role: user.role };
+  public safeUser(user: { id: number; username: string; role: UserRole }): SafeUser {
+    return { id: user.id, username: user.username, role: user.role };
   }
 }

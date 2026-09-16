@@ -9,8 +9,8 @@ export class LoginRateLimiter {
   private readonly maxAttempts = 5;
 
   private key(req: Request) {
-    const email = String(req.body?.email || '').trim().toLowerCase().slice(0, 254);
-    return `${req.ip}|${email}`;
+    const username = String(req.body?.username || '').trim().toLowerCase().slice(0, 32);
+    return `${req.ip}|${username}`;
   }
 
   public middleware = (req: Request, res: Response, next: NextFunction) => {

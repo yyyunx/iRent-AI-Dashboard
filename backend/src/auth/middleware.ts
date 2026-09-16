@@ -26,7 +26,7 @@ export function attachAuthentication(repo: DatabaseRepository) {
     if (!session || session.revoked_at || session.expires_at <= new Date().toISOString() || !session.is_active) {
       return next();
     }
-    req.authUser = { id: session.user_id, email: session.email, role: session.role };
+    req.authUser = { id: session.user_id, username: session.username, role: session.role };
     req.authSession = session;
     req.authSessionToken = token;
     // /api/state is polled by active clients. Updating last_seen_at on every request turns

@@ -80,14 +80,14 @@ const OperatorLayout: React.FC = () => {
           })}
         </nav>
         <div className="sidebar-spacer" />
-        <button type="button" className="sidebar-user" onClick={async () => { await auth.logout(); navigate('/login', { replace: true }); }}><span className="avatar">iR</span><span><strong>{auth.user?.email}</strong><small>{auth.user?.role === 'admin' ? '營運管理員' : '一般使用者'}</small></span><LogOut size={16} strokeWidth={1.75} aria-label="登出" /></button>
+        <button type="button" className="sidebar-user" onClick={async () => { await auth.logout(); navigate('/login', { replace: true }); }}><span className="avatar">iR</span><span><strong>{auth.user?.username}</strong><small>{auth.user?.role === 'admin' ? '營運管理員' : '一般使用者'}</small></span><LogOut size={16} strokeWidth={1.75} aria-label="登出" /></button>
       </aside>
 
       <main className="ops-main">
         <header className="topbar">
           <button type="button" className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="開啟選單"><Menu size={21} /></button>
           <label className="topbar-search"><Search size={18} /><input value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="搜尋事件、車號、站點或關鍵字…" aria-label="全域搜尋" /></label>
-          <div className="topbar-actions">{auth.user?.role === 'admin' && <button type="button" className="notification-button" onClick={() => navigate('/operator/notifications')} aria-label="查看 LINE 通知"><Bell size={19} /><span /></button>}<time>{now}</time>{auth.user?.role === 'admin' && <button type="button" className="topbar-settings-btn" onClick={() => navigate('/operator/settings')} aria-label="系統設定" title="系統設定"><Settings size={20} /></button>}</div>
+          <div className="topbar-actions"><span className="topbar-username">{auth.user?.username}</span>{auth.user?.role === 'admin' && <button type="button" className="notification-button" onClick={() => navigate('/operator/notifications')} aria-label="查看 LINE 通知"><Bell size={19} /><span /></button>}<time>{now}</time>{auth.user?.role === 'admin' && <button type="button" className="topbar-settings-btn" onClick={() => navigate('/operator/settings')} aria-label="系統設定" title="系統設定"><Settings size={20} /></button>}</div>
         </header>
 
         {isDashboard && <DashboardHeader state={state} onCreateIncident={createIncident} creating={creating} isAdmin={auth.user?.role === 'admin'} />}

@@ -10,7 +10,7 @@
 
 ## Controls and evidence
 
-- Authentication: Argon2id password hashes; 32-byte `crypto.randomBytes` opaque tokens; SHA-256 session-token storage; expiration, rotation, revocation, disable checks, and generic login errors.
+- Authentication: normalized case-insensitive usernames with DB uniqueness/format enforcement; Argon2id password hashes; 32-byte `crypto.randomBytes` opaque tokens; SHA-256 session-token storage; expiration, rotation, revocation, disable checks, and generic login errors.
 - Authorization: reusable `loginRequired`/`roleRequired`; current role and active state loaded from SQLite on every request; admin checks precede sensitive controllers.
 - Ownership: `user_id`, `owner_user_id`, and `source_submission_id` scope submission, photo, file, incident, and state reads. Cross-user lookups return 404.
 - Browser/API: HttpOnly session cookie, production Secure flag, configurable SameSite/CORS credentials, double-submit plus session-bound CSRF, CSP and defensive headers.
@@ -20,7 +20,7 @@
 - Operations (hardening update): JSON compression is enabled while `/uploads` is excluded; stale LINE `sending` rows recover to queued on startup; opaque resource IDs remove count-based collision risk.
 - Secrets/audit: no credentials are returned by auth APIs; audit metadata recursively redacts password/token/secret/cookie/API-key field names.
 - Webhook: existing LINE HMAC signature verification remains outside cookie auth; target changes now produce an audit event.
-- Change safety: migrations use `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ADD COLUMN`; a migration run against a temporary copy preserved all existing record counts.
+- Change safety: migrations use `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ADD COLUMN`; the username migration preserves legacy User rows, IDs, password hashes, roles, and the legacy email column while removing email from login/API behavior.
 
 ## Findings
 
@@ -84,7 +84,7 @@
 - Baseline/rollback target: Git commit `ae91d7c821e9034381ec66ef324430a332e2a7e5`.
 - Review state: uncommitted working-tree diff on `codex/auth-rbac`, intentionally not pushed at user request.
 - Migration-copy evidence: Incident 11→11, PhotoSubmission 1→1, UploadedPhoto 10→10, Settings 6→6; User/AuthSession/AuditLog added.
-- Runtime security suite: 18/18 Node test results passed, covering authentication, RBAC, ownership, CSRF, session hashing/rotation/revocation, disabled/downgraded users, rate limiting, audit redaction, upload allowlisting, and production cookie flags.
+- Runtime security suite: 26/26 Node test results passed, covering fresh/legacy User schemas, additive legacy-user migration, username normalization/uniqueness and generic failures, authentication, RBAC, ownership, CSRF, session hashing/rotation/revocation, disabled/downgraded users, rate limiting, audit redaction, upload allowlisting, and production cookie flags.
 - Compiled service smoke: `/healthz` returned 200 and anonymous `/api/state` returned 401 against a temporary SQLite database.
 - Bootstrap safety: first `create-admin` succeeded, the second invocation refused, and the stored password hash remained unchanged.
 - Frontend: TypeScript, ESLint, and Vite production build passed; backend TypeScript compile passed.

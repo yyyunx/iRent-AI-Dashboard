@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { randomBytes } from 'crypto';
 import {
   Incident,
   IncidentTimeline,
@@ -36,6 +37,7 @@ const REGION_TEAMS: [string, string, string[]][] = [
 
 export class DatabaseRepository {
   private db: Database.Database;
+  private userHasLegacyEmailColumn = false;
 
   constructor(dbPath: string) {
     const dir = path.dirname(dbPath);
@@ -202,7 +204,7 @@ export class DatabaseRepository {
 
       CREATE TABLE IF NOT EXISTS User (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        username TEXT NOT NULL UNIQUE COLLATE NOCASE,
         password_hash TEXT NOT NULL,
         role TEXT NOT NULL CHECK(role IN ('user', 'admin')),
         is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
@@ -294,6 +296,7 @@ export class DatabaseRepository {
 
     this.addColumnIfMissing('PhotoSubmission', 'user_id', 'INTEGER');
     this.addColumnIfMissing('UploadedPhoto', 'user_id', 'INTEGER');
+    this.migrateUsernames();
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_submission_user ON PhotoSubmission(user_id, id DESC)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_photo_user ON UploadedPhoto(user_id, id DESC)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_photo_submission ON UploadedPhoto(submission_id, id ASC)');
@@ -303,6 +306,71 @@ export class DatabaseRepository {
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_comment_incident ON Comment(incident_id, id ASC)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_report_incident ON MaintenanceReport(incident_id, id ASC)');
     this.db.prepare('DELETE FROM AuthSession WHERE expires_at <= ? OR revoked_at IS NOT NULL').run(new Date().toISOString());
+  }
+
+  private migrateUsernames() {
+    const columns = this.db.prepare('PRAGMA table_info(User)').all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map(column => column.name));
+    this.userHasLegacyEmailColumn = columnNames.has('email');
+    if (!columnNames.has('username')) {
+      this.db.exec('ALTER TABLE User ADD COLUMN username TEXT');
+    }
+
+    const emailProjection = this.userHasLegacyEmailColumn ? ', email' : '';
+    const rows = this.db.prepare(`SELECT id, username${emailProjection} FROM User ORDER BY id`).all() as Array<{
+      id: number;
+      username?: string | null;
+      email?: string | null;
+    }>;
+    const used = new Set<string>();
+    const migrate = this.db.transaction(() => {
+      for (const row of rows) {
+        const source = String(row.username || row.email?.split('@')[0] || '');
+        let base = source.trim().toLowerCase()
+          .replace(/[^a-z0-9_-]+/g, '-')
+          .replace(/^[-_]+|[-_]+$/g, '')
+          .slice(0, 32);
+        if (base.length < 3) base = `user-${row.id}`;
+        let candidate = base;
+        if (used.has(candidate)) {
+          const suffix = `-${row.id}`;
+          candidate = `${base.slice(0, 32 - suffix.length)}${suffix}`;
+        }
+        let sequence = 2;
+        while (used.has(candidate)) {
+          const suffix = `-${row.id}-${sequence}`;
+          candidate = `${base.slice(0, 32 - suffix.length)}${suffix}`;
+          sequence += 1;
+        }
+        used.add(candidate);
+        this.db.prepare('UPDATE User SET username = ? WHERE id = ?').run(candidate, row.id);
+      }
+    });
+    migrate();
+
+    this.db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_user_username_unique ON User(username COLLATE NOCASE);
+      CREATE TRIGGER IF NOT EXISTS trg_user_username_insert
+      BEFORE INSERT ON User
+      WHEN NEW.username IS NULL
+        OR length(NEW.username) < 3
+        OR length(NEW.username) > 32
+        OR NEW.username <> lower(NEW.username)
+        OR NEW.username GLOB '*[^a-z0-9_-]*'
+      BEGIN
+        SELECT RAISE(ABORT, 'invalid username');
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_user_username_update
+      BEFORE UPDATE OF username ON User
+      WHEN NEW.username IS NULL
+        OR length(NEW.username) < 3
+        OR length(NEW.username) > 32
+        OR NEW.username <> lower(NEW.username)
+        OR NEW.username GLOB '*[^a-z0-9_-]*'
+      BEGIN
+        SELECT RAISE(ABORT, 'invalid username');
+      END;
+    `);
   }
 
   private addColumnIfMissing(table: string, column: string, definition: string) {
@@ -662,22 +730,42 @@ export class DatabaseRepository {
   }
 
   // --- Authentication, sessions, and audit ---
-  public createUser(email: string, passwordHash: string, role: UserRole = 'user', isActive = true): UserAccount {
+  public createUser(username: string, passwordHash: string, role: UserRole = 'user', isActive = true): UserAccount {
     const ts = this.nowText();
-    const result = this.db.prepare(`
-      INSERT INTO User(email, password_hash, role, is_active, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?)
-    `).run(email.trim().toLowerCase(), passwordHash, role, isActive ? 1 : 0, ts, ts);
+    const normalizedUsername = username.trim().toLowerCase();
+    const result = this.userHasLegacyEmailColumn
+      ? this.db.prepare(`
+          INSERT INTO User(username, email, password_hash, role, is_active, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          normalizedUsername,
+          `legacy-${randomBytes(12).toString('hex')}@invalid.local`,
+          passwordHash,
+          role,
+          isActive ? 1 : 0,
+          ts,
+          ts
+        )
+      : this.db.prepare(`
+          INSERT INTO User(username, password_hash, role, is_active, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(normalizedUsername, passwordHash, role, isActive ? 1 : 0, ts, ts);
     return this.getUserById(Number(result.lastInsertRowid))!;
   }
 
-  public getUserByEmail(email: string): UserAccount | null {
-    const row = this.db.prepare('SELECT * FROM User WHERE email = ? COLLATE NOCASE').get(email.trim().toLowerCase());
+  public getUserByUsername(username: string): UserAccount | null {
+    const row = this.db.prepare(`
+      SELECT id, username, password_hash, role, is_active, created_at, updated_at, last_login_at
+      FROM User WHERE username = ? COLLATE NOCASE
+    `).get(username.trim().toLowerCase());
     return row ? row as UserAccount : null;
   }
 
   public getUserById(userId: number): UserAccount | null {
-    const row = this.db.prepare('SELECT * FROM User WHERE id = ?').get(userId);
+    const row = this.db.prepare(`
+      SELECT id, username, password_hash, role, is_active, created_at, updated_at, last_login_at
+      FROM User WHERE id = ?
+    `).get(userId);
     return row ? row as UserAccount : null;
   }
 
@@ -709,7 +797,7 @@ export class DatabaseRepository {
 
   public getAuthSession(tokenHash: string): AuthSessionRecord | null {
     const row = this.db.prepare(`
-      SELECT s.*, u.email, u.role, u.is_active
+      SELECT s.*, u.username, u.role, u.is_active
       FROM AuthSession s
       JOIN User u ON u.id = s.user_id
       WHERE s.token_hash = ?

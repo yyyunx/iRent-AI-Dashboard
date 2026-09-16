@@ -28,14 +28,14 @@ async function csrf(agent) {
   return response.body.csrfToken;
 }
 
-async function login(agent, email, password) {
+async function login(agent, username, password) {
   const initialCsrf = await csrf(agent);
   const response = await agent.post('/api/auth/login')
     .set('X-CSRF-Token', initialCsrf)
-    .send({ email, password })
+    .send({ username, password })
     .expect(200);
   assert.ok(response.body.csrfToken);
-  assert.equal(response.body.user.email, email);
+  assert.equal(response.body.user.username, username.trim().toLowerCase());
   return response;
 }
 
@@ -47,28 +47,85 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
 
   const setupRepo = new DatabaseRepository(dbPath);
   const setupAuth = new AuthService(setupRepo);
-  const admin = await setupAuth.createUser('admin@example.com', password, 'admin');
-  const userA = await setupAuth.createUser('user-a@example.com', password, 'user');
-  const userB = await setupAuth.createUser('user-b@example.com', password, 'user');
-  const disabled = await setupAuth.createUser('disabled@example.com', password, 'user', false);
+  const admin = await setupAuth.createUser('admin01', password, 'admin');
+  const userA = await setupAuth.createUser('user-a', password, 'user');
+  const userB = await setupAuth.createUser('user-b', password, 'user');
+  const disabled = await setupAuth.createUser('disabled-user', password, 'user', false);
   setupRepo.close();
 
   const app = createApp(dbPath, uploadDir);
+
+  await t.test('legacy email schema receives an additive username migration without losing users', () => {
+    const legacyPath = path.join(tempDir, 'legacy.db');
+    const legacyDb = new Database(legacyPath);
+    legacyDb.exec(`
+      CREATE TABLE User (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('user', 'admin')),
+        is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_login_at TEXT
+      );
+    `);
+    legacyDb.prepare(`
+      INSERT INTO User(id, email, password_hash, role, is_active, created_at, updated_at)
+      VALUES (7, 'Legacy.Admin@example.com', 'preserved-password-hash', 'admin', 1, '2026-01-01', '2026-01-01')
+    `).run();
+    legacyDb.close();
+
+    const migratedRepo = new DatabaseRepository(legacyPath);
+    const migrated = migratedRepo.getUserByUsername('LEGACY-ADMIN');
+    assert.equal(migrated.id, 7);
+    assert.equal(migrated.username, 'legacy-admin');
+    assert.equal(migrated.password_hash, 'preserved-password-hash');
+    assert.equal(migrated.role, 'admin');
+    migratedRepo.close();
+
+    const checkDb = new Database(legacyPath, { readonly: true });
+    const columns = checkDb.prepare('PRAGMA table_info(User)').all().map(column => column.name);
+    assert.ok(columns.includes('email'));
+    assert.ok(columns.includes('username'));
+    assert.equal(checkDb.prepare('SELECT COUNT(*) AS count FROM User').get().count, 1);
+    checkDb.close();
+  });
+
+  await t.test('fresh User schema uses a unique username and has no email column', () => {
+    const schemaDb = new Database(dbPath, { readonly: true });
+    const columns = schemaDb.prepare('PRAGMA table_info(User)').all();
+    const usernameColumn = columns.find(column => column.name === 'username');
+    assert.ok(usernameColumn);
+    assert.equal(usernameColumn.notnull, 1);
+    assert.equal(columns.some(column => column.name === 'email'), false);
+    const indexes = schemaDb.prepare('PRAGMA index_list(User)').all();
+    assert.ok(indexes.some(index => index.unique === 1));
+    schemaDb.close();
+  });
 
   await t.test('anonymous request to protected API returns 401', async () => {
     await request(app).get('/api/state').expect(401);
   });
 
   const userAAgent = request.agent(app);
-  const userALogin = await login(userAAgent, 'user-a@example.com', password);
+  const userALogin = await login(userAAgent, 'UsEr-A', password);
   let userACsrf = userALogin.body.csrfToken;
 
   await t.test('auth responses expose only safe user fields', async () => {
-    assert.deepEqual(Object.keys(userALogin.body.user).sort(), ['email', 'id', 'role']);
+    assert.deepEqual(Object.keys(userALogin.body.user).sort(), ['id', 'role', 'username']);
+    assert.equal(userALogin.body.user.username, 'user-a');
     assert.equal('sessionToken' in userALogin.body, false);
     assert.equal('password_hash' in userALogin.body.user, false);
     const me = await userAAgent.get('/api/auth/me').expect(200);
-    assert.deepEqual(Object.keys(me.body.user).sort(), ['email', 'id', 'role']);
+    assert.deepEqual(Object.keys(me.body.user).sort(), ['id', 'role', 'username']);
+  });
+
+  await t.test('valid username login is case-insensitive and returns the normalized username', async () => {
+    const agent = request.agent(app);
+    const response = await login(agent, 'USER-B', password);
+    assert.equal(response.body.user.username, 'user-b');
+    assert.equal(response.body.user.role, 'user');
   });
 
   await t.test('user cannot call an admin API or forge a frontend role', async () => {
@@ -125,7 +182,7 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
     await userAAgent.get(`/${ownPhoto.filePath}`).expect(200);
 
     const userBAgent = request.agent(app);
-    await login(userBAgent, 'user-b@example.com', password);
+    await login(userBAgent, 'user-b', password);
     await userBAgent.get(`/api/submissions/${submissionId}`).expect(404);
     await userBAgent.get(`/${ownPhoto.filePath}`).expect(404);
     const userBState = await userBAgent.get('/api/state').expect(200);
@@ -134,7 +191,7 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
 
   await t.test('admin can call an admin API', async () => {
     const agent = request.agent(app);
-    const response = await login(agent, 'admin@example.com', password);
+    const response = await login(agent, 'admin01', password);
     await agent.post('/api/settings/line')
       .set('X-CSRF-Token', response.body.csrfToken)
       .send({ enabled: false })
@@ -143,7 +200,7 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
 
   await t.test('JSON API responses use backend compression when accepted', async () => {
     const agent = request.agent(app);
-    await login(agent, 'admin@example.com', password);
+    await login(agent, 'admin01', password);
     const response = await agent.get('/api/state').set('Accept-Encoding', 'gzip').expect(200);
     assert.equal(response.headers['content-encoding'], 'gzip');
   });
@@ -195,24 +252,41 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
     const token = await csrf(agent);
     const response = await agent.post('/api/auth/login')
       .set('X-CSRF-Token', token)
-      .send({ email: disabled.email, password })
+      .send({ username: disabled.username, password })
       .expect(401);
-    assert.equal(response.body.error, '帳號或密碼錯誤');
+    assert.equal(response.body.error, '使用者名稱或密碼錯誤');
   });
 
-  await t.test('invalid password cannot log in and uses the generic message', async () => {
+  await t.test('wrong username cannot log in and uses the generic message', async () => {
     const agent = request.agent(app);
     const token = await csrf(agent);
     const response = await agent.post('/api/auth/login')
       .set('X-CSRF-Token', token)
-      .send({ email: 'user-a@example.com', password: 'definitely-wrong-password' })
+      .send({ username: 'missing-user', password })
       .expect(401);
-    assert.equal(response.body.error, '帳號或密碼錯誤');
+    assert.equal(response.body.error, '使用者名稱或密碼錯誤');
+  });
+
+  await t.test('wrong password cannot log in and uses the generic message', async () => {
+    const agent = request.agent(app);
+    const token = await csrf(agent);
+    const response = await agent.post('/api/auth/login')
+      .set('X-CSRF-Token', token)
+      .send({ username: 'user-a', password: 'definitely-wrong-password' })
+      .expect(401);
+    assert.equal(response.body.error, '使用者名稱或密碼錯誤');
+  });
+
+  await t.test('duplicate username is rejected case-insensitively', async () => {
+    const repo = new DatabaseRepository(dbPath);
+    const auth = new AuthService(repo);
+    await assert.rejects(auth.createUser('USER-A', password, 'user'), /Username already exists/);
+    repo.close();
   });
 
   await t.test('downgraded or disabled admin immediately loses existing-session access', async () => {
     const agent = request.agent(app);
-    const response = await login(agent, 'admin@example.com', password);
+    const response = await login(agent, 'admin01', password);
     const adminCsrf = response.body.csrfToken;
     const repo = new DatabaseRepository(dbPath);
     repo.setUserRole(admin.id, 'user');
@@ -227,7 +301,7 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
     const repo = new DatabaseRepository(dbPath);
     repo.setUserActive(admin.id, true);
     const agent = request.agent(app);
-    const response = await login(agent, 'admin@example.com', password);
+    const response = await login(agent, 'admin01', password);
     repo.revokeAllAuthSessions(admin.id);
     repo.close();
     await agent.post('/api/settings/line').set('X-CSRF-Token', response.body.csrfToken).send({ enabled: false }).expect(401);
@@ -235,10 +309,10 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
 
   await t.test('successful re-login rotates and revokes the previous session', async () => {
     const agent = request.agent(app);
-    const first = await login(agent, 'user-b@example.com', password);
+    const first = await login(agent, 'user-b', password);
     const oldCookie = cookieValue(first, 'irent_session');
     const nextCsrf = await csrf(agent);
-    await agent.post('/api/auth/login').set('X-CSRF-Token', nextCsrf).send({ email: 'user-b@example.com', password }).expect(200);
+    await agent.post('/api/auth/login').set('X-CSRF-Token', nextCsrf).send({ username: 'USER-B', password }).expect(200);
     await request(app).get('/api/auth/me').set('Cookie', oldCookie).expect(401);
   });
 
@@ -247,10 +321,10 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
     const token = await csrf(agent);
     for (let index = 0; index < 5; index += 1) {
       await agent.post('/api/auth/login').set('X-CSRF-Token', token)
-        .send({ email: 'rate-limit@example.com', password: 'wrong-password-value' }).expect(401);
+        .send({ username: 'rate-limit-user', password: 'wrong-password-value' }).expect(401);
     }
     await agent.post('/api/auth/login').set('X-CSRF-Token', token)
-      .send({ email: 'rate-limit@example.com', password: 'wrong-password-value' }).expect(429);
+      .send({ username: 'rate-limit-user', password: 'wrong-password-value' }).expect(429);
   });
 
   await t.test('audit logs redact forbidden metadata and record login/logout/admin events', () => {
