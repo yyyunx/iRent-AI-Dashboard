@@ -233,6 +233,71 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
     assert.equal(/password_hash|sessionToken|csrfToken|apiKey/.test(serialized), false);
   });
 
+  await t.test('dispatch and LINE drafts require admin confirmation and revalidate current state', async () => {
+    const candidateRepo = new DatabaseRepository(dbPath);
+    const candidates = candidateRepo.getIncidents();
+    const eligibleIds = candidates.filter(item => ['todo', 'waiting_review', 'assigned'].includes(item.status)).map(item => item.id);
+    const anyIncidentId = candidates[0].id;
+    candidateRepo.close();
+    assert.ok(eligibleIds.length >= 2, JSON.stringify(candidates.map(item => [item.id, item.status])));
+    const dispatchIncidentId = eligibleIds[0];
+    const staleIncidentId = eligibleIds[1];
+
+    await userAAgent.post('/api/agent/dispatch-drafts')
+      .set('X-CSRF-Token', userACsrf)
+      .send({ incidentId: dispatchIncidentId })
+      .expect(403);
+
+    const agent = request.agent(app);
+    const response = await login(agent, 'admin01', password);
+    await agent.post('/api/agent/dispatch-drafts')
+      .set('X-CSRF-Token', 'forged-token')
+      .send({ incidentId: dispatchIncidentId })
+      .expect(403);
+
+    const dispatchDraft = await agent.post('/api/agent/dispatch-drafts')
+      .set('X-CSRF-Token', response.body.csrfToken)
+      .send({ incidentId: dispatchIncidentId, recommendedTeam: 'FORGED TEAM' });
+    assert.equal(dispatchDraft.status, 200, JSON.stringify(dispatchDraft.body));
+    assert.match(dispatchDraft.body.draft.id, /^DRAFT-[A-Za-z0-9_-]{16}$/);
+    assert.notEqual(dispatchDraft.body.draft.preview.recommendedTeam, 'FORGED TEAM');
+
+    const confirmed = await agent.post(`/api/agent/action-drafts/${dispatchDraft.body.draft.id}/confirm`)
+      .set('X-CSRF-Token', response.body.csrfToken)
+      .send({ recommendedTeam: 'FORGED TEAM' })
+      .expect(200);
+    assert.equal(confirmed.body.changedResource.data.status, 'assigned');
+    assert.notEqual(confirmed.body.changedResource.data.assignedTeam, 'FORGED TEAM');
+    await agent.post(`/api/agent/action-drafts/${dispatchDraft.body.draft.id}/confirm`)
+      .set('X-CSRF-Token', response.body.csrfToken)
+      .send({})
+      .expect(409);
+
+    const staleDraft = await agent.post('/api/agent/dispatch-drafts')
+      .set('X-CSRF-Token', response.body.csrfToken)
+      .send({ incidentId: staleIncidentId })
+      .expect(200);
+    const stateRepo = new DatabaseRepository(dbPath);
+    stateRepo.updateIncidentStatusAndAssignee(staleIncidentId, 'in_progress', '現場小隊');
+    stateRepo.close();
+    await agent.post(`/api/agent/action-drafts/${staleDraft.body.draft.id}/confirm`)
+      .set('X-CSRF-Token', response.body.csrfToken)
+      .send({})
+      .expect(409);
+
+    const lineDraft = await agent.post('/api/agent/line-drafts')
+      .set('X-CSRF-Token', response.body.csrfToken)
+      .send({ incidentId: anyIncidentId, style: 'urgent', message: 'FORGED MESSAGE' })
+      .expect(200);
+    assert.match(lineDraft.body.draft.preview.message, new RegExp(anyIncidentId));
+    assert.equal(lineDraft.body.draft.preview.message.includes('FORGED MESSAGE'), false);
+    const lineConfirmed = await agent.post(`/api/agent/action-drafts/${lineDraft.body.draft.id}/confirm`)
+      .set('X-CSRF-Token', response.body.csrfToken)
+      .send({})
+      .expect(200);
+    assert.equal(lineConfirmed.body.minimalSummary.action, 'line');
+  });
+
   await t.test('JSON API responses use backend compression when accepted', async () => {
     const agent = request.agent(app);
     await login(agent, 'admin01', password);

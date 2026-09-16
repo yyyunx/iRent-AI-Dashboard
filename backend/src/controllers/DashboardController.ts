@@ -192,6 +192,35 @@ export class DashboardController {
     res.json({ ok: true, history: this.service.getAgentTaskHistory(limit) });
   };
 
+  public createDispatchDraft = (req: Request, res: Response) => {
+    const result = this.service.createDispatchDraft(String(req.body?.incidentId || ''), req.authUser!.id);
+    if (!result.ok) return res.status(result.status || 400).json(result);
+    this.repo.addAuditLog(req.authUser!.id, 'CREATE_AGENT_DRAFT', 'incident', result.draft!.incidentId, { draftType: 'dispatch', draftId: result.draft!.id });
+    res.json(result);
+  };
+
+  public createLineDraft = (req: Request, res: Response) => {
+    const result = this.service.createLineDraft(String(req.body?.incidentId || ''), String(req.body?.style || 'standard'), req.authUser!.id);
+    if (!result.ok) return res.status(result.status || 400).json(result);
+    this.repo.addAuditLog(req.authUser!.id, 'CREATE_AGENT_DRAFT', 'incident', result.draft!.incidentId, { draftType: 'line', draftId: result.draft!.id });
+    res.json(result);
+  };
+
+  public confirmAgentActionDraft = async (req: Request, res: Response) => {
+    try {
+      const result = await this.service.confirmAgentActionDraft(String(req.params.draftId || ''));
+      if (!result.ok) return res.status(result.status || 400).json(result);
+      this.repo.addAuditLog(req.authUser!.id, 'CONFIRM_AGENT_DRAFT', 'incident', result.incident!.id, { draftId: req.params.draftId, action: result.action });
+      res.json({
+        ok: true,
+        changedResource: { type: 'incident', data: result.incident },
+        minimalSummary: { action: result.action, draftId: req.params.draftId, queueStatus: result.queueStatus }
+      });
+    } catch (e: any) {
+      res.status(500).json({ ok: false, error: e.message || 'Failed to confirm draft' });
+    }
+  };
+
   public sendLineTest = async (req: Request, res: Response) => {
     try {
       const status = this.service.queueLineTest(String(req.body?.message || ''));

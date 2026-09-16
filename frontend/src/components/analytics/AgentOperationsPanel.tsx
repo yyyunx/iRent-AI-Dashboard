@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, BrainCircuit, Clock3, Route, ShieldAlert } from 'lucide-react';
+import { useApp } from '../../context/AppContext';
 
 interface AgentOperations {
   generatedAt: string;
@@ -41,9 +42,41 @@ interface AgentTask {
 }
 
 const AgentOperationsPanel: React.FC = () => {
+  const { apiPost, showToast } = useApp();
   const [operations, setOperations] = useState<AgentOperations | null>(null);
   const [history, setHistory] = useState<AgentTask[]>([]);
   const [error, setError] = useState('');
+  const [drafts, setDrafts] = useState<Record<string, { id: string; type: 'dispatch' | 'line'; incidentId: string; preview: any }>>({});
+  const [busyKey, setBusyKey] = useState('');
+
+  const createDraft = async (type: 'dispatch' | 'line', incidentId: string) => {
+    const key = `${type}:${incidentId}`;
+    setBusyKey(key);
+    try {
+      const result = await apiPost(type === 'dispatch' ? '/api/agent/dispatch-drafts' : '/api/agent/line-drafts', {
+        incidentId,
+        ...(type === 'line' ? { style: 'urgent' } : {})
+      });
+      setDrafts(items => ({ ...items, [key]: result.draft }));
+    } finally {
+      setBusyKey('');
+    }
+  };
+
+  const confirmDraft = async (draft: { id: string; type: 'dispatch' | 'line'; incidentId: string }) => {
+    const label = draft.type === 'dispatch' ? '執行派工' : '將 LINE 訊息加入發送佇列';
+    if (!window.confirm(`請再次確認：${label}？後端會重新驗證案件狀態。`)) return;
+    const key = `${draft.type}:${draft.incidentId}`;
+    setBusyKey(key);
+    try {
+      await apiPost(`/api/agent/action-drafts/${encodeURIComponent(draft.id)}/confirm`, {});
+      setDrafts(items => Object.fromEntries(Object.entries(items).filter(([itemKey]) => itemKey !== key)));
+      showToast('已完成管理員確認', draft.type === 'dispatch' ? '派工已執行。' : 'LINE 通知已送入佇列。');
+      await load();
+    } finally {
+      setBusyKey('');
+    }
+  };
 
   const load = useCallback(async () => {
     try {
@@ -84,7 +117,11 @@ const AgentOperationsPanel: React.FC = () => {
       </div>
       <div className="agent-operations__grid">
         <section><h3>SLA 預警</h3>{operations.slaAlerts.length ? operations.slaAlerts.slice(0, 5).map(item => <div className={`agent-operation-row is-${item.urgency}`} key={item.incidentId}><strong>{item.plate}</strong><span>{item.reasons.join('、')}</span><small>{item.incidentId}</small></div>) : <p>目前沒有逾時或近期預約風險。</p>}</section>
-        <section><h3>派工草稿</h3>{operations.dispatchDraft.length ? operations.dispatchDraft.slice(0, 5).map(item => <div className="agent-operation-row" key={item.incidentId}><strong>{item.recommendedTeam}</strong><span>{item.plate} · {item.station} · {item.reason}</span><small>草稿</small></div>) : <p>目前沒有待派工案件。</p>}</section>
+        <section><h3>派工與 LINE 草稿</h3>{operations.dispatchDraft.length ? operations.dispatchDraft.slice(0, 5).map(item => {
+          const dispatchDraft = drafts[`dispatch:${item.incidentId}`];
+          const lineDraft = drafts[`line:${item.incidentId}`];
+          return <div className="agent-operation-row agent-operation-row--actions" key={item.incidentId}><strong>{item.recommendedTeam}</strong><span>{item.plate} · {item.station} · {item.reason}{lineDraft && <em>{lineDraft.preview.message}</em>}</span><span className="agent-draft-actions">{dispatchDraft ? <button type="button" disabled={busyKey !== ''} onClick={() => void confirmDraft(dispatchDraft)}>確認派工</button> : <button type="button" disabled={busyKey !== ''} onClick={() => void createDraft('dispatch', item.incidentId)}>派工草稿</button>}{lineDraft ? <button type="button" disabled={busyKey !== ''} onClick={() => void confirmDraft(lineDraft)}>確認 LINE</button> : <button type="button" disabled={busyKey !== ''} onClick={() => void createDraft('line', item.incidentId)}>LINE 草稿</button>}</span></div>;
+        }) : <p>目前沒有待派工案件。</p>}</section>
         <section><h3>群聚證據</h3>{operations.clusters.length ? operations.clusters.slice(0, 5).map(item => <div className="agent-operation-row" key={`${item.dimension}-${item.key}`}><strong>{item.key}</strong><span>{item.evidence}</span><small>{item.dimension}</small></div>) : <p>目前資料不足以形成群聚。</p>}</section>
       </div>
       <div className="agent-operations__history"><h3>持久化 Agent 任務歷史</h3>{history.length ? history.map(item => <article key={item.id}><time>{new Date(item.createdAt).toLocaleString('zh-TW')}</time><strong>{item.promptSummary}</strong><span>{item.status === 'completed' ? item.resultSummary : '執行失敗（已記錄，不含敏感內容）'}</span></article>) : <p>尚無 Agent 查詢紀錄。</p>}</div>

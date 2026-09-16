@@ -174,7 +174,7 @@ export class DashboardService {
     }).slice(0, 20);
 
     const dispatchDraft = active
-      .filter(item => ['todo', 'waiting_review'].includes(item.status))
+      .filter(item => ['todo', 'waiting_review', 'assigned'].includes(item.status))
       .map(item => {
         const score = this.calculateScore(item);
         const [recommendedTeam, region] = this.repo.assignTeam(item.station);
@@ -263,6 +263,102 @@ export class DashboardService {
       model: result?.model || this.aiAgent.getConfig().model,
       status
     });
+  }
+
+  public createDispatchDraft(incidentId: string, userId: number) {
+    const incident = this.repo.getIncidentById(incidentId);
+    if (!incident) return { status: 404, ok: false, error: 'Incident not found' };
+    if (!['todo', 'waiting_review', 'assigned'].includes(incident.status)) {
+      return { status: 409, ok: false, error: 'Incident is no longer eligible for dispatch' };
+    }
+    const [recommendedTeam, region] = this.repo.assignTeam(incident.station);
+    const draft = this.repo.createAgentActionDraft({
+      id: this.createOpaqueId('DRAFT'),
+      draftType: 'dispatch',
+      incidentId,
+      payload: { recommendedTeam, region, score: this.calculateScore(incident) },
+      createdBy: userId,
+      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString()
+    });
+    return {
+      ok: true,
+      draft: {
+        id: draft.id,
+        type: draft.draft_type,
+        incidentId: draft.incident_id,
+        preview: JSON.parse(draft.payload_json),
+        status: draft.status,
+        expiresAt: draft.expires_at
+      }
+    };
+  }
+
+  public createLineDraft(incidentId: string, style: string, userId: number) {
+    const incident = this.repo.getIncidentById(incidentId);
+    if (!incident) return { status: 404, ok: false, error: 'Incident not found' };
+    const safeStyle = ['urgent', 'standard', 'completed'].includes(style) ? style : 'standard';
+    const response = dbRowToIncidentResponse({ ...incident, score: this.calculateScore(incident) });
+    const heading = safeStyle === 'urgent' ? '緊急營運通知' : safeStyle === 'completed' ? '維修完成通知' : '案件進度通知';
+    const message = [
+      `【${heading}】`,
+      `案件：${response.id}`,
+      `車輛：${response.plate}`,
+      `站點：${response.station}`,
+      `事件：${response.label}`,
+      `狀態：${response.status}`,
+      `下一筆預約：${response.nextBooking} 分鐘`
+    ].join('\n').slice(0, 1000);
+    const draft = this.repo.createAgentActionDraft({
+      id: this.createOpaqueId('DRAFT'),
+      draftType: 'line',
+      incidentId,
+      payload: { style: safeStyle, message },
+      createdBy: userId,
+      expiresAt: new Date(Date.now() + 10 * 60_000).toISOString()
+    });
+    return {
+      ok: true,
+      draft: {
+        id: draft.id,
+        type: draft.draft_type,
+        incidentId: draft.incident_id,
+        preview: JSON.parse(draft.payload_json),
+        status: draft.status,
+        expiresAt: draft.expires_at
+      }
+    };
+  }
+
+  public async confirmAgentActionDraft(draftId: string) {
+    const draft = this.repo.getAgentActionDraft(draftId);
+    if (!draft) return { status: 404, ok: false, error: 'Draft not found' };
+    if (draft.status !== 'pending') return { status: 409, ok: false, error: 'Draft has already been processed' };
+    if (draft.expires_at <= new Date().toISOString()) {
+      this.repo.finishAgentActionDraft(draftId, 'expired');
+      return { status: 409, ok: false, error: 'Draft has expired' };
+    }
+    const incident = this.repo.getIncidentById(draft.incident_id);
+    if (!incident) return { status: 404, ok: false, error: 'Incident not found' };
+    if (draft.draft_type === 'dispatch' && !['todo', 'waiting_review', 'assigned'].includes(incident.status)) {
+      return { status: 409, ok: false, error: 'Incident state changed; create a new draft' };
+    }
+    if (!this.repo.claimAgentActionDraft(draftId)) return { status: 409, ok: false, error: 'Draft has already been processed' };
+
+    try {
+      if (draft.draft_type === 'dispatch') {
+        const result = await this.handleAction({ action: 'dispatch', incidentId: draft.incident_id });
+        if (!result.ok) throw new Error(result.error || 'Dispatch failed');
+        this.repo.finishAgentActionDraft(draftId, 'confirmed');
+        return { ok: true, action: 'dispatch', incident: result.incident };
+      }
+      const payload = JSON.parse(draft.payload_json);
+      const queueStatus = this.notifyLine(draft.incident_id, `agent_${payload.style}`, String(payload.message));
+      this.repo.finishAgentActionDraft(draftId, 'confirmed');
+      return { ok: true, action: 'line', queueStatus, incident: dbRowToIncidentResponse(incident) };
+    } catch (error) {
+      this.repo.finishAgentActionDraft(draftId, 'failed');
+      throw error;
+    }
   }
 
   public runAiAgent(prompt: string) {

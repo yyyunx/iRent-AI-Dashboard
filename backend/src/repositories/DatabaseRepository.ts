@@ -251,6 +251,21 @@ export class DatabaseRepository {
       );
       CREATE INDEX IF NOT EXISTS idx_agent_task_history_time ON AgentTaskHistory(created_at DESC, id DESC);
       CREATE INDEX IF NOT EXISTS idx_agent_task_history_user ON AgentTaskHistory(user_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS AgentActionDraft (
+        id TEXT PRIMARY KEY,
+        draft_type TEXT NOT NULL CHECK(draft_type IN ('dispatch', 'line')),
+        incident_id TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_by INTEGER,
+        status TEXT NOT NULL CHECK(status IN ('pending', 'processing', 'confirmed', 'failed', 'expired')),
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        confirmed_at TEXT,
+        FOREIGN KEY (incident_id) REFERENCES Incident(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES User(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_action_draft_status ON AgentActionDraft(status, expires_at);
     `);
 
     this.migrateDb();
@@ -890,6 +905,41 @@ export class DatabaseRepository {
       ORDER BY h.created_at DESC, h.id DESC
       LIMIT ?
     `).all(safeLimit) as any[];
+  }
+
+  public createAgentActionDraft(input: {
+    id: string;
+    draftType: 'dispatch' | 'line';
+    incidentId: string;
+    payload: Record<string, unknown>;
+    createdBy: number;
+    expiresAt: string;
+  }) {
+    const createdAt = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO AgentActionDraft(id, draft_type, incident_id, payload_json, created_by, status, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+    `).run(input.id, input.draftType, input.incidentId, JSON.stringify(input.payload), input.createdBy, input.expiresAt, createdAt);
+    return this.getAgentActionDraft(input.id);
+  }
+
+  public getAgentActionDraft(id: string) {
+    return this.db.prepare('SELECT * FROM AgentActionDraft WHERE id = ?').get(id) as any;
+  }
+
+  public claimAgentActionDraft(id: string): boolean {
+    const result = this.db.prepare(`
+      UPDATE AgentActionDraft SET status = 'processing'
+      WHERE id = ? AND status = 'pending' AND expires_at > ?
+    `).run(id, new Date().toISOString());
+    return result.changes === 1;
+  }
+
+  public finishAgentActionDraft(id: string, status: 'confirmed' | 'failed' | 'expired') {
+    this.db.prepare(`
+      UPDATE AgentActionDraft SET status = ?, confirmed_at = CASE WHEN ? = 'confirmed' THEN ? ELSE confirmed_at END
+      WHERE id = ?
+    `).run(status, status, new Date().toISOString(), id);
   }
 
   public close() {
