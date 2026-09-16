@@ -7,6 +7,7 @@ import DamageHotspotCard from '../../components/analytics/DamageHotspotCard';
 import FleetHealthCard from '../../components/analytics/FleetHealthCard';
 import AgentDispatchCard from '../../components/analytics/AgentDispatchCard';
 import AgentOperationsPanel from '../../components/analytics/AgentOperationsPanel';
+import PhotoComparisonCard from '../../components/analytics/PhotoComparisonCard';
 
 const Analytics: React.FC = () => {
   const { state } = useApp();
@@ -23,6 +24,7 @@ const Analytics: React.FC = () => {
       <AgentHero state={state} onOpenTasks={openTasks} requestedCommand={command} />
       <AgentInsightGrid state={state} onPrompt={runPrompt} onOpenTasks={openTasks} />
       <AgentOperationsPanel />
+      <PhotoComparisonCard photos={state?.uploadedPhotos || []} />
       <section className="intelligence-grid" aria-label="AI Operations Intelligence">
         <DamageHotspotCard hotspots={state?.damageHotspots || []} />
         <FleetHealthCard incidents={state?.incidents || []} />

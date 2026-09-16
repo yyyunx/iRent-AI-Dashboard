@@ -9,6 +9,15 @@ export interface AiAgentAnswer {
   evidence: string;
 }
 
+export interface VisionReview {
+  comparisonType: 'new_damage' | 'existing_damage' | 'dirt' | 'quality_issue' | 'no_material_change' | 'uncertain';
+  decision: 'pass' | 'needs_more_evidence' | 'human_review';
+  confidence: number;
+  summary: string;
+  suspectedRegions: Array<{ label: string; description: string }>;
+  evidence: string[];
+}
+
 export class AiAgentService {
   constructor(private repo: DatabaseRepository, private secretFile: string) {}
 
@@ -110,6 +119,66 @@ export class AiAgentService {
           evidence: '依據目前後端提供的 Incident、車損熱點與營運指標。'
         }
       };
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  public async analyzeImages(prompt: string, images: Array<{ label: string; dataUrl: string }>): Promise<{ review: VisionReview; model: string }> {
+    const apiKey = process.env.OPENAI_API_KEY?.trim() || this.readDashboardKey();
+    const model = process.env.OPENAI_MODEL?.trim() || this.repo.getSetting('openAiModel', 'gpt-5-mini');
+    if (!apiKey) throw new Error('OPENAI_API_KEY_NOT_CONFIGURED');
+    if (!images.length || images.length > 2) throw new Error('One or two validated images are required');
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 30_000);
+    try {
+      const response = await fetch('https://api.openai.com/v1/responses', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model,
+          store: false,
+          max_output_tokens: 900,
+          instructions: [
+            '你是 iRent 車況照片覆核助理，只描述照片中可見證據。',
+            '無法確認同角度、畫質不足、差異不明或信心低於 90 時，decision 必須是 human_review 或 needs_more_evidence。',
+            '不得判定責任歸屬、不得建議自動求償、不得聲稱已完成營運動作。'
+          ].join('\n'),
+          text: {
+            format: {
+              type: 'json_schema', name: 'irent_vision_review', strict: true,
+              schema: {
+                type: 'object', additionalProperties: false,
+                properties: {
+                  comparisonType: { type: 'string', enum: ['new_damage', 'existing_damage', 'dirt', 'quality_issue', 'no_material_change', 'uncertain'] },
+                  decision: { type: 'string', enum: ['pass', 'needs_more_evidence', 'human_review'] },
+                  confidence: { type: 'integer', minimum: 0, maximum: 100 },
+                  summary: { type: 'string' },
+                  suspectedRegions: { type: 'array', items: { type: 'object', additionalProperties: false, properties: { label: { type: 'string' }, description: { type: 'string' } }, required: ['label', 'description'] } },
+                  evidence: { type: 'array', items: { type: 'string' } }
+                },
+                required: ['comparisonType', 'decision', 'confidence', 'summary', 'suspectedRegions', 'evidence']
+              }
+            }
+          },
+          input: [{
+            role: 'user',
+            content: [
+              { type: 'input_text', text: prompt },
+              ...images.flatMap(image => [{ type: 'input_text', text: image.label }, { type: 'input_image', image_url: image.dataUrl }])
+            ]
+          }]
+        })
+      });
+      const payload = await response.json() as any;
+      if (!response.ok) throw new Error(payload?.error?.message || `OpenAI API request failed (${response.status})`);
+      const outputText = (payload.output || []).flatMap((item: any) => item.content || [])
+        .filter((item: any) => item.type === 'output_text').map((item: any) => item.text).join('\n').trim();
+      const review = JSON.parse(outputText) as VisionReview;
+      if (review.confidence < 90 && review.decision === 'pass') review.decision = 'human_review';
+      return { review, model };
     } finally {
       clearTimeout(timeout);
     }

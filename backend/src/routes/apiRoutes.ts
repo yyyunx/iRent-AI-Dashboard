@@ -29,6 +29,7 @@ export function createApiRouter(controller: DashboardController, authController:
   router.get('/agent/history', roleRequired('admin'), controller.getAgentTaskHistory);
   router.post('/agent/sop-query', roleRequired('admin'), csrfProtection, controller.querySop);
   router.post('/agent/audit-query', roleRequired('admin'), csrfProtection, controller.queryAuditLogs);
+  router.post('/agent/photo-compare', roleRequired('admin'), csrfProtection, controller.compareIncidentPhotos);
   router.post('/agent/dispatch-drafts', roleRequired('admin'), csrfProtection, controller.createDispatchDraft);
   router.post('/agent/line-drafts', roleRequired('admin'), csrfProtection, controller.createLineDraft);
   router.post('/agent/action-drafts/:draftId/confirm', roleRequired('admin'), csrfProtection, controller.confirmAgentActionDraft);

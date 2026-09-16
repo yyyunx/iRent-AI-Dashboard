@@ -209,6 +209,21 @@ export class DashboardController {
     res.json({ ok: true, ...result });
   };
 
+  public compareIncidentPhotos = async (req: Request, res: Response) => {
+    try {
+      const beforePhotoId = String(req.body?.beforePhotoId || '');
+      const afterPhotoId = String(req.body?.afterPhotoId || '');
+      const result = await this.service.compareIncidentPhotos(beforePhotoId, afterPhotoId);
+      if (!result.ok || !('review' in result)) return res.status(result.status || 400).json(result);
+      this.service.recordAgentTask(req.authUser!.id, `Compare photos ${beforePhotoId} and ${afterPhotoId}`, { answer: { title: 'Photo comparison', insight: result.review.summary, recommendation: result.review.decision } }, 'completed', 'photo_comparison');
+      this.repo.addAuditLog(req.authUser!.id, 'AI_PHOTO_COMPARE', 'photo', afterPhotoId, { beforePhotoId, decision: result.review.decision, confidence: result.review.confidence });
+      res.json(result);
+    } catch (e: any) {
+      if (e.message === 'OPENAI_API_KEY_NOT_CONFIGURED') return res.status(400).json({ ok: false, error: '尚未設定 OpenAI API Key，請先前往系統設定。' });
+      res.status(502).json({ ok: false, error: e.name === 'AbortError' ? 'AI 回應逾時，請稍後再試。' : (e.message || 'Photo comparison failed') });
+    }
+  };
+
   public createDispatchDraft = (req: Request, res: Response) => {
     const result = this.service.createDispatchDraft(String(req.body?.incidentId || ''), req.authUser!.id);
     if (!result.ok) return res.status(result.status || 400).json(result);

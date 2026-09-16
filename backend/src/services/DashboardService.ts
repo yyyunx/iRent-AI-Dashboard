@@ -320,6 +320,37 @@ export class DashboardService {
     };
   }
 
+  private localImageDataUrl(filePath: string) {
+    const filename = path.basename(filePath);
+    const resolved = path.resolve(this.uploadDir, filename);
+    if (path.dirname(resolved) !== path.resolve(this.uploadDir)) throw new Error('Photo path is outside upload storage');
+    const stats = fs.statSync(resolved);
+    if (!stats.isFile() || stats.size <= 0 || stats.size > 10 * 1024 * 1024) throw new Error('Photo file is unavailable or too large');
+    const extension = path.extname(filename).toLowerCase();
+    const mime = extension === '.png' ? 'image/png' : extension === '.webp' ? 'image/webp' : extension === '.jpg' || extension === '.jpeg' ? 'image/jpeg' : '';
+    if (!mime) throw new Error('Photo file type is not supported');
+    return `data:${mime};base64,${fs.readFileSync(resolved).toString('base64')}`;
+  }
+
+  public async compareIncidentPhotos(beforePhotoId: string, afterPhotoId: string) {
+    if (!beforePhotoId || !afterPhotoId || beforePhotoId === afterPhotoId) {
+      return { status: 400, ok: false, error: 'Two different photo IDs are required' };
+    }
+    const before = this.repo.getUploadedPhotoById(beforePhotoId);
+    const after = this.repo.getUploadedPhotoById(afterPhotoId);
+    if (!before?.file_path || !after?.file_path) return { status: 404, ok: false, error: 'Photo not found' };
+    if (before.plate !== after.plate) return { status: 409, ok: false, error: 'Photos must belong to the same vehicle' };
+    if (before.slot !== after.slot) return { status: 409, ok: false, error: 'Photos must use the same camera slot' };
+    const result = await this.aiAgent.analyzeImages(
+      `比較同一車輛 ${before.plate}、同一拍攝位置 ${before.slot} 的前後照片，區分舊傷、新傷、髒污與照片品質問題。低信心一律人工覆核。`,
+      [
+        { label: `較早照片 (${before.phase})`, dataUrl: this.localImageDataUrl(before.file_path) },
+        { label: `較晚照片 (${after.phase})`, dataUrl: this.localImageDataUrl(after.file_path) }
+      ]
+    );
+    return { ok: true, ...result, photoIds: [beforePhotoId, afterPhotoId] };
+  }
+
   public createDispatchDraft(incidentId: string, userId: number) {
     const incident = this.repo.getIncidentById(incidentId);
     if (!incident) return { status: 404, ok: false, error: 'Incident not found' };
@@ -760,7 +791,7 @@ export class DashboardService {
   }
 
   // --- Operations Actions ---
-  private runAiReview(note: string, photoPath: string) {
+  private async runAiReview(incident: Incident, note: string, photoPath: string) {
     const text = (note || "").toLowerCase();
     const failWords = ["fail", "異常", "未完成", "仍有", "不通過", "髒", "破損"];
     const hasFail = failWords.some(word => text.includes(word));
@@ -779,11 +810,32 @@ export class DashboardService {
         summary: "AI Review needs a completion photo before it can safely close this incident."
       };
     }
-    return {
-      result: "pass",
-      confidence: 94,
-      summary: "AI Review matched the uploaded completion photo with the incident context and found no remaining blocker."
-    };
+    try {
+      const sourcePhoto = incident.source_submission_id
+        ? this.repo.getUploadedPhotosBySubmission(incident.source_submission_id).find(photo => Boolean(photo.file_path))
+        : undefined;
+      const images = [
+        ...(sourcePhoto?.file_path ? [{ label: `原 Incident 照片：${incident.label}`, dataUrl: this.localImageDataUrl(sourcePhoto.file_path) }] : []),
+        { label: '維修完工照片', dataUrl: this.localImageDataUrl(photoPath) }
+      ].slice(-2);
+      const result = await this.aiAgent.analyzeImages(
+        `覆核 Incident ${incident.id}（${incident.label}）的維修完工照片。維修備註：${note || '未提供'}。檢查是否對應原損傷位置、備註是否一致及是否仍有未處理項目。`,
+        images
+      );
+      return {
+        result: result.review.decision,
+        confidence: result.review.confidence,
+        summary: `${result.review.summary}${result.review.suspectedRegions.length ? ` 可疑區域：${result.review.suspectedRegions.map(region => region.label).join('、')}` : ''}`
+      };
+    } catch (error: any) {
+      return {
+        result: 'human_review',
+        confidence: 0,
+        summary: error.message === 'OPENAI_API_KEY_NOT_CONFIGURED'
+          ? 'Vision model is not configured. Human confirmation is required.'
+          : 'Vision review could not be completed safely. Human confirmation is required.'
+      };
+    }
   }
 
   public async handleAction(payload: any) {
@@ -867,7 +919,7 @@ export class DashboardService {
         savedPath = await this.savePhotoFile(photoId, photoPayload.name || "report.jpg", photoPayload.data || "");
       }
 
-      const review = this.runAiReview(note, savedPath);
+      const review = await this.runAiReview(incident, note, savedPath);
 
       // Insert maintenance report
       this.repo.insertMaintenanceReport({
@@ -890,20 +942,7 @@ export class DashboardService {
 
       this.repo.addTimeline(incidentId, "maintenance_report", "Team Upload", note || "Completion photo uploaded");
 
-      if (review.result === "pass" && review.confidence >= 90) {
-        // Auto close incident
-        this.repo.updateIncidentStatusAndAssignee(incidentId, "resolved", "人工確認結案", {
-          severity: "low",
-          auto_closed: 1,
-          manual_review_required: 0,
-          resolved_at: this.repo.nowText()
-        });
-        this.repo.updateDispatchTaskStatus(incidentId, "done");
-        this.repo.addTimeline(incidentId, "ai_review_passed", "AI Review Passed", `Confidence ${review.confidence}%`);
-        this.repo.addTimeline(incidentId, "auto_closed", "Incident Auto Closed", "AI review passed");
-      } else {
-        this.repo.addTimeline(incidentId, "ai_review_pending", "AI Review Needs Manual Check", `${review.result} / Confidence ${review.confidence}%`);
-      }
+      this.repo.addTimeline(incidentId, "ai_review_pending", "AI Review Needs Manual Check", `${review.result} / Confidence ${review.confidence}%`);
 
       const updated = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!);
       this.notifyLine(incidentId, "maintenance_report", this.getLineMessage(updated, "maintenance_report", note || review.result));

@@ -348,6 +348,64 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
     }
   });
 
+  await t.test('vision comparison uses database photo IDs and keeps completion review under human control', async () => {
+    await userAAgent.post('/api/agent/photo-compare').set('X-CSRF-Token', userACsrf)
+      .send({ beforePhotoId: 'PHOTO-A', afterPhotoId: 'PHOTO-B' }).expect(403);
+
+    const photoRepo = new DatabaseRepository(dbPath);
+    const sourcePhoto = photoRepo.getUploadedPhotos().find(photo => Boolean(photo.file_path));
+    assert.ok(sourcePhoto);
+    photoRepo.insertUploadedPhoto({
+      photo_id: 'PHOTO-COMPARE-AFTER', submission_id: sourcePhoto.submission_id, rental_id: sourcePhoto.rental_id,
+      plate: sourcePhoto.plate, phase: 'return', slot: sourcePhoto.slot, filename: sourcePhoto.filename,
+      file_path: sourcePhoto.file_path, quality_passed: 1, is_blur: 0, plate_visible: 1,
+      angle_valid: 1, distance_valid: 1, ai_result_json: '{}', user_id: sourcePhoto.user_id
+    });
+    const reviewIncident = photoRepo.getIncidents().find(item => item.status === 'assigned');
+    assert.ok(reviewIncident);
+    photoRepo.close();
+
+    const originalFetch = global.fetch;
+    const originalKey = process.env.OPENAI_API_KEY;
+    const capturedBodies = [];
+    process.env.OPENAI_API_KEY = 'test-only-key';
+    global.fetch = async (_url, options) => {
+      capturedBodies.push(JSON.parse(options.body));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ output: [{ content: [{ type: 'output_text', text: JSON.stringify({
+          comparisonType: 'no_material_change', decision: 'pass', confidence: 96,
+          summary: '同一位置未見明顯殘留損傷。', suspectedRegions: [], evidence: ['同角度區域外觀一致']
+        }) }] }] })
+      };
+    };
+    try {
+      const agent = request.agent(app);
+      const response = await login(agent, 'admin01', password);
+      await agent.post('/api/agent/photo-compare').set('X-CSRF-Token', response.body.csrfToken)
+        .send({ beforePhotoId: '../../.env', afterPhotoId: 'PHOTO-COMPARE-AFTER' }).expect(404);
+      const comparison = await agent.post('/api/agent/photo-compare').set('X-CSRF-Token', response.body.csrfToken)
+        .send({ beforePhotoId: sourcePhoto.photo_id, afterPhotoId: 'PHOTO-COMPARE-AFTER', filePath: '../../.env' }).expect(200);
+      assert.equal(comparison.body.review.decision, 'pass');
+      const comparisonContent = capturedBodies[0].input[0].content;
+      assert.equal(comparisonContent.filter(item => item.type === 'input_image').length, 2);
+      assert.equal(capturedBodies[0].store, false);
+      assert.equal(capturedBodies[0].text.format.name, 'irent_vision_review');
+
+      const maintenance = await agent.post('/api/action').set('X-CSRF-Token', response.body.csrfToken)
+        .send({ action: 'maintenance_report', incidentId: reviewIncident.id, note: '已完成修復', photo: { name: 'complete.png', data: VALID_PNG } })
+        .expect(200);
+      assert.equal(maintenance.body.changedResource.data.status, 'waiting_review');
+      assert.equal(maintenance.body.changedResource.data.manualReviewRequired, true);
+      assert.equal(maintenance.body.changedResource.data.autoClosed, false);
+      assert.equal(maintenance.body.changedResource.data.aiReviewResult, 'pass');
+    } finally {
+      global.fetch = originalFetch;
+      process.env.OPENAI_API_KEY = originalKey;
+    }
+  });
+
   await t.test('JSON API responses use backend compression when accepted', async () => {
     const agent = request.agent(app);
     await login(agent, 'admin01', password);
