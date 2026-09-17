@@ -1,5 +1,6 @@
 .git
 node_modules
+.pnpm-store
 frontend/node_modules
 backend/node_modules
 frontend/dist
@@ -12,6 +13,7 @@ best.pt
 *.pth
 *.onnx
 outputs/uploads
+outputs/*.db
 outputs/__pycache__
 *.db-journal
 *.db-wal

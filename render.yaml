@@ -12,12 +12,20 @@ services:
         value: /var/data/irent_ops.db
       - key: UPLOAD_DIR
         value: /var/data/uploads
+      - key: SESSION_TTL_SECONDS
+        value: 28800
+      - key: COOKIE_SAME_SITE
+        value: Lax
       - key: LINE_CHANNEL_ACCESS_TOKEN
         sync: false
       - key: LINE_CHANNEL_SECRET
         sync: false
       - key: LINE_TARGET_ID
         sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GEMINI_MODEL
+        value: gemini-3.8-flash
     disk:
       name: irent-ops-data
       mountPath: /var/data

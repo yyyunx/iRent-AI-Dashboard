@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { useAuth } from './AuthContext';
 
 export interface Incident {
   id: string;
@@ -109,7 +110,7 @@ export interface AppState {
     targetSource: 'environment' | 'dashboard';
   };
   aiConfig: {
-    provider: 'openai';
+    provider: 'google-gemini';
     model: string;
     keyConfigured: boolean;
     keySource: 'environment' | 'dashboard';
@@ -134,8 +135,6 @@ interface AppContextType {
   loadError: string | null;
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
-  currentRole: 'customer' | 'operator' | null;
-  setCurrentRole: (role: 'customer' | 'operator' | null) => void;
   toastStack: Toast[];
   showToast: (title: string, text: string) => void;
   removeToast: (id: string) => void;
@@ -148,18 +147,26 @@ interface AppContextType {
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
+const STATE_POLL_INTERVAL_MS = 15_000;
+
+function replaceOrPrepend<T>(items: T[], value: T, key: (item: T) => string): T[] {
+  const index = items.findIndex(item => key(item) === key(value));
+  if (index < 0) return [value, ...items];
+  return items.map((item, itemIndex) => itemIndex === index ? value : item);
+}
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const { isAuthenticated, isLoading: authLoading, getCsrfToken, refreshUser } = useAuth();
   const [state, setState] = useState<AppState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [currentRole, setCurrentRole] = useState<'customer' | 'operator' | null>(null);
   const [toastStack, setToastStack] = useState<Toast[]>([]);
   const [developerMode, setDeveloperModeState] = useState<boolean>(() => {
     return localStorage.getItem('developerMode') === 'true';
   });
   const [searchQuery, setSearchQuery] = useState('');
+  const stateRequestInFlight = useRef(false);
 
   const setDeveloperMode = useCallback((val: boolean) => {
     setDeveloperModeState(val);
@@ -179,9 +186,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, []);
 
   const refreshState = useCallback(async () => {
+    if (stateRequestInFlight.current) return false;
+    if (!isAuthenticated) {
+      setState(null);
+      setIsLoading(false);
+      return false;
+    }
+    stateRequestInFlight.current = true;
     try {
-      const response = await fetch('/api/state');
+      const response = await fetch('/api/state', { credentials: 'include', cache: 'no-store' });
       if (!response.ok) {
+        if (response.status === 401) await refreshUser();
         setLoadError('資料載入失敗，請稍後再試。');
         return false;
       }
@@ -199,38 +214,70 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setLoadError('無法連線至營運資料服務。');
       return false;
     } finally {
+      stateRequestInFlight.current = false;
       setIsLoading(false);
     }
-  }, [selectedId]);
+  }, [selectedId, isAuthenticated, refreshUser]);
 
   const apiPost = useCallback(async (path: string, payload: any) => {
     try {
+      const csrfToken = await getCsrfToken();
       const response = await fetch(path, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        credentials: 'include',
+        headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
         body: JSON.stringify(payload)
       });
       const data = await response.json();
       if (!response.ok || data.ok === false) {
+        if (response.status === 401 || (response.status === 403 && data.error === 'Forbidden')) await refreshUser();
         throw new Error(data.error || "API request failed");
       }
       if (data.state) {
         setState(data.state);
+      } else if (data.changedResource) {
+        setState(previous => {
+          if (!previous) return previous;
+          const changed = data.changedResource;
+          if (changed.type === 'incident' && changed.data) {
+            return { ...previous, incidents: replaceOrPrepend(previous.incidents, changed.data as Incident, item => item.id) };
+          }
+          if (changed.type === 'photo' && changed.data) {
+            return { ...previous, uploadedPhotos: replaceOrPrepend(previous.uploadedPhotos, changed.data as UploadedPhoto, item => item.photoId) };
+          }
+          if (changed.type === 'submission' && changed.data) {
+            const payload = changed.data as { submission: PhotoSubmission; photos: UploadedPhoto[]; incidents: Incident[] };
+            return {
+              ...previous,
+              photoSubmissions: replaceOrPrepend(previous.photoSubmissions, payload.submission, item => item.submissionId),
+              uploadedPhotos: payload.photos.reduce((items, photo) => replaceOrPrepend(items, photo, item => item.photoId), previous.uploadedPhotos),
+              incidents: payload.incidents.reduce((items, incident) => replaceOrPrepend(items, incident, item => item.id), previous.incidents)
+            };
+          }
+          if (changed.type === 'settings' && changed.data) {
+            return changed.key === 'line'
+              ? { ...previous, lineConfig: changed.data }
+              : changed.key === 'ai' ? { ...previous, aiConfig: changed.data } : previous;
+          }
+          return previous;
+        });
       }
       return data;
     } catch (error: any) {
       showToast("連線錯誤", error.message || "請求失敗");
       throw error;
     }
-  }, [showToast]);
+  }, [showToast, getCsrfToken, refreshUser]);
 
   // Initial load
   useEffect(() => {
-    refreshState();
-  }, []);
+    if (!authLoading) void refreshState();
+  }, [authLoading, isAuthenticated, refreshState]);
 
-  // Poll state every 3 seconds if active (unless inputs are active, handled in the components)
+  // Full state includes incidents, photos and notifications. Poll only while this tab is visible,
+  // at a rate suitable for the operations dashboard; mutations still update state immediately.
   useEffect(() => {
+    if (!isAuthenticated) return;
     const interval = setInterval(() => {
       // Check if user is typing in common inputs to prevent layout refresh jitter
       const activeEl = document.activeElement?.id;
@@ -238,11 +285,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       if (activeEl && typingInputs.includes(activeEl)) {
         return;
       }
-      refreshState();
-    }, 3000);
+      if (document.visibilityState === 'visible') void refreshState();
+    }, STATE_POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [refreshState]);
+  }, [refreshState, isAuthenticated]);
 
   return (
     <AppContext.Provider
@@ -252,8 +299,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         loadError,
         selectedId,
         setSelectedId,
-        currentRole,
-        setCurrentRole,
         toastStack,
         showToast,
         removeToast,

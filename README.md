@@ -4,6 +4,13 @@
 
 ## 核心功能
 
+### Authentication 與權限
+
+- 單一登入入口，角色由 SQLite `User` 資料決定。
+- 密碼使用 Argon2id；瀏覽器只保存 HttpOnly opaque session cookie，資料庫只保存 session token 的 SHA-256 hash。
+- 所有寫入 API 使用 CSRF token；admin API 由後端 RBAC 強制檢查。
+- 一般使用者只能查看自己的送件、照片與相關 Incident；管理員可操作完整營運流程。
+
 ### 租車人端
 
 - 選擇取車或還車驗車流程
@@ -101,7 +108,7 @@ iRent/
 │   │   │       ├── Tasks.tsx         派工任務
 │   │   │       ├── Notifications.tsx 通知紀錄
 │   │   │       ├── Analytics.tsx     分析指標
-│   │   │       └── Settings.tsx      LINE Bot／OpenAI Agent 設定
+│   │   │       └── Settings.tsx      LINE Bot／Google Gemini Agent 設定
 │   │   ├── utils/
 │   │   │   └── blurDetection.ts      瀏覽器端照片模糊度檢查
 │   │   ├── App.tsx                   路由與頁面 lazy loading
@@ -116,7 +123,7 @@ iRent/
 │   │   │   └── apiRoutes.ts          REST API 路由
 │   │   ├── services/
 │   │   │   ├── DashboardService.ts   驗車、案件、派工與 AI 複檢
-│   │   │   ├── AiAgentService.ts     OpenAI Responses API 營運分析
+│   │   │   ├── AiAgentService.ts     Google Gemini API 營運分析
 │   │   │   ├── NotificationService.ts LINE 佇列與 Webhook 驗證
 │   │   │   └── PerformanceMonitor.ts API 效能量測
 │   │   ├── repositories/
@@ -157,14 +164,16 @@ iRent/
 LINE_CHANNEL_ACCESS_TOKEN=
 LINE_CHANNEL_SECRET=
 LINE_TARGET_ID=
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-5-mini
 LINE_WEBHOOK_ENABLED=false
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-5-mini
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.8-flash
 ```
 
 `LINE_TARGET_ID` 不是 LINE 顯示名稱或群組名稱，必須是由 LINE webhook event 取得的 `userId`、`groupId` 或 `roomId`。
+
+## Google Gemini Agent 設定
+
+在 [Google AI Studio API Keys](https://aistudio.google.com/api-keys) 建立 Gemini API Key。正式環境請透過伺服器端 `GEMINI_API_KEY` 注入；本機也可由 admin 的「系統設定」頁保存到 Git 忽略的 server-side secret file。API Key 不會回傳給瀏覽器，也不得提交到 Git。舊的 OpenAI key 不會被讀取或自動轉移。
 
 ## 本機開發
 
@@ -206,11 +215,15 @@ pnpm start
 | POST | `/api/incidents` | 手動建立案件並回傳最新儀表板狀態 |
 | POST | `/api/action` | 執行案件操作；支援 `dispatch`、`comment`、`in_progress`、`resolve`、`reopen`、`maintenance_report` |
 | POST | `/api/settings/line` | 更新 LINE 目標 ID、顯示名稱及通知啟用狀態；Access Token 不寫入資料庫 |
-| POST | `/api/settings/ai` | 更新 OpenAI 模型與伺服器端 API Key；Key 不會在 state 回傳 |
-| POST | `/api/agent/query` | 以目前 Incident、熱點及營運指標呼叫 OpenAI Responses API |
+| POST | `/api/settings/ai` | 更新 Gemini 模型與伺服器端 API Key；Key 不會在 state 回傳 |
+| POST | `/api/agent/query` | 以目前 Incident、熱點及營運指標呼叫 Google Gemini API |
 | POST | `/api/notifications/line/test` | 將 LINE 測試訊息加入非同步發送佇列 |
 | POST | `/api/line/webhook` | 驗證 LINE Webhook 簽章並擷取通知目標 ID |
 | GET | `/uploads/:filename` | 讀取已上傳的驗車或完工照片 |
+| GET | `/api/auth/csrf` | 取得 CSRF token 並設定 CSRF cookie |
+| POST | `/api/auth/login` | 建立並 rotate server-side session |
+| POST | `/api/auth/logout` | 撤銷 server-side session 並清除 cookie |
+| GET | `/api/auth/me` | 取得目前登入者的安全欄位 |
 
 `POST /api/action` 的共用請求欄位為 `incidentId` 與 `action`。`comment` 另接受 `author`、`body`；`maintenance_report` 另接受 `note` 與 Base64 編碼的 `photo`。所有 JSON／Base64 請求的大小上限為 50 MB。
 
@@ -220,17 +233,47 @@ pnpm start
 NODE_ENV=production
 DATABASE_PATH=/var/data/irent_ops.db
 UPLOAD_DIR=/var/data/uploads
+SESSION_TTL_SECONDS=28800
+COOKIE_SAME_SITE=Lax
+CORS_ORIGIN=https://your-frontend.example
 LINE_CHANNEL_ACCESS_TOKEN=
 LINE_CHANNEL_SECRET=
 LINE_TARGET_ID=
 ```
 
+正式環境的 session cookie 會自動加上 `HttpOnly` 與 `Secure`。同網域部署維持 `SameSite=Lax`；只有確實跨站且全程 HTTPS 時才設定 `COOKIE_SAME_SITE=None`，並將允許的前端 origin 寫入 `CORS_ORIGIN`。
+
+首次建立管理員時，以一次性環境變數執行：
+
+```powershell
+$env:ADMIN_INITIAL_PASSWORD='use-a-strong-one-time-value'
+pnpm create-admin --username admin01
+Remove-Item Env:ADMIN_INITIAL_PASSWORD
+```
+
+CLI 只允許在尚無 admin 時建立第一個管理員；若 admin 已存在，命令會拒絕執行且不會重設密碼。不要把上述值寫入 `.env` 或提交到 Git。
+
+一般使用者以相同的一次性方式建立：
+
+```powershell
+$env:USER_INITIAL_PASSWORD='use-a-strong-one-time-value'
+pnpm create-user --username user01
+Remove-Item Env:USER_INITIAL_PASSWORD
+```
+
+使用者名稱會正規化為小寫，須為 3～32 個英文字母、數字、底線或減號；同 username 已存在時不會覆寫密碼。舊版 email schema 會以 additive migration 增加 username，登入不再使用 email。
+
 ## 現有限制
 
-- 照片車損與髒污辨識目前仍是 Hackathon 用的模擬邏輯；營運分析 Agent 已使用 OpenAI Responses API。
+- 新提交照片的初步車損／髒污偵測仍是 Hackathon 模擬邏輯；租前／租後比較與維修完工覆核已可使用 Gemini vision，且只讀取後端已驗證保存、同車牌同拍攝位置的 photo ID。
+- Analytics 另提供不依賴模型猜測的交班摘要、SLA 逾時／近期預約預警、Incident 群聚證據與智慧派工草稿。這些端點僅限 admin，派工草稿目前不會直接寫入資料庫。
+- Agent 查詢歷史會保存使用者、模型、狀態與截斷去敏後的問題／結果摘要，不保存 API key、session/CSRF token 或完整敏感 prompt。
+- 智慧派工與 LINE 通知採兩段式流程：先產生 10 分鐘有效的後端草稿，管理員預覽後再次確認；確認時後端重新驗證 RBAC、CSRF、草稿狀態與 Incident 最新狀態，且不採信前端提交的小隊或訊息內容。
+- SOP 助理只檢索後端內建、具來源章節的 SOP 條目；Audit 自然語言查詢只解析預先允許的時間／事件條件並掃描有上限的紀錄，不會讓模型產生或執行 SQL。
+- Vision 回覆為結構化的「通過／需補件／人工確認」、信心度、可疑區域與證據；維修完工即使高信心通過也維持 `waiting_review`，由管理員決定後續結案，不會自動求償。
 - LINE Messaging API 已完成整合；Token、Secret 與 Target ID 僅能設定於部署環境。
-- 尚未提供登入、角色權限與完整稽核機制。
-- SQLite 與本機照片儲存適合展示，不適合多執行個體正式環境。
+- 登入限流目前位於單一 backend process；水平擴充前需移至 shared store。
+- SQLite 與本機照片儲存以 Render persistent disk、單一 backend instance 為前提；備份與監控限制請見 `SECURITY-CAVEATS.md`。
 
 ## LINE 官方文件
 

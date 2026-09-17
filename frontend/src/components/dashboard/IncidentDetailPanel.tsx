@@ -32,6 +32,7 @@ interface IncidentDetailPanelProps {
   onReportSubmit: (event: React.FormEvent) => void;
   reportSubmitting: boolean;
   onAction: (action: string) => void;
+  canManage: boolean;
 }
 
 const STATUS_TEXT: Record<string, string> = {
@@ -80,14 +81,14 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
 
       <dl className="metadata-list">{metadata.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
 
-      <div className="detail-actions">
+      {props.canManage && <div className="detail-actions">
         <button type="button" className="btn btn-primary" onClick={() => props.onAction('dispatch')}><RefreshCw size={16} />派發任務</button>
         <button type="button" className="btn btn-secondary" onClick={() => setToolsOpen(value => !value)}><MessageSquareText size={16} />完整處理工具<ChevronDown size={15} className={toolsOpen ? 'rotate-180' : ''} /></button>
-      </div>
+      </div>}
 
       <div className={`ai-review-strip ai-review-strip--${reviewResult}`}><Sparkles size={17} /><div><strong>AI Review · {reviewResult}</strong><span>{incident.aiReviewSummary || latestReport?.ai_review_summary || '等待小隊上傳完工照片後自動複檢。'}</span></div>{reviewConfidence !== null && reviewConfidence !== undefined && <b>{reviewConfidence}%</b>}</div>
 
-      {toolsOpen && (
+      {props.canManage && toolsOpen && (
         <div className="detail-tools">
           <div className="tool-actions">
             <button type="button" onClick={() => props.onAction('in_progress')}><Play size={15} />任務開始</button>
@@ -110,7 +111,7 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
         </div>
       )}
 
-      {completed && <div className="closed-notice"><CheckCircle2 size={16} />此 Incident 已完成處理，可透過完整處理工具重新開案。</div>}
+      {completed && <div className="closed-notice"><CheckCircle2 size={16} />{props.canManage ? '此 Incident 已完成處理，可透過完整處理工具重新開案。' : '此 Incident 已完成處理。'}</div>}
 
       {preview && <div className="image-preview" role="dialog" aria-modal="true" onClick={() => setPreview(null)}><button type="button" aria-label="關閉圖片預覽"><X size={20} /></button><img src={preview} alt={`${incident.plate} 大圖預覽`} onClick={event => event.stopPropagation()} /></div>}
     </section>

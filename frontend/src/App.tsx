@@ -1,10 +1,13 @@
 import React, { Suspense } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastContainer } from './components/ToastContainer';
+import { ProtectedRoute, RequireRole } from './components/auth/ProtectedRoute';
 
 // Lazy loading views for page chunking
-const RoleSelection = React.lazy(() => import('./pages/RoleSelection'));
+const Login = React.lazy(() => import('./pages/Login'));
+const Forbidden = React.lazy(() => import('./pages/Forbidden'));
 const CustomerFlow = React.lazy(() => import('./pages/CustomerFlow'));
 const OperatorLayout = React.lazy(() => import('./pages/operator/OperatorLayout'));
 const Dashboard = React.lazy(() => import('./pages/operator/Dashboard'));
@@ -23,34 +26,44 @@ const PageLoader: React.FC = () => (
   </div>
 );
 
+const HomeRedirect: React.FC = () => {
+  const { user, isLoading } = useAuth();
+  if (isLoading) return <PageLoader />;
+  return <Navigate to={user ? '/operator/dashboard' : '/login'} replace />;
+};
+
 const App: React.FC = () => {
   return (
-    <AppProvider>
-      <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+    <AuthProvider>
+      <AppProvider>
+        <BrowserRouter>
         <Suspense fallback={<PageLoader />}>
           <Routes>
-            <Route path="/" element={<RoleSelection />} />
-            <Route path="/customer" element={<CustomerFlow />} />
+            <Route path="/" element={<HomeRedirect />} />
+            <Route path="/login" element={<Login />} />
+            <Route path="/403" element={<Forbidden />} />
+            <Route path="/customer" element={<ProtectedRoute><CustomerFlow /></ProtectedRoute>} />
             
             {/* Operator sub-pages */}
-            <Route path="/operator" element={<OperatorLayout />}>
+            <Route path="/operator" element={<ProtectedRoute><OperatorLayout /></ProtectedRoute>}>
               <Route index element={<Navigate to="/operator/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="submissions" element={<Submissions />} />
-              <Route path="map" element={<MapView />} />
-              <Route path="tasks" element={<Tasks />} />
-              <Route path="notifications" element={<Notifications />} />
-              <Route path="analytics" element={<Analytics />} />
-              <Route path="settings" element={<Settings />} />
+              <Route path="map" element={<RequireRole roles={['admin']}><MapView /></RequireRole>} />
+              <Route path="tasks" element={<RequireRole roles={['admin']}><Tasks /></RequireRole>} />
+              <Route path="notifications" element={<RequireRole roles={['admin']}><Notifications /></RequireRole>} />
+              <Route path="analytics" element={<RequireRole roles={['admin']}><Analytics /></RequireRole>} />
+              <Route path="settings" element={<RequireRole roles={['admin']}><Settings /></RequireRole>} />
             </Route>
 
             {/* Catch-all redirect */}
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Suspense>
-      </BrowserRouter>
-      <ToastContainer />
-    </AppProvider>
+        </BrowserRouter>
+        <ToastContainer />
+      </AppProvider>
+    </AuthProvider>
   );
 };
 

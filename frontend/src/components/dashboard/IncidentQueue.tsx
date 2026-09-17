@@ -19,6 +19,7 @@ interface IncidentQueueProps {
   onTypeChange: (value: string) => void;
   tab: QueueTab;
   onTabChange: (value: QueueTab) => void;
+  canManage: boolean;
 }
 
 const isDone = (incident: Incident) => ['resolved', 'done'].includes(incident.status);
@@ -89,9 +90,9 @@ const IncidentQueue: React.FC<IncidentQueueProps> = props => {
               </div>
               <div className="incident-row__time">{item.nextBooking <= 30 ? `${item.nextBooking} 分鐘內` : STATUS_TEXT[item.status]}</div>
               <span className={`priority-badge priority-badge--${tone}`}>{item.severity === 'high' ? '高優先' : item.severity === 'medium' ? '中優先' : '正常'}</span>
-              <button type="button" className={primaryAction ? 'row-action' : 'row-action row-action--secondary'} disabled={props.dispatchingId === item.id} onClick={event => { event.stopPropagation(); done ? props.onSelect(item.id) : props.onDispatch(item); }}>
+              {props.canManage && <button type="button" className={primaryAction ? 'row-action' : 'row-action row-action--secondary'} disabled={props.dispatchingId === item.id} onClick={event => { event.stopPropagation(); done ? props.onSelect(item.id) : props.onDispatch(item); }}>
                 {props.dispatchingId === item.id ? '處理中…' : done ? '查看詳情' : '派發任務'} <ChevronRight size={15} />
-              </button>
+              </button>}
             </article>
           );
         })}

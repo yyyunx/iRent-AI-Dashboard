@@ -4,6 +4,7 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+.pnpm-store/
 *.log
 
 # Build outputs
@@ -43,6 +44,7 @@ outputs/__pycache__/
 outputs/uploads/
 outputs/secrets/
 backend/outputs/secrets/
+.tmp-ui-smoke/
 
 
 # Model weights

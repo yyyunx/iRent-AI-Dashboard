@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   BarChart3,
@@ -15,37 +15,40 @@ import {
   X
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
+import { AuthRole, useAuth } from '../../context/AuthContext';
 import DashboardHeader from '../../components/dashboard/DashboardHeader';
 
 const OperatorLayout: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { state, apiPost, showToast, setCurrentRole, searchQuery, setSearchQuery } = useApp();
+  const { state, apiPost, showToast, searchQuery, setSearchQuery } = useApp();
+  const auth = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [creating, setCreating] = useState(false);
   const isDashboard = location.pathname === '/operator/dashboard';
 
-  const now = useMemo(() => new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hour12: false }).format(new Date()), [location.pathname]);
+  const now = new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hour12: false }).format(new Date());
   const openCount = state?.incidents.filter(item => !['resolved', 'done'].includes(item.status)).length || 0;
 
+  const allRoles: AuthRole[] = ['user', 'admin'];
+  const adminOnly: AuthRole[] = ['admin'];
   const navItems = [
-    { path: '/operator/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { path: '/operator/submissions', label: '提交紀錄', icon: History, badge: state?.photoSubmissions?.length },
-    { path: '/operator/map', label: '地圖模式', icon: MapPin },
-    { path: '/operator/tasks', label: '任務派發', icon: SquareKanban, badge: openCount },
-    { path: '/operator/notifications', label: 'LINE 通知', icon: BellRing, line: true },
-    { path: '/operator/analytics', label: '營運分析', icon: BarChart3, textBadge: '30d' },
-    { path: '/operator/settings', label: '系統設定', icon: Settings }
-  ];
+    { path: '/operator/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: allRoles },
+    { path: '/customer', label: '提交 Incident', icon: History, roles: allRoles },
+    { path: '/operator/submissions', label: '提交紀錄', icon: History, badge: state?.photoSubmissions?.length, roles: allRoles },
+    { path: '/operator/map', label: '地圖模式', icon: MapPin, roles: adminOnly },
+    { path: '/operator/tasks', label: '任務派發', icon: SquareKanban, badge: openCount, roles: adminOnly },
+    { path: '/operator/notifications', label: 'LINE 通知', icon: BellRing, line: true, roles: adminOnly },
+    { path: '/operator/analytics', label: '營運分析', icon: BarChart3, textBadge: '30d', roles: adminOnly },
+    { path: '/operator/settings', label: '系統設定', icon: Settings, roles: adminOnly }
+  ].filter(item => auth.user && item.roles.includes(auth.user.role));
 
   const go = (path: string) => { navigate(path); setMobileOpen(false); };
 
   const createIncident = async () => {
     setCreating(true);
-    const next = 308 + (state?.incidents.length || 0);
     const isDamage = Math.random() > 0.45;
     const incident = {
-      id: `INC-${next}`,
       plate: `NEW-${Math.floor(1000 + Math.random() * 8999)}`,
       station: '板橋車站',
       type: isDamage ? 'damage' : 'cleaning',
@@ -77,17 +80,17 @@ const OperatorLayout: React.FC = () => {
           })}
         </nav>
         <div className="sidebar-spacer" />
-        <button type="button" className="sidebar-user" onClick={() => { setCurrentRole(null); navigate('/'); }}><span className="avatar">iR</span><span><strong>營運管理員</strong><small>控制中心</small></span><LogOut size={16} strokeWidth={1.75} aria-label="切換身分" /></button>
+        <button type="button" className="sidebar-user" onClick={async () => { await auth.logout(); navigate('/login', { replace: true }); }}><span className="avatar">iR</span><span><strong>{auth.user?.username}</strong><small>{auth.user?.role === 'admin' ? '營運管理員' : '一般使用者'}</small></span><LogOut size={16} strokeWidth={1.75} aria-label="登出" /></button>
       </aside>
 
       <main className="ops-main">
         <header className="topbar">
           <button type="button" className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="開啟選單"><Menu size={21} /></button>
           <label className="topbar-search"><Search size={18} /><input value={searchQuery} onChange={event => setSearchQuery(event.target.value)} placeholder="搜尋事件、車號、站點或關鍵字…" aria-label="全域搜尋" /></label>
-          <div className="topbar-actions"><button type="button" className="notification-button" onClick={() => navigate('/operator/notifications')} aria-label="查看 LINE 通知"><Bell size={19} /><span /></button><time>{now}</time><button type="button" className="topbar-settings-btn" onClick={() => navigate('/operator/settings')} aria-label="系統設定" title="系統設定"><Settings size={20} /></button></div>
+          <div className="topbar-actions"><span className="topbar-username">{auth.user?.username}</span>{auth.user?.role === 'admin' && <button type="button" className="notification-button" onClick={() => navigate('/operator/notifications')} aria-label="查看 LINE 通知"><Bell size={19} /><span /></button>}<time>{now}</time>{auth.user?.role === 'admin' && <button type="button" className="topbar-settings-btn" onClick={() => navigate('/operator/settings')} aria-label="系統設定" title="系統設定"><Settings size={20} /></button>}</div>
         </header>
 
-        {isDashboard && <DashboardHeader state={state} onCreateIncident={createIncident} creating={creating} />}
+        {isDashboard && <DashboardHeader state={state} onCreateIncident={createIncident} creating={creating} isAdmin={auth.user?.role === 'admin'} />}
         <div className={isDashboard ? '' : 'page-surface'}><Outlet /></div>
       </main>
     </div>

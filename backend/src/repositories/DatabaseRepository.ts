@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import path from 'path';
 import fs from 'fs';
+import { randomBytes } from 'crypto';
 import {
   Incident,
   IncidentTimeline,
@@ -9,7 +10,10 @@ import {
   Settings,
   MaintenanceReport,
   PhotoSubmission,
-  UploadedPhoto
+  UploadedPhoto,
+  AuthSessionRecord,
+  UserAccount,
+  UserRole
 } from '../models/types';
 
 const SEED_INCIDENTS = [
@@ -33,6 +37,7 @@ const REGION_TEAMS: [string, string, string[]][] = [
 
 export class DatabaseRepository {
   private db: Database.Database;
+  private userHasLegacyEmailColumn = false;
 
   constructor(dbPath: string) {
     const dir = path.dirname(dbPath);
@@ -41,6 +46,11 @@ export class DatabaseRepository {
     }
     this.db = new Database(dbPath);
     this.db.pragma('foreign_keys = ON');
+    // This deployment uses a single backend instance. WAL allows readers to proceed while
+    // a short write is in progress; busy_timeout turns transient SQLite contention into a wait
+    // rather than an immediate "database is locked" response.
+    this.db.pragma('journal_mode = WAL');
+    this.db.pragma('busy_timeout = 5000');
     this.initDb();
   }
 
@@ -71,6 +81,8 @@ export class DatabaseRepository {
         ai_review_summary TEXT,
         manual_review_required INTEGER NOT NULL DEFAULT 0,
         resolved_at TEXT,
+        owner_user_id INTEGER,
+        source_submission_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -164,6 +176,7 @@ export class DatabaseRepository {
         status TEXT NOT NULL,
         overall_status TEXT NOT NULL,
         ai_summary TEXT,
+        user_id INTEGER,
         created_at TEXT NOT NULL
       );
 
@@ -184,9 +197,75 @@ export class DatabaseRepository {
         angle_valid INTEGER NOT NULL DEFAULT 1,
         distance_valid INTEGER NOT NULL DEFAULT 1,
         ai_result_json TEXT,
+        user_id INTEGER,
         created_at TEXT NOT NULL,
         FOREIGN KEY (submission_id) REFERENCES PhotoSubmission(submission_id) ON DELETE SET NULL
       );
+
+      CREATE TABLE IF NOT EXISTS User (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        username TEXT NOT NULL UNIQUE COLLATE NOCASE,
+        password_hash TEXT NOT NULL,
+        role TEXT NOT NULL CHECK(role IN ('user', 'admin')),
+        is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        last_login_at TEXT
+      );
+
+      CREATE TABLE IF NOT EXISTS AuthSession (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER NOT NULL,
+        token_hash TEXT NOT NULL UNIQUE,
+        csrf_token_hash TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        revoked_at TEXT,
+        created_at TEXT NOT NULL,
+        last_seen_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES User(id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS idx_auth_session_user ON AuthSession(user_id, revoked_at, expires_at);
+
+      CREATE TABLE IF NOT EXISTS AuditLog (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        action TEXT NOT NULL,
+        resource_type TEXT,
+        resource_id TEXT,
+        timestamp TEXT NOT NULL,
+        metadata TEXT NOT NULL DEFAULT '{}',
+        FOREIGN KEY (user_id) REFERENCES User(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_audit_log_user_time ON AuditLog(user_id, timestamp DESC);
+
+      CREATE TABLE IF NOT EXISTS AgentTaskHistory (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id INTEGER,
+        task_type TEXT NOT NULL,
+        prompt_summary TEXT NOT NULL,
+        result_summary TEXT NOT NULL,
+        model TEXT,
+        status TEXT NOT NULL CHECK(status IN ('completed', 'failed')),
+        created_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES User(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_task_history_time ON AgentTaskHistory(created_at DESC, id DESC);
+      CREATE INDEX IF NOT EXISTS idx_agent_task_history_user ON AgentTaskHistory(user_id, created_at DESC);
+
+      CREATE TABLE IF NOT EXISTS AgentActionDraft (
+        id TEXT PRIMARY KEY,
+        draft_type TEXT NOT NULL CHECK(draft_type IN ('dispatch', 'line')),
+        incident_id TEXT NOT NULL,
+        payload_json TEXT NOT NULL,
+        created_by INTEGER,
+        status TEXT NOT NULL CHECK(status IN ('pending', 'processing', 'confirmed', 'failed', 'expired')),
+        expires_at TEXT NOT NULL,
+        created_at TEXT NOT NULL,
+        confirmed_at TEXT,
+        FOREIGN KEY (incident_id) REFERENCES Incident(id) ON DELETE CASCADE,
+        FOREIGN KEY (created_by) REFERENCES User(id) ON DELETE SET NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_agent_action_draft_status ON AgentActionDraft(status, expires_at);
     `);
 
     this.migrateDb();
@@ -227,7 +306,9 @@ export class DatabaseRepository {
       ai_review_result: "TEXT",
       ai_review_summary: "TEXT",
       manual_review_required: "INTEGER NOT NULL DEFAULT 0",
-      resolved_at: "TEXT"
+      resolved_at: "TEXT",
+      owner_user_id: "INTEGER",
+      source_submission_id: "TEXT"
     };
 
     for (const [col, def] of Object.entries(migrations)) {
@@ -240,6 +321,91 @@ export class DatabaseRepository {
     const existingReportCols = new Set(reportColumns.map(c => c.name));
     if (!existingReportCols.has("ai_review_summary")) {
       this.db.exec("ALTER TABLE MaintenanceReport ADD COLUMN ai_review_summary TEXT");
+    }
+
+    this.addColumnIfMissing('PhotoSubmission', 'user_id', 'INTEGER');
+    this.addColumnIfMissing('UploadedPhoto', 'user_id', 'INTEGER');
+    this.migrateUsernames();
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_submission_user ON PhotoSubmission(user_id, id DESC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_photo_user ON UploadedPhoto(user_id, id DESC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_photo_submission ON UploadedPhoto(submission_id, id ASC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_photo_path ON UploadedPhoto(file_path)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_incident_owner ON Incident(owner_user_id, created_at DESC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_timeline_incident ON IncidentTimeline(incident_id, id ASC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_comment_incident ON Comment(incident_id, id ASC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_report_incident ON MaintenanceReport(incident_id, id ASC)');
+    this.db.prepare('DELETE FROM AuthSession WHERE expires_at <= ? OR revoked_at IS NOT NULL').run(new Date().toISOString());
+  }
+
+  private migrateUsernames() {
+    const columns = this.db.prepare('PRAGMA table_info(User)').all() as Array<{ name: string }>;
+    const columnNames = new Set(columns.map(column => column.name));
+    this.userHasLegacyEmailColumn = columnNames.has('email');
+    if (!columnNames.has('username')) {
+      this.db.exec('ALTER TABLE User ADD COLUMN username TEXT');
+    }
+
+    const emailProjection = this.userHasLegacyEmailColumn ? ', email' : '';
+    const rows = this.db.prepare(`SELECT id, username${emailProjection} FROM User ORDER BY id`).all() as Array<{
+      id: number;
+      username?: string | null;
+      email?: string | null;
+    }>;
+    const used = new Set<string>();
+    const migrate = this.db.transaction(() => {
+      for (const row of rows) {
+        const source = String(row.username || row.email?.split('@')[0] || '');
+        let base = source.trim().toLowerCase()
+          .replace(/[^a-z0-9_-]+/g, '-')
+          .replace(/^[-_]+|[-_]+$/g, '')
+          .slice(0, 32);
+        if (base.length < 3) base = `user-${row.id}`;
+        let candidate = base;
+        if (used.has(candidate)) {
+          const suffix = `-${row.id}`;
+          candidate = `${base.slice(0, 32 - suffix.length)}${suffix}`;
+        }
+        let sequence = 2;
+        while (used.has(candidate)) {
+          const suffix = `-${row.id}-${sequence}`;
+          candidate = `${base.slice(0, 32 - suffix.length)}${suffix}`;
+          sequence += 1;
+        }
+        used.add(candidate);
+        this.db.prepare('UPDATE User SET username = ? WHERE id = ?').run(candidate, row.id);
+      }
+    });
+    migrate();
+
+    this.db.exec(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_user_username_unique ON User(username COLLATE NOCASE);
+      CREATE TRIGGER IF NOT EXISTS trg_user_username_insert
+      BEFORE INSERT ON User
+      WHEN NEW.username IS NULL
+        OR length(NEW.username) < 3
+        OR length(NEW.username) > 32
+        OR NEW.username <> lower(NEW.username)
+        OR NEW.username GLOB '*[^a-z0-9_-]*'
+      BEGIN
+        SELECT RAISE(ABORT, 'invalid username');
+      END;
+      CREATE TRIGGER IF NOT EXISTS trg_user_username_update
+      BEFORE UPDATE OF username ON User
+      WHEN NEW.username IS NULL
+        OR length(NEW.username) < 3
+        OR length(NEW.username) > 32
+        OR NEW.username <> lower(NEW.username)
+        OR NEW.username GLOB '*[^a-z0-9_-]*'
+      BEGIN
+        SELECT RAISE(ABORT, 'invalid username');
+      END;
+    `);
+  }
+
+  private addColumnIfMissing(table: string, column: string, definition: string) {
+    const columns = this.db.prepare(`PRAGMA table_info(${table})`).all() as any[];
+    if (!columns.some(item => item.name === column)) {
+      this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
     }
   }
 
@@ -297,6 +463,10 @@ export class DatabaseRepository {
     return this.db.prepare("SELECT * FROM Incident ORDER BY created_at DESC, id DESC").all() as Incident[];
   }
 
+  public getIncidentsForUser(userId: number): Incident[] {
+    return this.db.prepare("SELECT * FROM Incident WHERE owner_user_id = ? ORDER BY created_at DESC, id DESC").all(userId) as Incident[];
+  }
+
   public getIncidentById(id: string): Incident | null {
     const row = this.db.prepare("SELECT * FROM Incident WHERE id = ?").get(id);
     return row ? (row as Incident) : null;
@@ -338,12 +508,16 @@ export class DatabaseRepository {
     return map;
   }
 
-  public getPhotoSubmissions(limit = 50): PhotoSubmission[] {
-    return this.db.prepare("SELECT * FROM PhotoSubmission ORDER BY id DESC LIMIT ?").all(limit) as PhotoSubmission[];
+  public getPhotoSubmissions(limit = 50, offset = 0): PhotoSubmission[] {
+    return this.db.prepare("SELECT * FROM PhotoSubmission ORDER BY id DESC LIMIT ? OFFSET ?").all(limit, offset) as PhotoSubmission[];
   }
 
   public getAllPhotoSubmissions(): PhotoSubmission[] {
     return this.db.prepare("SELECT * FROM PhotoSubmission ORDER BY id DESC").all() as PhotoSubmission[];
+  }
+
+  public getPhotoSubmissionsForUser(userId: number, limit = 50, offset = 0): PhotoSubmission[] {
+    return this.db.prepare("SELECT * FROM PhotoSubmission WHERE user_id = ? ORDER BY id DESC LIMIT ? OFFSET ?").all(userId, limit, offset) as PhotoSubmission[];
   }
 
   public getPhotoSubmissionDetail(submissionId: string): PhotoSubmission | null {
@@ -357,6 +531,32 @@ export class DatabaseRepository {
 
   public getUploadedPhotos(limit = 100): UploadedPhoto[] {
     return this.db.prepare("SELECT * FROM UploadedPhoto ORDER BY id DESC LIMIT ?").all(limit) as UploadedPhoto[];
+  }
+
+  public getUploadedPhotoById(photoId: string): UploadedPhoto | null {
+    const row = this.db.prepare("SELECT * FROM UploadedPhoto WHERE photo_id = ?").get(photoId);
+    return row ? row as UploadedPhoto : null;
+  }
+
+  public getUploadedPhotosForUser(userId: number, limit = 100): UploadedPhoto[] {
+    return this.db.prepare("SELECT * FROM UploadedPhoto WHERE user_id = ? ORDER BY id DESC LIMIT ?").all(userId, limit) as UploadedPhoto[];
+  }
+
+  public userOwnsSubmission(userId: number, submissionId: string): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM PhotoSubmission WHERE submission_id = ? AND user_id = ?").get(submissionId, userId));
+  }
+
+  public userOwnsIncident(userId: number, incidentId: string): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM Incident WHERE id = ? AND owner_user_id = ?").get(incidentId, userId));
+  }
+
+  public userOwnsPhoto(userId: number, photoId: string): boolean {
+    return Boolean(this.db.prepare("SELECT 1 FROM UploadedPhoto WHERE photo_id = ? AND user_id = ?").get(photoId, userId));
+  }
+
+  public getUploadedPhotoByPath(filePath: string): UploadedPhoto | null {
+    const row = this.db.prepare("SELECT * FROM UploadedPhoto WHERE file_path = ?").get(filePath);
+    return row ? row as UploadedPhoto : null;
   }
 
   // --- Write Operations ---
@@ -377,13 +577,13 @@ export class DatabaseRepository {
       INSERT OR REPLACE INTO Incident(
         id, plate, station, type, label, severity, confidence, detected_time,
         next_booking, hot_station, map_x, map_y, assignee, status, score,
-        region, assigned_team, manual_review_required, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
+        region, assigned_team, manual_review_required, owner_user_id, source_submission_id, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
     `).run(
       item.id, item.plate, item.station, item.type, item.label, item.severity,
       item.confidence, item.detected_time || new Date().toLocaleTimeString('zh-TW', { hour12: false }).substring(0, 5),
       item.next_booking ?? 24, item.hot_station ?? 0, item.map_x ?? 50.0, item.map_y ?? 50.0, assignee,
-      status, item.score ?? 0, region, team, ts, ts
+      status, item.score ?? 0, region, team, item.owner_user_id ?? null, item.source_submission_id ?? null, ts, ts
     );
 
     this.addTimeline(item.id!, "ai_detected", "AI Detected", `${item.label} | Confidence ${item.confidence}%`);
@@ -403,7 +603,12 @@ export class DatabaseRepository {
     const setClause = ['status = ?', 'assignee = ?', 'updated_at = ?'];
     const params = [status, assignee, ts];
 
+    const allowedFields = new Set([
+      'assigned_team', 'region', 'manual_review_required', 'severity', 'resolved_at',
+      'auto_closed', 'ai_review_result', 'ai_review_confidence', 'ai_review_summary'
+    ]);
     for (const [key, val] of Object.entries(extraFields)) {
+      if (!allowedFields.has(key)) throw new Error(`Unsupported incident field: ${key}`);
       setClause.push(`${key} = ?`);
       params.push(val);
     }
@@ -465,6 +670,17 @@ export class DatabaseRepository {
     `).all(limit) as any[];
   }
 
+  public recoverStaleLineNotifications(staleAfterSeconds: number): number {
+    const seconds = Math.min(Math.max(Math.floor(staleAfterSeconds), 30), 86_400);
+    const cutoff = new Date(Date.now() - seconds * 1000).toISOString();
+    const result = this.db.prepare(`
+      UPDATE NotificationLog
+      SET status = 'queued', error = 'Recovered after process restart', updated_at = ?
+      WHERE provider = 'line' AND status = 'sending' AND updated_at <= ?
+    `).run(this.nowText(), cutoff);
+    return result.changes;
+  }
+
   public getNotificationStats() {
     return this.db.prepare(`
       SELECT provider, status, COUNT(*) AS count
@@ -497,28 +713,13 @@ export class DatabaseRepository {
     );
   }
 
-  public getIncidentCount(): number {
-    const row = this.db.prepare("SELECT COUNT(*) as count FROM Incident").get() as any;
-    return row ? row.count : 0;
-  }
-
-  public getUploadedPhotoCount(): number {
-    const row = this.db.prepare("SELECT COUNT(*) as count FROM UploadedPhoto").get() as any;
-    return row ? row.count : 0;
-  }
-
-  public getPhotoSubmissionCount(): number {
-    const row = this.db.prepare("SELECT COUNT(*) as count FROM PhotoSubmission").get() as any;
-    return row ? row.count : 0;
-  }
-
   public insertPhotoSubmission(sub: Partial<PhotoSubmission>) {
     this.db.prepare(`
-      INSERT INTO PhotoSubmission(submission_id, rental_id, plate, phase, station, parking_location, status, overall_status, ai_summary, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO PhotoSubmission(submission_id, rental_id, plate, phase, station, parking_location, status, overall_status, ai_summary, user_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       sub.submission_id, sub.rental_id, sub.plate, sub.phase, sub.station || null,
-      sub.parking_location || null, sub.status, sub.overall_status, sub.ai_summary || null, this.nowText()
+      sub.parking_location || null, sub.status, sub.overall_status, sub.ai_summary || null, sub.user_id ?? null, this.nowText()
     );
   }
 
@@ -528,8 +729,8 @@ export class DatabaseRepository {
       INSERT OR REPLACE INTO UploadedPhoto(
         photo_id, submission_id, rental_id, plate, phase, slot, filename, file_path,
         quality_passed, blur_score, is_blur, plate_visible, angle_valid, distance_valid,
-        ai_result_json, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ai_result_json, user_id, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       photo.photo_id,
       photo.submission_id || null,
@@ -546,14 +747,214 @@ export class DatabaseRepository {
       photo.angle_valid ? 1 : 0,
       photo.distance_valid ? 1 : 0,
       photo.ai_result_json || '',
+      photo.user_id ?? null,
       ts
     );
   }
 
-  public updateUploadedPhotoSubmission(photoId: string, submissionId: string, aiResultJson: string) {
+  public updateUploadedPhotoSubmission(photoId: string, submissionId: string, aiResultJson: string, userId?: number) {
     this.db.prepare(`
-      UPDATE UploadedPhoto SET submission_id = ?, ai_result_json = ? WHERE photo_id = ?
-    `).run(submissionId, aiResultJson, photoId);
+      UPDATE UploadedPhoto SET submission_id = ?, ai_result_json = ?, user_id = COALESCE(user_id, ?) WHERE photo_id = ?
+    `).run(submissionId, aiResultJson, userId ?? null, photoId);
+  }
+
+  // --- Authentication, sessions, and audit ---
+  public createUser(username: string, passwordHash: string, role: UserRole = 'user', isActive = true): UserAccount {
+    const ts = this.nowText();
+    const normalizedUsername = username.trim().toLowerCase();
+    const result = this.userHasLegacyEmailColumn
+      ? this.db.prepare(`
+          INSERT INTO User(username, email, password_hash, role, is_active, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(
+          normalizedUsername,
+          `legacy-${randomBytes(12).toString('hex')}@invalid.local`,
+          passwordHash,
+          role,
+          isActive ? 1 : 0,
+          ts,
+          ts
+        )
+      : this.db.prepare(`
+          INSERT INTO User(username, password_hash, role, is_active, created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?)
+        `).run(normalizedUsername, passwordHash, role, isActive ? 1 : 0, ts, ts);
+    return this.getUserById(Number(result.lastInsertRowid))!;
+  }
+
+  public getUserByUsername(username: string): UserAccount | null {
+    const row = this.db.prepare(`
+      SELECT id, username, password_hash, role, is_active, created_at, updated_at, last_login_at
+      FROM User WHERE username = ? COLLATE NOCASE
+    `).get(username.trim().toLowerCase());
+    return row ? row as UserAccount : null;
+  }
+
+  public getUserById(userId: number): UserAccount | null {
+    const row = this.db.prepare(`
+      SELECT id, username, password_hash, role, is_active, created_at, updated_at, last_login_at
+      FROM User WHERE id = ?
+    `).get(userId);
+    return row ? row as UserAccount : null;
+  }
+
+  public countAdmins(): number {
+    const row = this.db.prepare("SELECT COUNT(*) AS count FROM User WHERE role = 'admin'").get() as { count: number };
+    return row.count;
+  }
+
+  public updateUserLastLogin(userId: number) {
+    const ts = this.nowText();
+    this.db.prepare('UPDATE User SET last_login_at = ?, updated_at = ? WHERE id = ?').run(ts, ts, userId);
+  }
+
+  public setUserRole(userId: number, role: UserRole) {
+    this.db.prepare('UPDATE User SET role = ?, updated_at = ? WHERE id = ?').run(role, this.nowText(), userId);
+  }
+
+  public setUserActive(userId: number, active: boolean) {
+    this.db.prepare('UPDATE User SET is_active = ?, updated_at = ? WHERE id = ?').run(active ? 1 : 0, this.nowText(), userId);
+  }
+
+  public createAuthSession(userId: number, tokenHash: string, csrfTokenHash: string, expiresAt: string) {
+    const ts = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO AuthSession(user_id, token_hash, csrf_token_hash, expires_at, created_at, last_seen_at)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(userId, tokenHash, csrfTokenHash, expiresAt, ts, ts);
+  }
+
+  public getAuthSession(tokenHash: string): AuthSessionRecord | null {
+    const row = this.db.prepare(`
+      SELECT s.*, u.username, u.role, u.is_active
+      FROM AuthSession s
+      JOIN User u ON u.id = s.user_id
+      WHERE s.token_hash = ?
+    `).get(tokenHash);
+    return row ? row as AuthSessionRecord : null;
+  }
+
+  public revokeAuthSession(tokenHash: string): boolean {
+    const result = this.db.prepare(`
+      UPDATE AuthSession SET revoked_at = ? WHERE token_hash = ? AND revoked_at IS NULL
+    `).run(new Date().toISOString(), tokenHash);
+    return result.changes > 0;
+  }
+
+  public revokeAllAuthSessions(userId: number): number {
+    const result = this.db.prepare(`
+      UPDATE AuthSession SET revoked_at = ? WHERE user_id = ? AND revoked_at IS NULL
+    `).run(new Date().toISOString(), userId);
+    return result.changes;
+  }
+
+  public touchAuthSession(tokenHash: string) {
+    this.db.prepare('UPDATE AuthSession SET last_seen_at = ? WHERE token_hash = ?').run(new Date().toISOString(), tokenHash);
+  }
+
+  public updateAuthSessionCsrf(tokenHash: string, csrfTokenHash: string) {
+    this.db.prepare('UPDATE AuthSession SET csrf_token_hash = ?, last_seen_at = ? WHERE token_hash = ?')
+      .run(csrfTokenHash, new Date().toISOString(), tokenHash);
+  }
+
+  public deleteExpiredSessions() {
+    this.db.prepare('DELETE FROM AuthSession WHERE expires_at <= ? OR revoked_at IS NOT NULL').run(new Date().toISOString());
+  }
+
+  public addAuditLog(userId: number | null, action: string, resourceType?: string, resourceId?: string, metadata: Record<string, unknown> = {}) {
+    const forbidden = /password|token|secret|authorization|cookie|api.?key/i;
+    const redact = (value: unknown): unknown => {
+      if (Array.isArray(value)) return value.map(redact);
+      if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, item]) => [key, forbidden.test(key) ? '[REDACTED]' : redact(item)]));
+      }
+      return value;
+    };
+    this.db.prepare(`
+      INSERT INTO AuditLog(user_id, action, resource_type, resource_id, timestamp, metadata)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(userId, action, resourceType || null, resourceId || null, new Date().toISOString(), JSON.stringify(redact(metadata)));
+  }
+
+  public getAuditLogs() {
+    return this.db.prepare('SELECT * FROM AuditLog ORDER BY id ASC').all() as any[];
+  }
+
+  public getRecentAuditLogs(limit = 200) {
+    const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 500);
+    return this.db.prepare(`
+      SELECT a.id, a.user_id, a.action, a.resource_type, a.resource_id, a.timestamp, a.metadata, u.username
+      FROM AuditLog a
+      LEFT JOIN User u ON u.id = a.user_id
+      ORDER BY a.timestamp DESC, a.id DESC
+      LIMIT ?
+    `).all(safeLimit) as any[];
+  }
+
+  public addAgentTaskHistory(input: {
+    userId: number | null;
+    taskType: string;
+    promptSummary: string;
+    resultSummary: string;
+    model?: string | null;
+    status: 'completed' | 'failed';
+  }): number {
+    const result = this.db.prepare(`
+      INSERT INTO AgentTaskHistory(user_id, task_type, prompt_summary, result_summary, model, status, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(input.userId, input.taskType, input.promptSummary, input.resultSummary, input.model || null, input.status, new Date().toISOString());
+    return Number(result.lastInsertRowid);
+  }
+
+  public getAgentTaskHistory(limit = 20) {
+    const safeLimit = Math.min(Math.max(Math.floor(limit), 1), 50);
+    return this.db.prepare(`
+      SELECT h.id, h.task_type, h.prompt_summary, h.result_summary, h.model, h.status, h.created_at,
+             u.username
+      FROM AgentTaskHistory h
+      LEFT JOIN User u ON u.id = h.user_id
+      ORDER BY h.created_at DESC, h.id DESC
+      LIMIT ?
+    `).all(safeLimit) as any[];
+  }
+
+  public createAgentActionDraft(input: {
+    id: string;
+    draftType: 'dispatch' | 'line';
+    incidentId: string;
+    payload: Record<string, unknown>;
+    createdBy: number;
+    expiresAt: string;
+  }) {
+    const createdAt = new Date().toISOString();
+    this.db.prepare(`
+      INSERT INTO AgentActionDraft(id, draft_type, incident_id, payload_json, created_by, status, expires_at, created_at)
+      VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)
+    `).run(input.id, input.draftType, input.incidentId, JSON.stringify(input.payload), input.createdBy, input.expiresAt, createdAt);
+    return this.getAgentActionDraft(input.id);
+  }
+
+  public getAgentActionDraft(id: string) {
+    return this.db.prepare('SELECT * FROM AgentActionDraft WHERE id = ?').get(id) as any;
+  }
+
+  public claimAgentActionDraft(id: string): boolean {
+    const result = this.db.prepare(`
+      UPDATE AgentActionDraft SET status = 'processing'
+      WHERE id = ? AND status = 'pending' AND expires_at > ?
+    `).run(id, new Date().toISOString());
+    return result.changes === 1;
+  }
+
+  public finishAgentActionDraft(id: string, status: 'confirmed' | 'failed' | 'expired') {
+    this.db.prepare(`
+      UPDATE AgentActionDraft SET status = ?, confirmed_at = CASE WHEN ? = 'confirmed' THEN ? ELSE confirmed_at END
+      WHERE id = ?
+    `).run(status, status, new Date().toISOString(), id);
+  }
+
+  public close() {
+    this.db.close();
   }
 
   public getMaintenanceReportCount(): number {
