@@ -108,7 +108,7 @@ iRent/
 │   │   │       ├── Tasks.tsx         派工任務
 │   │   │       ├── Notifications.tsx 通知紀錄
 │   │   │       ├── Analytics.tsx     分析指標
-│   │   │       └── Settings.tsx      LINE Bot／OpenAI Agent 設定
+│   │   │       └── Settings.tsx      LINE Bot／Google Gemini Agent 設定
 │   │   ├── utils/
 │   │   │   └── blurDetection.ts      瀏覽器端照片模糊度檢查
 │   │   ├── App.tsx                   路由與頁面 lazy loading
@@ -123,7 +123,7 @@ iRent/
 │   │   │   └── apiRoutes.ts          REST API 路由
 │   │   ├── services/
 │   │   │   ├── DashboardService.ts   驗車、案件、派工與 AI 複檢
-│   │   │   ├── AiAgentService.ts     OpenAI Responses API 營運分析
+│   │   │   ├── AiAgentService.ts     Google Gemini API 營運分析
 │   │   │   ├── NotificationService.ts LINE 佇列與 Webhook 驗證
 │   │   │   └── PerformanceMonitor.ts API 效能量測
 │   │   ├── repositories/
@@ -164,14 +164,16 @@ iRent/
 LINE_CHANNEL_ACCESS_TOKEN=
 LINE_CHANNEL_SECRET=
 LINE_TARGET_ID=
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-5-mini
 LINE_WEBHOOK_ENABLED=false
-OPENAI_API_KEY=
-OPENAI_MODEL=gpt-5-mini
+GEMINI_API_KEY=
+GEMINI_MODEL=gemini-3.8-flash
 ```
 
 `LINE_TARGET_ID` 不是 LINE 顯示名稱或群組名稱，必須是由 LINE webhook event 取得的 `userId`、`groupId` 或 `roomId`。
+
+## Google Gemini Agent 設定
+
+在 [Google AI Studio API Keys](https://aistudio.google.com/api-keys) 建立 Gemini API Key。正式環境請透過伺服器端 `GEMINI_API_KEY` 注入；本機也可由 admin 的「系統設定」頁保存到 Git 忽略的 server-side secret file。API Key 不會回傳給瀏覽器，也不得提交到 Git。舊的 OpenAI key 不會被讀取或自動轉移。
 
 ## 本機開發
 
@@ -213,8 +215,8 @@ pnpm start
 | POST | `/api/incidents` | 手動建立案件並回傳最新儀表板狀態 |
 | POST | `/api/action` | 執行案件操作；支援 `dispatch`、`comment`、`in_progress`、`resolve`、`reopen`、`maintenance_report` |
 | POST | `/api/settings/line` | 更新 LINE 目標 ID、顯示名稱及通知啟用狀態；Access Token 不寫入資料庫 |
-| POST | `/api/settings/ai` | 更新 OpenAI 模型與伺服器端 API Key；Key 不會在 state 回傳 |
-| POST | `/api/agent/query` | 以目前 Incident、熱點及營運指標呼叫 OpenAI Responses API |
+| POST | `/api/settings/ai` | 更新 Gemini 模型與伺服器端 API Key；Key 不會在 state 回傳 |
+| POST | `/api/agent/query` | 以目前 Incident、熱點及營運指標呼叫 Google Gemini API |
 | POST | `/api/notifications/line/test` | 將 LINE 測試訊息加入非同步發送佇列 |
 | POST | `/api/line/webhook` | 驗證 LINE Webhook 簽章並擷取通知目標 ID |
 | GET | `/uploads/:filename` | 讀取已上傳的驗車或完工照片 |
@@ -263,7 +265,7 @@ Remove-Item Env:USER_INITIAL_PASSWORD
 
 ## 現有限制
 
-- 新提交照片的初步車損／髒污偵測仍是 Hackathon 模擬邏輯；租前／租後比較與維修完工覆核已可使用 OpenAI vision，且只讀取後端已驗證保存、同車牌同拍攝位置的 photo ID。
+- 新提交照片的初步車損／髒污偵測仍是 Hackathon 模擬邏輯；租前／租後比較與維修完工覆核已可使用 Gemini vision，且只讀取後端已驗證保存、同車牌同拍攝位置的 photo ID。
 - Analytics 另提供不依賴模型猜測的交班摘要、SLA 逾時／近期預約預警、Incident 群聚證據與智慧派工草稿。這些端點僅限 admin，派工草稿目前不會直接寫入資料庫。
 - Agent 查詢歷史會保存使用者、模型、狀態與截斷去敏後的問題／結果摘要，不保存 API key、session/CSRF token 或完整敏感 prompt。
 - 智慧派工與 LINE 通知採兩段式流程：先產生 10 分鐘有效的後端草稿，管理員預覽後再次確認；確認時後端重新驗證 RBAC、CSRF、草稿狀態與 Incident 最新狀態，且不採信前端提交的小隊或訊息內容。

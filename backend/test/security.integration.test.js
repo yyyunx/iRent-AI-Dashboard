@@ -14,7 +14,7 @@ const { NotificationService } = require('../src/services/NotificationService');
 
 process.env.NODE_ENV = 'test';
 process.env.CORS_ORIGIN = 'http://localhost:5173';
-process.env.OPENAI_API_KEY = '';
+process.env.GEMINI_API_KEY = '';
 const VALID_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAOUlEQVR4nO3WywkAMBBCwaj995wqAjkM7F1Y/LyT7ukdAvWicVEEbaoi2rQGJyazqGLAq9BxX9P1BYyfGAFvvlyBAAAAAElFTkSuQmCC';
 
 function cookieValue(response, name) {
@@ -320,17 +320,21 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
     await agent.get('/api/auth/me').expect(200);
   });
 
-  await t.test('OpenAI operations query requests strict structured output without storage', async () => {
+  await t.test('Gemini operations query uses server-side API key and structured JSON output', async () => {
     const originalFetch = global.fetch;
-    const originalKey = process.env.OPENAI_API_KEY;
+    const originalKey = process.env.GEMINI_API_KEY;
     let requestBody;
-    process.env.OPENAI_API_KEY = 'test-only-key';
-    global.fetch = async (_url, options) => {
+    let requestUrl;
+    let requestHeaders;
+    process.env.GEMINI_API_KEY = 'test-only-key';
+    global.fetch = async (url, options) => {
+      requestUrl = String(url);
+      requestHeaders = options.headers;
       requestBody = JSON.parse(options.body);
       return {
         ok: true,
         status: 200,
-        json: async () => ({ output: [{ content: [{ type: 'output_text', text: JSON.stringify({ title: '摘要', insight: '洞察', recommendation: '建議', evidence: '證據' }) }] }] })
+        json: async () => ({ output_text: JSON.stringify({ title: '摘要', insight: '洞察', recommendation: '建議', evidence: '證據' }) })
       };
     };
     try {
@@ -338,13 +342,15 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
       const response = await login(agent, 'admin01', password);
       await agent.post('/api/agent/query').set('X-CSRF-Token', response.body.csrfToken)
         .send({ prompt: '產生今日摘要' }).expect(200);
-      assert.equal(requestBody.store, false);
-      assert.equal(requestBody.text.format.type, 'json_schema');
-      assert.equal(requestBody.text.format.strict, true);
-      assert.deepEqual(requestBody.text.format.schema.required, ['title', 'insight', 'recommendation', 'evidence']);
+      assert.match(requestUrl, /generativelanguage\.googleapis\.com\/v1beta\/interactions$/);
+      assert.equal(requestHeaders['x-goog-api-key'], 'test-only-key');
+      assert.equal(requestBody.model, 'gemini-3.8-flash');
+      assert.equal(requestBody.response_format.mime_type, 'application/json');
+      assert.deepEqual(requestBody.response_format.schema.required, ['title', 'insight', 'recommendation', 'evidence']);
+      assert.equal(JSON.stringify(requestBody).includes('test-only-key'), false);
     } finally {
       global.fetch = originalFetch;
-      process.env.OPENAI_API_KEY = originalKey;
+      process.env.GEMINI_API_KEY = originalKey;
     }
   });
 
@@ -366,18 +372,18 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
     photoRepo.close();
 
     const originalFetch = global.fetch;
-    const originalKey = process.env.OPENAI_API_KEY;
+    const originalKey = process.env.GEMINI_API_KEY;
     const capturedBodies = [];
-    process.env.OPENAI_API_KEY = 'test-only-key';
+    process.env.GEMINI_API_KEY = 'test-only-key';
     global.fetch = async (_url, options) => {
       capturedBodies.push(JSON.parse(options.body));
       return {
         ok: true,
         status: 200,
-        json: async () => ({ output: [{ content: [{ type: 'output_text', text: JSON.stringify({
+        json: async () => ({ output_text: JSON.stringify({
           comparisonType: 'no_material_change', decision: 'pass', confidence: 96,
           summary: '同一位置未見明顯殘留損傷。', suspectedRegions: [], evidence: ['同角度區域外觀一致']
-        }) }] }] })
+        }) })
       };
     };
     try {
@@ -388,10 +394,10 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
       const comparison = await agent.post('/api/agent/photo-compare').set('X-CSRF-Token', response.body.csrfToken)
         .send({ beforePhotoId: sourcePhoto.photo_id, afterPhotoId: 'PHOTO-COMPARE-AFTER', filePath: '../../.env' }).expect(200);
       assert.equal(comparison.body.review.decision, 'pass');
-      const comparisonContent = capturedBodies[0].input[0].content;
-      assert.equal(comparisonContent.filter(item => item.type === 'input_image').length, 2);
-      assert.equal(capturedBodies[0].store, false);
-      assert.equal(capturedBodies[0].text.format.name, 'irent_vision_review');
+      const comparisonContent = capturedBodies[0].input;
+      assert.equal(comparisonContent.filter(item => item.type === 'image' && item.data).length, 2);
+      assert.equal(capturedBodies[0].response_format.mime_type, 'application/json');
+      assert.deepEqual(capturedBodies[0].response_format.schema.required, ['comparisonType', 'decision', 'confidence', 'summary', 'suspectedRegions', 'evidence']);
 
       const maintenance = await agent.post('/api/action').set('X-CSRF-Token', response.body.csrfToken)
         .send({ action: 'maintenance_report', incidentId: reviewIncident.id, note: '已完成修復', photo: { name: 'complete.png', data: VALID_PNG } })
@@ -402,7 +408,7 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
       assert.equal(maintenance.body.changedResource.data.aiReviewResult, 'pass');
     } finally {
       global.fetch = originalFetch;
-      process.env.OPENAI_API_KEY = originalKey;
+      process.env.GEMINI_API_KEY = originalKey;
     }
   });
 

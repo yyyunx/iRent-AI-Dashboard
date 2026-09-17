@@ -10,7 +10,7 @@ const Settings: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [apiKey, setApiKey] = useState('');
-  const [aiModel, setAiModel] = useState('gpt-5-mini');
+  const [aiModel, setAiModel] = useState('gemini-3.8-flash');
   const [showApiKey, setShowApiKey] = useState(false);
   const [savingAi, setSavingAi] = useState(false);
 
@@ -87,22 +87,22 @@ const Settings: React.FC = () => {
           <span className={`text-xs font-bold px-2.5 py-1 rounded-full self-start ${aiConfig?.keyConfigured ? 'text-[#067b37] bg-[#e9f9ef]' : 'text-amber-800 bg-amber-50'}`}>{aiConfig?.keyConfigured ? 'API Key 已設定' : '尚未設定 API Key'}</span>
         </div>
 
-        <p className="text-sm text-irent-muted leading-relaxed m-0">營運分析頁會由後端呼叫 OpenAI Responses API。Key 不會回傳到瀏覽器；正式部署建議使用 <code>OPENAI_API_KEY</code> 環境變數。</p>
+        <p className="text-sm text-irent-muted leading-relaxed m-0">營運分析頁會由後端呼叫 Google Gemini API。Key 不會回傳到瀏覽器；正式部署建議使用 <code>GEMINI_API_KEY</code> 環境變數。<a href="https://aistudio.google.com/api-keys" target="_blank" rel="noreferrer noopener" className="ml-1 text-irent-red font-bold underline">前往 Google AI Studio 申請 API Key</a></p>
 
         <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(220px,0.35fr)] gap-4">
           <label className="flex flex-col gap-1.5 text-sm font-bold text-irent-ink">
-            OpenAI API Key
+            Google Gemini API Key
             <span className="relative flex items-center">
               <KeyRound size={16} className="absolute left-3 text-irent-muted" />
-              <input id="aiApiKey" type={showApiKey ? 'text' : 'password'} value={apiKey} onChange={event => setApiKey(event.target.value)} disabled={aiConfig?.keySource === 'environment'} autoComplete="new-password" className="h-11 w-full border border-irent-line rounded-xl pl-10 pr-11 font-mono font-normal disabled:bg-slate-100 focus:outline-none focus:border-irent-red" placeholder={aiConfig?.keyConfigured ? '已設定；留空可保留目前 Key' : 'sk-…'} />
+              <input id="aiApiKey" type={showApiKey ? 'text' : 'password'} value={apiKey} onChange={event => setApiKey(event.target.value)} disabled={aiConfig?.keySource === 'environment'} autoComplete="new-password" className="h-11 w-full border border-irent-line rounded-xl pl-10 pr-11 font-mono font-normal disabled:bg-slate-100 focus:outline-none focus:border-irent-red" placeholder={aiConfig?.keyConfigured ? '已設定；留空可保留目前 Key' : '貼上 Google AI Studio API Key'} />
               <button type="button" onClick={() => setShowApiKey(value => !value)} disabled={aiConfig?.keySource === 'environment'} className="absolute right-2 w-8 h-8 grid place-items-center text-irent-muted disabled:opacity-40" aria-label={showApiKey ? '隱藏 API Key' : '顯示 API Key'}>{showApiKey ? <EyeOff size={16} /> : <Eye size={16} />}</button>
             </span>
-            <small className="font-normal text-xs text-irent-muted">{aiConfig?.keySource === 'environment' ? '目前由 OPENAI_API_KEY 環境變數管理。' : '只會送至本站後端保存；頁面重新載入後不會再次顯示明文。'}</small>
+            <small className="font-normal text-xs text-irent-muted">{aiConfig?.keySource === 'environment' ? '目前由 GEMINI_API_KEY 環境變數管理。' : '只會送至本站後端保存；頁面重新載入後不會再次顯示明文。'}</small>
           </label>
 
           <label className="flex flex-col gap-1.5 text-sm font-bold text-irent-ink">
             模型名稱
-            <input id="aiModel" value={aiModel} onChange={event => setAiModel(event.target.value)} className="h-11 border border-irent-line rounded-xl px-3 font-mono font-normal focus:outline-none focus:border-irent-red" placeholder="gpt-5-mini" />
+            <input id="aiModel" value={aiModel} onChange={event => setAiModel(event.target.value)} className="h-11 border border-irent-line rounded-xl px-3 font-mono font-normal focus:outline-none focus:border-irent-red" placeholder="gemini-3.8-flash" />
             <small className="font-normal text-xs text-irent-muted">請填入此 API Key 可使用的模型 ID。</small>
           </label>
         </div>

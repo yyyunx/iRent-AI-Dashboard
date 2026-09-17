@@ -12,5 +12,6 @@
 - Confirmed LINE drafts are queued by the same in-process single-instance delivery mechanism as existing notifications. A confirmed draft can therefore be recorded as `not_configured` or later fail delivery; operators must monitor notification status and retry operationally.
 - The bundled SOP corpus is intentionally small and code-managed; it is not yet a document ingestion/version-approval system. Audit natural-language parsing supports only documented intent keywords and returns a bounded recent window, so it is not a replacement for formal forensic export or SIEM retention.
 - Vision output is probabilistic and depends on photo angle, lighting, occlusion, and model availability. It is decision support only: low-confidence/inconsistent results require human review, and even high-confidence maintenance results remain pending explicit operational closure.
+- Gemini prompts and validated photos leave the application trust boundary and are processed by Google under the selected account/project terms. Review data-governance and retention requirements before production use. Any legacy OpenAI key/file is ignored by the application and should be revoked or removed operationally if no longer needed.
 
 These are Medium/Low operational limitations. The current security decision is **CONDITIONAL** until monitoring and backup controls are configured and evidenced.

@@ -46,7 +46,7 @@ const AgentHero: React.FC<AgentHeroProps> = ({ state, onOpenTasks, requestedComm
       const endpoint = mode === 'sop' ? '/api/agent/sop-query' : mode === 'audit' ? '/api/agent/audit-query' : '/api/agent/query';
       const result = await apiPost(endpoint, { prompt });
       setAnswer(result.answer);
-      setAnswerModel(result.model || state?.aiConfig?.model || 'OpenAI');
+      setAnswerModel(result.model || state?.aiConfig?.model || 'Google Gemini');
       setHistory(items => [{ query: prompt, time: new Date().toLocaleTimeString('zh-TW', { hour: '2-digit', minute: '2-digit', hour12: false }) }, ...items].slice(0, 4));
     } catch (requestError: any) {
       setError(requestError.message || 'AI Agent 暫時無法回應。');
@@ -63,7 +63,7 @@ const AgentHero: React.FC<AgentHeroProps> = ({ state, onOpenTasks, requestedComm
 
   return (
     <section className="agent-hero">
-      <div className="agent-hero__status"><span className={state?.aiConfig?.keyConfigured ? '' : 'is-offline'} /><strong>{state?.aiConfig?.keyConfigured ? 'Agent 已連線' : 'Agent 等待設定'}</strong><small>{state?.aiConfig?.keyConfigured ? `${state.aiConfig.model}・即時營運分析` : '請至系統設定填入 OpenAI API Key'}</small></div>
+      <div className="agent-hero__status"><span className={state?.aiConfig?.keyConfigured ? '' : 'is-offline'} /><strong>{state?.aiConfig?.keyConfigured ? 'Agent 已連線' : 'Agent 等待設定'}</strong><small>{state?.aiConfig?.keyConfigured ? `${state.aiConfig.model}・即時營運分析` : '請至系統設定填入 Google Gemini API Key'}</small></div>
       <div className="agent-hero__copy"><span className="eyebrow">AI FOR A SAFER, SMARTER TOMORROW</span><h1>iRent AI Operations Copilot</h1><p>用 AI 洞察驅動營運，從分析到行動，讓每一台車都在對的地方、為對的人服務。</p></div>
       <div className="agent-capabilities"><span>即時風險分析</span><span>智能派工建議</span><span>即時車隊監控</span><span>生成營運洞察</span></div>
 

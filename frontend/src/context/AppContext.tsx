@@ -110,7 +110,7 @@ export interface AppState {
     targetSource: 'environment' | 'dashboard';
   };
   aiConfig: {
-    provider: 'openai';
+    provider: 'google-gemini';
     model: string;
     keyConfigured: boolean;
     keySource: 'environment' | 'dashboard';

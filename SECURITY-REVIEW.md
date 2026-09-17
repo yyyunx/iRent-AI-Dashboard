@@ -4,8 +4,8 @@
 
 - Entry points: React login/forms, REST API, protected uploaded files, signed LINE webhook, and one-time create-admin CLI.
 - Identities: anonymous client, authenticated user, authenticated admin, and signed LINE webhook sender.
-- Sensitive data: password hashes, session/CSRF tokens, LINE/OpenAI secrets, user submissions, photos, incidents, settings, and audit events.
-- Trust transitions: browser to Express, Express to SQLite/filesystem, Express to LINE/OpenAI, and operator shell to create-admin CLI.
+- Sensitive data: password hashes, session/CSRF tokens, LINE/Gemini secrets, user submissions, photos, incidents, settings, and audit events.
+- Trust transitions: browser to Express, Express to SQLite/filesystem, Express to LINE/Google Gemini, and operator shell to create-admin CLI.
 - Side effects: account/session creation, incident/submission writes, dispatch/status changes, file writes, configuration changes, and notifications.
 
 ## Controls and evidence
@@ -23,8 +23,8 @@
 - Change safety: migrations use `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ADD COLUMN`; the username migration preserves legacy User rows, IDs, password hashes, roles, and the legacy email column while removing email from login/API behavior.
 - Agent controls: operations snapshots and task history are admin-only; dispatch recommendations are read-only drafts; persisted prompts/results are bounded and redact password/token/secret/API-key patterns.
 - Agent action confirmation: dispatch/LINE drafts use opaque IDs, expire after 10 minutes, are atomically claimed once, and are revalidated against live Incident state. Frontend/model-supplied team and message fields are ignored; only server-generated payloads execute after a second admin confirmation.
-- Agent retrieval: SOP results cite fixed source chapters; Audit natural-language queries map only to allowlisted filters over a 200-row bounded repository query. OpenAI operations analysis uses strict JSON Schema output and `store: false`; no generated SQL or arbitrary tool execution is available.
-- Vision boundary: compare requests accept only database photo IDs, require the same vehicle and camera slot, resolve files back under the configured upload directory, cap file size, and send at most two validated images with `store: false`. Model results never determine liability and maintenance reviews no longer auto-close Incidents.
+- Agent retrieval: SOP results cite fixed source chapters; Audit natural-language queries map only to allowlisted filters over a 200-row bounded repository query. Gemini operations analysis requests schema-constrained JSON; no generated SQL or arbitrary tool execution is available.
+- Vision boundary: compare requests accept only database photo IDs, require the same vehicle and camera slot, resolve files back under the configured upload directory, cap file size, and send at most two validated images within the provider inline-request limit. Model results never determine liability and maintenance reviews no longer auto-close Incidents.
 
 ## Findings
 

@@ -25,7 +25,7 @@ export class DashboardService {
     this.repo = repo;
     this.uploadDir = uploadDir;
     this.notifications = new NotificationService(repo);
-    const aiSecretFile = process.env.OPENAI_API_KEY_FILE || path.join(path.dirname(uploadDir), 'secrets', 'openai-api-key');
+    const aiSecretFile = process.env.GEMINI_API_KEY_FILE || path.join(path.dirname(uploadDir), 'secrets', 'gemini-api-key');
     this.aiAgent = new AiAgentService(repo, aiSecretFile);
     if (!fs.existsSync(uploadDir)) {
       fs.mkdirSync(uploadDir, { recursive: true });
@@ -86,7 +86,7 @@ export class DashboardService {
       connected: false, webhookConfigured: false, targetSource: 'dashboard' as const
     };
     const lineGroup = lineConfig.groupName;
-    const aiConfig = isAdmin ? this.aiAgent.getConfig() : { provider: 'openai' as const, model: '', keyConfigured: false, keySource: 'dashboard' as const };
+    const aiConfig = isAdmin ? this.aiAgent.getConfig() : { provider: 'google-gemini' as const, model: '', keyConfigured: false, keySource: 'dashboard' as const };
 
     const lineLogs = notifications.filter(row => row.provider === 'line').map(row => ({
       title: `${row.status} · ${row.event_type} · ${row.incident_id || '-'}`,
@@ -831,7 +831,7 @@ export class DashboardService {
       return {
         result: 'human_review',
         confidence: 0,
-        summary: error.message === 'OPENAI_API_KEY_NOT_CONFIGURED'
+        summary: error.message === 'GEMINI_API_KEY_NOT_CONFIGURED'
           ? 'Vision model is not configured. Human confirmation is required.'
           : 'Vision review could not be completed safely. Human confirmation is required.'
       };
