@@ -12,7 +12,7 @@ import {
   dbRowToSubmissionResponse,
   dbRowToPhotoResponse
 } from '../models/types';
-import { validateImageDataUrl } from './ImageValidation';
+import { analyzeImageQuality, validateImageDataUrl } from './ImageValidation';
 import { OPERATIONS_SOP } from '../knowledge/operationsSop';
 
 export class DashboardService {
@@ -516,29 +516,29 @@ export class DashboardService {
   }
 
   // --- Photo Quality and Scenario Seeding ---
-  private async savePhotoFile(prefix: string, _filename: string, dataUrl: string): Promise<string> {
-    if (!dataUrl) return "";
-    const image = await validateImageDataUrl(dataUrl);
+  private async savePhotoFile(prefix: string, image: { buffer: Buffer; extension: string }): Promise<string> {
     const storedName = `${prefix}_${randomBytes(8).toString('base64url')}${image.extension}`;
     const filePath = path.join(this.uploadDir, storedName);
     await fs.promises.writeFile(filePath, image.buffer, { flag: 'wx' });
     return `uploads/${storedName}`;
   }
 
+  private async saveValidatedPhotoFile(prefix: string, _filename: string, dataUrl: string): Promise<string> {
+    if (!dataUrl) return "";
+    const image = await validateImageDataUrl(dataUrl);
+    return this.savePhotoFile(prefix, image);
+  }
+
   public runQualityCheck(filename: string, slot: string, contentText: string) {
     const text = `${filename} ${slot} ${contentText}`.toLowerCase();
-    const isBlur = text.includes("blur") || text.includes("bad") || text.includes("dark") || text.includes("fail");
-    const blurScore = isBlur ? 42.1 : 135.2;
     const plateVisible = !text.includes("no_plate");
     const angleValid = !text.includes("bad_angle");
     const distanceValid = !text.includes("too_close") && !text.includes("too_far");
-    const passed = !isBlur && plateVisible && angleValid && distanceValid;
+    const passed = plateVisible && angleValid && distanceValid;
     const message = passed ? "照片品質通過" : "照片品質不足，請重新拍攝";
 
     return {
       passed,
-      blurScore,
-      isBlur,
       plateVisible,
       angleValid,
       distanceValid,
@@ -548,22 +548,21 @@ export class DashboardService {
 
   public async handleQualityCheckAction(payload: any, userId: number) {
     const photoId = this.createOpaqueId('PHOTO');
-    const relativePath = await this.savePhotoFile(photoId, payload.filename || `${photoId}.jpg`, payload.imageData || payload.data || "");
+    const image = await analyzeImageQuality(payload.imageData || payload.data || "");
+    const relativePath = await this.savePhotoFile(photoId, image);
 
-    // Base64 data can be 10 MB. Quality heuristics are metadata-based, so never duplicate or
-    // lowercase the image payload merely to inspect a filename/slot/note.
-    const quality = this.runQualityCheck(payload.filename || '', payload.slot || '', String(payload.note || ''));
-
-    // If frontend computed metrics are provided, override backend simulation
-    const finalSharpness = payload.frontendSharpness !== undefined ? Number(payload.frontendSharpness) : quality.blurScore;
-    const finalIsBlur = payload.isBlur !== undefined ? Boolean(payload.isBlur) : quality.isBlur;
-
-    if (payload.frontendSharpness !== undefined) {
-      quality.blurScore = finalSharpness;
-      quality.isBlur = finalIsBlur;
-      quality.passed = !finalIsBlur && quality.plateVisible && quality.angleValid && quality.distanceValid;
-      quality.message = quality.passed ? "照片品質通過" : "照片品質不足，請重新拍攝";
-    }
+    // Client-side scores are deliberately ignored. This validation result is based only on
+    // server-decoded bytes and is persisted before the photo can be attached to a submission.
+    const supplemental = this.runQualityCheck(payload.filename || '', payload.slot || '', String(payload.note || ''));
+    const passed = image.blur.passed && supplemental.passed;
+    const quality = {
+      passed,
+      blur: image.blur,
+      plateVisible: supplemental.plateVisible,
+      angleValid: supplemental.angleValid,
+      distanceValid: supplemental.distanceValid,
+      message: passed ? '照片品質通過' : image.blur.passed ? '照片品質不足，請重新拍攝' : '照片過於模糊，請重新拍攝'
+    };
 
     this.repo.insertUploadedPhoto({
       photo_id: photoId,
@@ -575,8 +574,10 @@ export class DashboardService {
       filename: payload.filename || `${photoId}.jpg`,
       file_path: relativePath,
       quality_passed: quality.passed ? 1 : 0,
-      blur_score: finalSharpness,
-      is_blur: finalIsBlur ? 1 : 0,
+      blur_score: image.blur.score,
+      blur_threshold: image.blur.threshold,
+      blur_checked_at: new Date().toISOString(),
+      is_blur: image.blur.passed ? 0 : 1,
       plate_visible: quality.plateVisible ? 1 : 0,
       angle_valid: quality.angleValid ? 1 : 0,
       distance_valid: quality.distanceValid ? 1 : 0,
@@ -692,7 +693,36 @@ export class DashboardService {
 
   public async handlePhotoSubmissionAction(payload: any, userId: number) {
     const submissionId = this.createOpaqueId('SUB');
-    const photos = payload.photos || [];
+    const photos: any[] = Array.isArray(payload.photos) ? payload.photos : [];
+    const requiredSlots = ['front', 'right_side', 'rear', 'left_side', 'front_interior', 'backseat_interior'];
+    const receivedSlots = photos.map(photo => String(photo?.slot || ''));
+    const hasExactlyRequiredSlots = photos.length === requiredSlots.length
+      && new Set(receivedSlots).size === requiredSlots.length
+      && requiredSlots.every(slot => receivedSlots.includes(slot));
+    if (!hasExactlyRequiredSlots) {
+      const error: any = new Error('所有必填照片都必須完成品質檢查');
+      error.code = 'IMAGE_QUALITY_CHECK_FAILED';
+      error.status = 422;
+      throw error;
+    }
+
+    for (const photoRequest of photos) {
+      const photoId = String(photoRequest?.photoId || '');
+      const photo = photoId ? this.repo.getUploadedPhotoById(photoId) : null;
+      const matchesSubmission = photo
+        && photo.user_id === userId
+        && !photo.submission_id
+        && photo.rental_id === String(payload.rentalId || '')
+        && photo.plate === String(payload.plate || '')
+        && photo.phase === String(payload.phase || 'return')
+        && photo.slot === String(photoRequest.slot || '');
+      if (!matchesSubmission || !photo!.quality_passed || photo!.is_blur || photo!.blur_score === null || !photo!.blur_checked_at) {
+        const error: any = new Error('照片尚未通過品質檢查');
+        error.code = 'IMAGE_QUALITY_CHECK_FAILED';
+        error.status = 422;
+        throw error;
+      }
+    }
 
     const submissionObj = {
       submission_id: submissionId,
@@ -731,40 +761,7 @@ export class DashboardService {
     for (let i = 0; i < photos.length; i++) {
       const p = photos[i];
       const aiResult = aiResults[i];
-      const photoId = p.photoId || this.createOpaqueId('PHOTO');
-
-      const photoPayload = {
-        rentalId: payload.rentalId,
-        plate: payload.plate,
-        phase: payload.phase,
-        slot: p.slot || "front",
-        filename: p.filename || `${p.slot || 'photo'}.jpg`,
-        imageData: p.imageData || p.data || ""
-      };
-
-      if (p.photoId) {
-        if (!this.repo.userOwnsPhoto(userId, p.photoId)) throw new Error('Photo not found');
-        this.repo.updateUploadedPhotoSubmission(p.photoId, submissionId, JSON.stringify(aiResult), userId);
-      } else {
-        const fileRelPath = await this.savePhotoFile(photoId, photoPayload.filename, photoPayload.imageData);
-        this.repo.insertUploadedPhoto({
-          photo_id: photoId,
-          submission_id: submissionId,
-          rental_id: photoPayload.rentalId || '',
-          plate: photoPayload.plate || '',
-          phase: photoPayload.phase || 'pickup',
-          slot: photoPayload.slot,
-          filename: photoPayload.filename,
-          file_path: fileRelPath,
-          quality_passed: 1,
-          is_blur: 0,
-          plate_visible: 1,
-          angle_valid: 1,
-          distance_valid: 1,
-          ai_result_json: JSON.stringify(aiResult),
-          user_id: userId
-        });
-      }
+      this.repo.updateUploadedPhotoSubmission(p.photoId, submissionId, JSON.stringify(aiResult), userId);
     }
 
     if (createdIncidents.length > 0) {
@@ -916,7 +913,7 @@ export class DashboardService {
 
       let savedPath = "";
       if (photoPayload) {
-        savedPath = await this.savePhotoFile(photoId, photoPayload.name || "report.jpg", photoPayload.data || "");
+        savedPath = await this.saveValidatedPhotoFile(photoId, photoPayload.name || "report.jpg", photoPayload.data || "");
       }
 
       const review = await this.runAiReview(incident, note, savedPath);

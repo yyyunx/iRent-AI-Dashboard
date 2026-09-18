@@ -153,6 +153,8 @@ export interface UploadedPhoto {
   file_path?: string | null;
   quality_passed: number; // 0 or 1
   blur_score?: number | null;
+  blur_threshold?: number | null;
+  blur_checked_at?: string | null;
   is_blur: number; // 0 or 1
   plate_visible: number; // 0 or 1
   angle_valid: number; // 0 or 1
@@ -173,6 +175,8 @@ export interface UploadedPhotoResponse {
   filePath: string | null;
   qualityPassed: boolean;
   blurScore: number | null;
+  blurThreshold: number | null;
+  blurCheckedAt: string | null;
   isBlur: boolean;
   plateVisible: boolean;
   angleValid: boolean;
@@ -278,6 +282,8 @@ export function dbRowToPhotoResponse(row: any): UploadedPhotoResponse {
     filePath: row.file_path ?? null,
     qualityPassed: Boolean(row.quality_passed),
     blurScore: row.blur_score ?? null,
+    blurThreshold: row.blur_threshold ?? null,
+    blurCheckedAt: row.blur_checked_at ?? null,
     isBlur: Boolean(row.is_blur),
     plateVisible: Boolean(row.plate_visible),
     angleValid: Boolean(row.angle_valid),

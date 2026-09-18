@@ -99,16 +99,28 @@ export class DashboardController {
   public runQualityCheck = async (req: Request, res: Response) => {
     try {
       const result = await this.service.handleQualityCheckAction(req.body, req.authUser!.id);
+      if (!result.quality.passed) {
+        return res.status(422).json({
+          ok: false,
+          uploadId: result.photoId,
+          photoId: result.photoId,
+          quality: result.quality,
+          error: { code: result.quality.blur.passed ? 'QUALITY_CHECK_FAILED' : 'IMAGE_TOO_BLURRY', message: result.quality.message },
+          changedResource: { type: 'photo', data: result.photo }
+        });
+      }
       res.json({
         ok: true,
+        uploadId: result.photoId,
         photoId: result.photoId,
         quality: result.quality,
         changedResource: { type: 'photo', data: result.photo },
         minimalSummary: { action: 'quality_checked', photoId: result.photoId }
       });
     } catch (e: any) {
-      const status = ['Invalid image payload', 'Image exceeds 10 MB limit', 'Image MIME type does not match file signature', 'Image dimensions exceed limit', 'Image decode failed'].includes(e.message) ? 400 : 500;
-      res.status(status).json({ ok: false, error: e.message || 'Failed to run quality check' });
+      const status = e.status || 500;
+      const code = e.code || 'QUALITY_CHECK_FAILED';
+      res.status(status).json({ ok: false, error: { code, message: e.message || '目前無法完成照片品質檢查，請重新嘗試。' } });
     }
   };
 
@@ -128,8 +140,8 @@ export class DashboardController {
         minimalSummary: { action: 'submitted', submissionId: result.submissionId, createdIncidentCount: result.createdIncidents.length }
       });
     } catch (e: any) {
-      const status = e.message === 'Photo not found' ? 404 : ['Invalid image payload', 'Image exceeds 10 MB limit', 'Image MIME type does not match file signature', 'Image dimensions exceed limit', 'Image decode failed'].includes(e.message) ? 400 : 500;
-      res.status(status).json({ ok: false, error: e.message || 'Failed to handle photo submission' });
+      const status = e.status || (e.message === 'Photo not found' ? 404 : 500);
+      res.status(status).json({ ok: false, error: { code: e.code || 'SUBMISSION_FAILED', message: e.message || 'Failed to handle photo submission' } });
     }
   };
 

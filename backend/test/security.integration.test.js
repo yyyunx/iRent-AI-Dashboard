@@ -15,7 +15,11 @@ const { NotificationService } = require('../src/services/NotificationService');
 process.env.NODE_ENV = 'test';
 process.env.CORS_ORIGIN = 'http://localhost:5173';
 process.env.GEMINI_API_KEY = '';
+// This suite verifies authorization and workflow gates. Laplacian score calibration has its
+// own unit tests, so keep this generated fixture above the quality threshold.
+process.env.BLUR_THRESHOLD = '0.01';
 const VALID_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAOUlEQVR4nO3WywkAMBBCwaj995wqAjkM7F1Y/LyT7ukdAvWicVEEbaoi2rQGJyazqGLAq9BxX9P1BYyfGAFvvlyBAAAAAElFTkSuQmCC';
+const REQUIRED_PHOTO_SLOTS = ['front', 'right_side', 'rear', 'left_side', 'front_interior', 'backseat_interior'];
 
 function cookieValue(response, name) {
   const cookies = response.headers['set-cookie'] || [];
@@ -38,6 +42,23 @@ async function login(agent, username, password) {
   assert.ok(response.body.csrfToken);
   assert.equal(response.body.user.username, username.trim().toLowerCase());
   return response;
+}
+
+async function uploadValidatedPhotos(agent, csrfToken, data) {
+  const photos = [];
+  for (const slot of REQUIRED_PHOTO_SLOTS) {
+    const response = await agent.post('/api/photos/quality-check')
+      .set('X-CSRF-Token', csrfToken)
+      .send({
+        ...data,
+        slot,
+        filename: slot === 'right_side' ? 'scratch.png' : `${slot}.png`,
+        imageData: VALID_PNG
+      })
+      .expect(200);
+    photos.push({ slot, photoId: response.body.photoId, filename: slot === 'right_side' ? 'scratch.png' : `${slot}.png` });
+  }
+  return photos;
 }
 
 test('authentication, RBAC, ownership, CSRF, and session revocation', async t => {
@@ -147,11 +168,19 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
       .expect(403);
   });
 
+  await t.test('submission rejects requests that bypass server-side photo validation', async () => {
+    const response = await userAAgent.post('/api/photo-submissions')
+      .set('X-CSRF-Token', userACsrf)
+      .send({ rentalId: 'R-BYPASS', plate: 'AAA-0001', phase: 'return', photos: [] })
+      .expect(422);
+    assert.equal(response.body.error.code, 'IMAGE_QUALITY_CHECK_FAILED');
+  });
+
   await t.test('non-image upload payload is rejected', async () => {
     await userAAgent.post('/api/photos/quality-check')
       .set('X-CSRF-Token', userACsrf)
       .send({ rentalId: 'R-FILE', plate: 'AAA-0001', slot: 'front', filename: 'attack.html', imageData: 'data:text/html;base64,PHNjcmlwdD4=' })
-      .expect(400);
+      .expect(415);
   });
 
   await t.test('mismatched magic bytes and undecodable images are rejected', async () => {
@@ -167,11 +196,14 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
 
   let submissionId;
   await t.test('resource owner can read submission while another user receives 404', async () => {
+    const photos = await uploadValidatedPhotos(userAAgent, userACsrf, {
+      rentalId: 'R-OWNER-A', plate: 'AAA-0001', phase: 'return', station: '台北站'
+    });
     const created = await userAAgent.post('/api/photo-submissions')
       .set('X-CSRF-Token', userACsrf)
       .send({
         rentalId: 'R-OWNER-A', plate: 'AAA-0001', phase: 'return', station: '台北站',
-        photos: [{ slot: 'right_side', filename: 'scratch.png', imageData: VALID_PNG }]
+        photos
       })
       .expect(200);
     submissionId = created.body.submissionId;

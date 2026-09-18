@@ -4,6 +4,11 @@ export interface BlurResult {
   isBlur: boolean;
 }
 
+// This is deliberately more permissive than the server's BLUR_THRESHOLD. It only filters
+// clearly blurry images for quick UX; the backend is the authoritative gate.
+export const FRONTEND_BLUR_THRESHOLD = 10;
+export const FRONTEND_MAX_IMAGE_SIDE = 720;
+
 /**
  * Calculates the variance of Laplacian over Gaussian (LoG) for blur detection.
  * The image is normalized to 480p (shorter dimension is 480px) before processing.
@@ -11,7 +16,7 @@ export interface BlurResult {
  * @param imageSrc Base64 or URL of the image.
  * @param threshold Threshold below which an image is considered blurry. Default is 12.0.
  */
-export function checkBlurScore(imageSrc: string, threshold = 12.0): Promise<BlurResult> {
+export function checkBlurScore(imageSrc: string, threshold = FRONTEND_BLUR_THRESHOLD): Promise<BlurResult> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -26,16 +31,15 @@ export function checkBlurScore(imageSrc: string, threshold = 12.0): Promise<Blur
           return;
         }
 
-        // Scale down so that the shorter dimension is 480px, aspect-ratio preserved
+        // Scale down (never up) so a phone original is not processed on the main thread.
         let targetWidth = originalWidth;
         let targetHeight = originalHeight;
 
-        if (originalWidth < originalHeight) {
-          targetWidth = 480;
-          targetHeight = Math.round((originalHeight * 480) / originalWidth);
-        } else {
-          targetHeight = 480;
-          targetWidth = Math.round((originalWidth * 480) / originalHeight);
+        const longestSide = Math.max(originalWidth, originalHeight);
+        if (longestSide > FRONTEND_MAX_IMAGE_SIDE) {
+          const scale = FRONTEND_MAX_IMAGE_SIDE / longestSide;
+          targetWidth = Math.max(1, Math.round(originalWidth * scale));
+          targetHeight = Math.max(1, Math.round(originalHeight * scale));
         }
 
         const canvas = document.createElement('canvas');
