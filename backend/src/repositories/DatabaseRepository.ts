@@ -192,6 +192,8 @@ export class DatabaseRepository {
         file_path TEXT,
         quality_passed INTEGER NOT NULL DEFAULT 0,
         blur_score REAL,
+        blur_threshold REAL,
+        blur_checked_at TEXT,
         is_blur INTEGER NOT NULL DEFAULT 0,
         plate_visible INTEGER NOT NULL DEFAULT 1,
         angle_valid INTEGER NOT NULL DEFAULT 1,
@@ -325,6 +327,8 @@ export class DatabaseRepository {
 
     this.addColumnIfMissing('PhotoSubmission', 'user_id', 'INTEGER');
     this.addColumnIfMissing('UploadedPhoto', 'user_id', 'INTEGER');
+    this.addColumnIfMissing('UploadedPhoto', 'blur_threshold', 'REAL');
+    this.addColumnIfMissing('UploadedPhoto', 'blur_checked_at', 'TEXT');
     this.migrateUsernames();
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_submission_user ON PhotoSubmission(user_id, id DESC)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_photo_user ON UploadedPhoto(user_id, id DESC)');
@@ -728,9 +732,9 @@ export class DatabaseRepository {
     this.db.prepare(`
       INSERT OR REPLACE INTO UploadedPhoto(
         photo_id, submission_id, rental_id, plate, phase, slot, filename, file_path,
-        quality_passed, blur_score, is_blur, plate_visible, angle_valid, distance_valid,
+        quality_passed, blur_score, blur_threshold, blur_checked_at, is_blur, plate_visible, angle_valid, distance_valid,
         ai_result_json, user_id, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       photo.photo_id,
       photo.submission_id || null,
@@ -742,6 +746,8 @@ export class DatabaseRepository {
       photo.file_path || null,
       photo.quality_passed ? 1 : 0,
       photo.blur_score ?? null,
+      photo.blur_threshold ?? null,
+      photo.blur_checked_at ?? null,
       photo.is_blur ? 1 : 0,
       photo.plate_visible ? 1 : 0,
       photo.angle_valid ? 1 : 0,

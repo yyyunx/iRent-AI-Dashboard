@@ -52,6 +52,8 @@ export interface UploadedPhoto {
   filePath: string | null;
   qualityPassed: boolean;
   blurScore: number | null;
+  blurThreshold: number | null;
+  blurCheckedAt: string | null;
   isBlur: boolean;
   plateVisible: boolean;
   angleValid: boolean;
@@ -231,7 +233,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const data = await response.json();
       if (!response.ok || data.ok === false) {
         if (response.status === 401 || (response.status === 403 && data.error === 'Forbidden')) await refreshUser();
-        throw new Error(data.error || "API request failed");
+        const message = typeof data.error === 'string' ? data.error : data.error?.message || "API request failed";
+        const error = Object.assign(new Error(message), { code: data.error?.code, payload: data, status: response.status });
+        throw error;
       }
       if (data.state) {
         setState(data.state);

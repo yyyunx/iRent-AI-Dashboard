@@ -1,8 +1,8 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { ArrowLeft, CheckCircle2, AlertTriangle, HelpCircle, Image, Settings, Eye, X } from 'lucide-react';
-import { checkBlurScore } from '../utils/blurDetection';
+import { checkBlurScore, FRONTEND_BLUR_THRESHOLD } from '../utils/blurDetection';
 
 const PHOTO_SLOTS = [
   { key: 'front', label: '車頭' },
@@ -14,15 +14,17 @@ const PHOTO_SLOTS = [
 ];
 
 interface CheckedPhoto {
-  photoId: string;
-  filename: string;
+  status: 'idle' | 'checking' | 'passed' | 'failed' | 'error';
+  photoId?: string;
+  filename?: string;
   previewUrl?: string;
   feSharpness?: number;
   feWallTime?: number;
-  quality: {
+  precheck?: { score: number; threshold: number; passed: boolean };
+  errorMessage?: string;
+  quality?: {
     passed: boolean;
-    blurScore: number;
-    isBlur: boolean;
+    blur: { score: number; threshold: number; passed: boolean };
     plateVisible: boolean;
     angleValid: boolean;
     distanceValid: boolean;
@@ -51,6 +53,7 @@ const CustomerFlow: React.FC = () => {
   const [checkedPhotos, setCheckedPhotos] = useState<Record<string, CheckedPhoto>>({});
   const [submitting, setSubmitting] = useState(false);
   const [lastSubmission, setLastSubmission] = useState<LastSubmission | null>(null);
+  const qualityRequestIds = useRef<Record<string, number>>({});
 
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
@@ -82,84 +85,93 @@ const CustomerFlow: React.FC = () => {
   const handleQualityCheck = async (slot: string, event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    const requestId = (qualityRequestIds.current[slot] || 0) + 1;
+    qualityRequestIds.current[slot] = requestId;
+    const isCurrent = () => qualityRequestIds.current[slot] === requestId;
+    // Reset as soon as a new file is selected so no previous pass result can enable submission.
+    setCheckedPhotos(prev => ({ ...prev, [slot]: { status: 'checking', filename: file.name } }));
 
     try {
       const fileData = await readPhoto(file);
+      if (!isCurrent()) return;
+      setCheckedPhotos(prev => ({
+        ...prev,
+        [slot]: { status: 'checking', filename: fileData.name, previewUrl: fileData.data }
+      }));
       
-      // Calculate frontend LoG blur metrics
+      // Fast UX filter only. The server always recalculates from uploaded image bytes.
       const blurMetrics = await checkBlurScore(fileData.data);
+      if (!isCurrent()) return;
+      const precheck = { score: blurMetrics.variance, threshold: FRONTEND_BLUR_THRESHOLD, passed: !blurMetrics.isBlur };
+      if (blurMetrics.isBlur) {
+        setCheckedPhotos(prev => ({
+          ...prev,
+          [slot]: {
+            status: 'failed', filename: fileData.name, previewUrl: fileData.data,
+            feSharpness: blurMetrics.variance, feWallTime: blurMetrics.wallTime, precheck,
+            errorMessage: '照片過於模糊，請重新拍攝後再上傳。'
+          }
+        }));
+        return;
+      }
       
       const basePayload = getPayload(slot, fileData);
-      const payload = {
-        ...basePayload,
-        frontendSharpness: blurMetrics.variance,
-        isBlur: blurMetrics.isBlur
-      };
-      
-      const response = await apiPost('/api/photos/quality-check', payload);
+      const response = await apiPost('/api/photos/quality-check', basePayload);
+      if (!isCurrent()) return;
       
       setCheckedPhotos(prev => ({
         ...prev,
         [slot]: {
+          status: 'passed',
           photoId: response.photoId,
-          filename: payload.filename,
+          filename: basePayload.filename,
           previewUrl: fileData.data,
           feSharpness: blurMetrics.variance,
           feWallTime: blurMetrics.wallTime,
+          precheck,
           quality: response.quality
         }
       }));
 
       showToast("照片品質檢查完成", `${slot}: ${response.quality.message}`);
     } catch (error: any) {
-      showToast("品質檢查失敗", error.message);
+      if (!isCurrent()) return;
+      const quality = error.payload?.quality;
+      const isBlurFailure = error.code === 'IMAGE_TOO_BLURRY';
+      setCheckedPhotos(prev => ({
+        ...prev,
+        [slot]: {
+          status: isBlurFailure ? 'failed' : 'error',
+          filename: file.name,
+          previewUrl: prev[slot]?.previewUrl,
+          feSharpness: prev[slot]?.feSharpness,
+          feWallTime: prev[slot]?.feWallTime,
+          precheck: prev[slot]?.precheck,
+          quality,
+          errorMessage: isBlurFailure ? '照片過於模糊，請重新拍攝後再上傳。' : '目前無法完成照片品質檢查，請重新嘗試。'
+        }
+      }));
+      showToast(isBlurFailure ? '照片模糊' : '品質檢查失敗', isBlurFailure ? '照片過於模糊，請重新拍攝後再上傳。' : '目前無法完成照片品質檢查，請重新嘗試。');
     }
   };
 
-  const seedDemoPhotos = (type: 'clear' | 'issue') => {
-    const demoNote = type === 'issue' ? 'scratch dirty' : 'normal clean';
-    setNote(demoNote);
-    
-    const newChecked: Record<string, CheckedPhoto> = {};
+  const resetPhotos = () => {
     PHOTO_SLOTS.forEach(slot => {
-      const isIssueSlot = type === 'issue' && (slot.key === 'right_side' || slot.key === 'backseat_interior');
-      const filename = isIssueSlot
-        ? `${slot.key}-${slot.key === 'right_side' ? 'scratch' : 'dirty'}.jpg`
-        : `${slot.key}-normal.jpg`;
-        
-      const svgText = `Demo ${slot.label}`;
-      const previewUrl = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="120" height="90" viewBox="0 0 120 90"><rect width="100%" height="100%" fill="%23f3f4f6"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" font-family="sans-serif" font-size="10" fill="%239ca3af">${svgText}</text></svg>`;
-
-      newChecked[slot.key] = {
-        photoId: '',
-        filename,
-        previewUrl,
-        feSharpness: isIssueSlot ? 5.84 : 124.62,
-        feWallTime: 6.18,
-        quality: {
-          passed: !isIssueSlot,
-          blurScore: isIssueSlot ? 42.1 : 135.2,
-          isBlur: isIssueSlot,
-          plateVisible: true,
-          angleValid: true,
-          distanceValid: true,
-          message: isIssueSlot ? '照片品質不足，請重新拍攝' : '照片品質通過'
-        }
-      };
+      qualityRequestIds.current[slot.key] = (qualityRequestIds.current[slot.key] || 0) + 1;
     });
-    
-    setCheckedPhotos(newChecked);
-    setLastSubmission({
-      submissionId: '尚未提交',
-      overallStatus: type === 'issue' ? 'warning' : 'ok',
-      createdIncidents: [],
-      title: 'Demo 照片已填入',
-      body: type === 'issue' ? '本次送出會模擬異常並建立營運端 Incident。' : '本次送出會模擬正常照片。'
-    });
+    setCheckedPhotos({});
   };
 
   const submitPhotoFlow = async () => {
     if (submitting) return;
+    const allPhotosPassed = PHOTO_SLOTS.every(slot => {
+      const checked = checkedPhotos[slot.key];
+      return checked?.status === 'passed' && Boolean(checked.photoId) && checked.quality?.blur.passed;
+    });
+    if (!allPhotosPassed) {
+      showToast('尚未完成照片檢查', '所有必填照片都必須先通過後端品質檢查。');
+      return;
+    }
     setSubmitting(true);
     
     const photos = PHOTO_SLOTS.map(slot => {
@@ -169,7 +181,7 @@ const CustomerFlow: React.FC = () => {
         photoId: checked?.photoId || '',
         filename: checked?.filename || `${slot.key}${note ? '-' + note : ''}.jpg`,
         note,
-        qualityPassed: checked?.quality?.passed ?? true
+        qualityPassed: checked?.quality?.passed ?? false
       };
     });
 
@@ -235,13 +247,13 @@ const CustomerFlow: React.FC = () => {
           {/* Segmented Phase */}
           <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl bg-irent-bg">
             <button
-              onClick={() => { setPhase('pickup'); setCheckedPhotos({}); }}
+              onClick={() => { setPhase('pickup'); resetPhotos(); }}
               className={`border-0 rounded-xl min-h-[42px] font-extrabold text-sm transition-all duration-200 ${phase === 'pickup' ? 'bg-irent-red text-white shadow-lg' : 'text-irent-muted hover:text-irent-red'}`}
             >
               取車檢查
             </button>
             <button
-              onClick={() => { setPhase('return'); setCheckedPhotos({}); }}
+              onClick={() => { setPhase('return'); resetPhotos(); }}
               className={`border-0 rounded-xl min-h-[42px] font-extrabold text-sm transition-all duration-200 ${phase === 'return' ? 'bg-irent-red text-white shadow-lg' : 'text-irent-muted hover:text-irent-red'}`}
             >
               還車檢查
@@ -289,7 +301,7 @@ const CustomerFlow: React.FC = () => {
             <textarea 
               value={note} 
               onChange={e => setNote(e.target.value)}
-              placeholder="可輸入 scratch / dent / dirty / blur 來測試 mock AI 結果。"
+              placeholder="可輸入 scratch / dent / dirty 來測試 mock AI 結果。"
               className="w-full min-h-[80px] border border-irent-line rounded-2xl p-[10px_12px] text-sm resize-y focus:outline-none focus:border-irent-red focus:ring-3 focus:ring-red-100"
             />
           </div>
@@ -298,11 +310,15 @@ const CustomerFlow: React.FC = () => {
           <div className="grid gap-2.5">
             {PHOTO_SLOTS.map(slot => {
               const checked = checkedPhotos[slot.key];
-              const chipClass = checked 
-                ? (checked.quality.passed ? 'bg-[#e9f4ea] text-irent-green' : 'bg-[#fff4d6] text-[#8a5b00]') 
+              const chipClass = checked?.status === 'passed' ? 'bg-[#e9f4ea] text-irent-green'
+                : checked?.status === 'failed' ? 'bg-[#fff3f3] text-irent-red'
+                : checked?.status === 'error' ? 'bg-[#fff4d6] text-[#8a5b00]'
+                : checked?.status === 'checking' ? 'bg-blue-50 text-blue-700'
                 : 'bg-irent-bg text-irent-muted';
-              const chipText = checked 
-                ? `${checked.quality.passed ? '通過' : '重拍'} · ${checked.quality.blurScore}` 
+              const chipText = checked?.status === 'passed' ? '✓ 通過'
+                : checked?.status === 'failed' ? '✕ 照片模糊，請重新拍攝'
+                : checked?.status === 'error' ? '⚠ 無法完成檢查，請重試'
+                : checked?.status === 'checking' ? '○ 檢測中...'
                 : '待檢查';
 
               return (
@@ -339,6 +355,8 @@ const CustomerFlow: React.FC = () => {
                         type="file" 
                         id={`customer-file-${slot.key}`}
                         accept="image/*"
+                        capture="environment"
+                        onClick={event => { event.currentTarget.value = ''; }}
                         onChange={e => handleQualityCheck(slot.key, e)}
                         className="w-full text-xs text-slate-500 file:mr-4 file:py-1.5 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-irent-soft-red file:text-irent-red hover:file:bg-irent-soft-red-strong cursor-pointer"
                       />
@@ -352,22 +370,25 @@ const CustomerFlow: React.FC = () => {
                     </div>
                   </div>
 
+                  {checked?.errorMessage && <p className={`m-0 text-xs font-bold ${checked.status === 'failed' ? 'text-irent-red' : 'text-[#8a5b00]'}`}>{checked.errorMessage}</p>}
+
                   {/* Inline developer stats when Developer Mode is active */}
                   {developerMode && checked && (checked.feSharpness !== undefined || checked.feWallTime !== undefined) && (
                     <div className="mt-1 px-3 py-2 border border-dashed border-irent-line rounded-xl bg-[#fafafa] flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4 text-[10px] font-mono text-irent-muted break-anywhere">
                       <span className="flex items-center gap-1">
                         <strong className="text-irent-ink">LoG Sharpness:</strong>
-                        <span className={checked.quality.isBlur ? 'text-irent-red font-bold' : 'text-irent-green font-bold'}>
+                        <span className={checked.precheck?.passed === false ? 'text-irent-red font-bold' : 'text-irent-green font-bold'}>
                           {checked.feSharpness ?? '-'}
                         </span>
                         <span className="text-[9px] opacity-75">
-                          (threshold: 12.0)
+                          (threshold: {checked.precheck?.threshold ?? FRONTEND_BLUR_THRESHOLD})
                         </span>
                       </span>
                       <span className="hidden sm:block w-px h-3 bg-irent-line" />
                       <span>
                         <strong className="text-irent-ink">Wall Time:</strong> {checked.feWallTime !== undefined ? `${checked.feWallTime} ms` : '-'}
                       </span>
+                      {checked.quality?.blur && <><span className="hidden sm:block w-px h-3 bg-irent-line" /><span><strong className="text-irent-ink">Server Laplacian:</strong> {checked.quality.blur.score} / {checked.quality.blur.threshold}</span></>}
                     </div>
                   )}
                 </div>
@@ -376,22 +397,13 @@ const CustomerFlow: React.FC = () => {
           </div>
 
           {/* Actions */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5 mt-2">
-            <button
-              onClick={() => seedDemoPhotos('clear')}
-              className="w-full min-h-[44px] rounded-2xl border border-irent-red text-irent-red bg-white font-extrabold text-sm hover:shadow-hover hover:-translate-y-0.5 transition-all"
-            >
-              Demo 正常照片
-            </button>
-            <button
-              onClick={() => seedDemoPhotos('issue')}
-              className="w-full min-h-[44px] rounded-2xl border border-irent-red text-irent-red bg-white font-extrabold text-sm hover:shadow-hover hover:-translate-y-0.5 transition-all"
-            >
-              Demo 異常照片
-            </button>
+          <div className="grid grid-cols-1 gap-2.5 mt-2">
             <button
               onClick={submitPhotoFlow}
-              disabled={submitting}
+              disabled={submitting || !PHOTO_SLOTS.every(slot => {
+                const checked = checkedPhotos[slot.key];
+                return checked?.status === 'passed' && Boolean(checked.photoId) && checked.quality?.blur.passed;
+              })}
               className="w-full min-h-[44px] rounded-2xl border border-irent-red bg-irent-red text-white font-extrabold text-sm hover:shadow-hover hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:pointer-events-none"
             >
               {submitting ? '送出中...' : '完成送出'}

@@ -4,6 +4,7 @@ const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
 const Database = require('better-sqlite3');
+const sharp = require('sharp');
 const request = require('supertest');
 const { createApp } = require('../src/app');
 const { AuthService } = require('../src/auth/AuthService');
@@ -15,7 +16,40 @@ const { NotificationService } = require('../src/services/NotificationService');
 process.env.NODE_ENV = 'test';
 process.env.CORS_ORIGIN = 'http://localhost:5173';
 process.env.GEMINI_API_KEY = '';
+// This suite verifies authorization and workflow gates. Laplacian score calibration has its
+// own unit tests, so keep this generated fixture above the quality threshold.
+process.env.BLUR_THRESHOLD = '0.01';
 const VALID_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAOUlEQVR4nO3WywkAMBBCwaj995wqAjkM7F1Y/LyT7ukdAvWicVEEbaoi2rQGJyazqGLAq9BxX9P1BYyfGAFvvlyBAAAAAElFTkSuQmCC';
+const REQUIRED_PHOTO_SLOTS = ['front', 'right_side', 'rear', 'left_side', 'front_interior', 'backseat_interior'];
+let clearImageDataPromise;
+let blurredImageDataPromise;
+
+function createQualityFixture(flat = false) {
+  const width = 96;
+  const height = 96;
+  const pixels = Buffer.alloc(width * height * 3);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const value = flat ? 128 : ((Math.floor(x / 6) + Math.floor(y / 6)) % 2) * 255;
+      const index = (y * width + x) * 3;
+      pixels[index] = value;
+      pixels[index + 1] = value;
+      pixels[index + 2] = value;
+    }
+  }
+  return sharp(pixels, { raw: { width, height, channels: 3 } }).png().toBuffer()
+    .then(buffer => `data:image/png;base64,${buffer.toString('base64')}`);
+}
+
+function clearImageData() {
+  clearImageDataPromise ||= createQualityFixture(false);
+  return clearImageDataPromise;
+}
+
+function blurredImageData() {
+  blurredImageDataPromise ||= createQualityFixture(true);
+  return blurredImageDataPromise;
+}
 
 function cookieValue(response, name) {
   const cookies = response.headers['set-cookie'] || [];
@@ -38,6 +72,24 @@ async function login(agent, username, password) {
   assert.ok(response.body.csrfToken);
   assert.equal(response.body.user.username, username.trim().toLowerCase());
   return response;
+}
+
+async function uploadValidatedPhotos(agent, csrfToken, data) {
+  const imageData = await clearImageData();
+  const photos = [];
+  for (const slot of REQUIRED_PHOTO_SLOTS) {
+    const response = await agent.post('/api/photos/quality-check')
+      .set('X-CSRF-Token', csrfToken)
+      .send({
+        ...data,
+        slot,
+        filename: slot === 'right_side' ? 'scratch.png' : `${slot}.png`,
+        imageData
+      })
+      .expect(200);
+    photos.push({ slot, photoId: response.body.photoId, filename: slot === 'right_side' ? 'scratch.png' : `${slot}.png` });
+  }
+  return photos;
 }
 
 test('authentication, RBAC, ownership, CSRF, and session revocation', async t => {
@@ -147,11 +199,19 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
       .expect(403);
   });
 
+  await t.test('submission rejects requests that bypass server-side photo validation', async () => {
+    const response = await userAAgent.post('/api/photo-submissions')
+      .set('X-CSRF-Token', userACsrf)
+      .send({ rentalId: 'R-BYPASS', plate: 'AAA-0001', phase: 'return', photos: [] })
+      .expect(422);
+    assert.equal(response.body.error.code, 'IMAGE_QUALITY_CHECK_FAILED');
+  });
+
   await t.test('non-image upload payload is rejected', async () => {
     await userAAgent.post('/api/photos/quality-check')
       .set('X-CSRF-Token', userACsrf)
       .send({ rentalId: 'R-FILE', plate: 'AAA-0001', slot: 'front', filename: 'attack.html', imageData: 'data:text/html;base64,PHNjcmlwdD4=' })
-      .expect(400);
+      .expect(415);
   });
 
   await t.test('mismatched magic bytes and undecodable images are rejected', async () => {
@@ -165,13 +225,44 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
       .expect(400);
   });
 
+  await t.test('backend rejects a decodable but clearly blurry upload with IMAGE_TOO_BLURRY', async () => {
+    const response = await userAAgent.post('/api/photos/quality-check')
+      .set('X-CSRF-Token', userACsrf)
+      .send({
+        rentalId: 'R-BLUR', plate: 'AAA-0001', phase: 'return', slot: 'front', filename: 'flat.png',
+        imageData: await blurredImageData(),
+        // A caller may claim that its client pre-check passed. The server must ignore it.
+        frontendSharpness: 999,
+        isBlur: false
+      })
+      .expect(422);
+    assert.equal(response.body.error.code, 'IMAGE_TOO_BLURRY');
+    assert.equal(response.body.quality.blur.passed, false);
+    assert.ok(response.body.photoId);
+
+    const clearPhotos = await uploadValidatedPhotos(userAAgent, userACsrf, {
+      rentalId: 'R-BLUR', plate: 'AAA-0001', phase: 'return'
+    });
+    const submissionPhotos = clearPhotos.map(photo => photo.slot === 'front'
+      ? { ...photo, photoId: response.body.photoId, filename: 'flat.png' }
+      : photo);
+    const submission = await userAAgent.post('/api/photo-submissions')
+      .set('X-CSRF-Token', userACsrf)
+      .send({ rentalId: 'R-BLUR', plate: 'AAA-0001', phase: 'return', photos: submissionPhotos })
+      .expect(422);
+    assert.equal(submission.body.error.code, 'IMAGE_QUALITY_CHECK_FAILED');
+  });
+
   let submissionId;
   await t.test('resource owner can read submission while another user receives 404', async () => {
+    const photos = await uploadValidatedPhotos(userAAgent, userACsrf, {
+      rentalId: 'R-OWNER-A', plate: 'AAA-0001', phase: 'return', station: '台北站'
+    });
     const created = await userAAgent.post('/api/photo-submissions')
       .set('X-CSRF-Token', userACsrf)
       .send({
         rentalId: 'R-OWNER-A', plate: 'AAA-0001', phase: 'return', station: '台北站',
-        photos: [{ slot: 'right_side', filename: 'scratch.png', imageData: VALID_PNG }]
+        photos
       })
       .expect(200);
     submissionId = created.body.submissionId;
