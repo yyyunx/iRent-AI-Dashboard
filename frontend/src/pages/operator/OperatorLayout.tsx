@@ -15,7 +15,7 @@ import {
   X
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
-import { AuthRole, useAuth } from '../../context/AuthContext';
+import { useAuth } from '../../context/AuthContext';
 import DashboardHeader from '../../components/dashboard/DashboardHeader';
 
 const OperatorLayout: React.FC = () => {
@@ -30,18 +30,15 @@ const OperatorLayout: React.FC = () => {
   const now = new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hour12: false }).format(new Date());
   const openCount = state?.incidents.filter(item => !['resolved', 'done'].includes(item.status)).length || 0;
 
-  const allRoles: AuthRole[] = ['user', 'admin'];
-  const adminOnly: AuthRole[] = ['admin'];
   const navItems = [
-    { path: '/operator/dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: allRoles },
-    { path: '/customer', label: '提交 Incident', icon: History, roles: allRoles },
-    { path: '/operator/submissions', label: '提交紀錄', icon: History, badge: state?.photoSubmissions?.length, roles: allRoles },
-    { path: '/operator/map', label: '地圖模式', icon: MapPin, roles: adminOnly },
-    { path: '/operator/tasks', label: '任務派發', icon: SquareKanban, badge: openCount, roles: adminOnly },
-    { path: '/operator/notifications', label: 'LINE 通知', icon: BellRing, line: true, roles: adminOnly },
-    { path: '/operator/analytics', label: '營運分析', icon: BarChart3, textBadge: '30d', roles: adminOnly },
-    { path: '/operator/settings', label: '系統設定', icon: Settings, roles: adminOnly }
-  ].filter(item => auth.user && item.roles.includes(auth.user.role));
+    { path: '/operator/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { path: '/operator/submissions', label: '提交紀錄', icon: History, badge: state?.photoSubmissions?.length },
+    { path: '/operator/map', label: '地圖模式', icon: MapPin },
+    { path: '/operator/tasks', label: '任務派發', icon: SquareKanban, badge: openCount },
+    { path: '/operator/notifications', label: 'LINE 通知', icon: BellRing, line: true },
+    { path: '/operator/analytics', label: '營運分析', icon: BarChart3, textBadge: '30d' },
+    { path: '/operator/settings', label: '系統設定', icon: Settings }
+  ];
 
   const go = (path: string) => { navigate(path); setMobileOpen(false); };
 

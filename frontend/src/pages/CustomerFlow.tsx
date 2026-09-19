@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { ArrowLeft, CheckCircle2, AlertTriangle, HelpCircle, Image, Settings, Eye, X } from 'lucide-react';
 import { checkBlurScore, FRONTEND_BLUR_THRESHOLD } from '../utils/blurDetection';
+import { useAuth } from '../context/AuthContext';
 
 const PHOTO_SLOTS = [
   { key: 'front', label: '車頭' },
@@ -40,9 +41,13 @@ interface LastSubmission {
   title: string;
 }
 
+type SubmitState = 'idle' | 'submitting' | 'success' | 'error';
+const CUSTOMER_SUBMISSION_TOAST_SCOPE = 'customer-submission';
+
 const CustomerFlow: React.FC = () => {
   const navigate = useNavigate();
-  const { apiPost, showToast, developerMode, setDeveloperMode } = useApp();
+  const { apiPost, showToast, clearToasts, developerMode, setDeveloperMode } = useApp();
+  const auth = useAuth();
 
   const [phase, setPhase] = useState<'pickup' | 'return'>('pickup');
   const [rentalId, setRentalId] = useState('R-20260704-001');
@@ -51,12 +56,30 @@ const CustomerFlow: React.FC = () => {
   const [parkingLocation, setParkingLocation] = useState('B3 100');
   const [note, setNote] = useState('');
   const [checkedPhotos, setCheckedPhotos] = useState<Record<string, CheckedPhoto>>({});
-  const [submitting, setSubmitting] = useState(false);
+  const [submitState, setSubmitState] = useState<SubmitState>('idle');
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const [lastSubmission, setLastSubmission] = useState<LastSubmission | null>(null);
+  const [showSuccessModal, setShowSuccessModal] = useState(false);
   const qualityRequestIds = useRef<Record<string, number>>({});
+  const qualityEpoch = useRef(0);
+  const submitStateRef = useRef<SubmitState>('idle');
+  const submitInFlightRef = useRef(false);
+  const submissionRequestId = useRef(0);
 
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+
+  const setSubmissionState = (nextState: SubmitState) => {
+    submitStateRef.current = nextState;
+    setSubmitState(nextState);
+  };
+
+  const invalidateQualityRequests = () => {
+    qualityEpoch.current += 1;
+    PHOTO_SLOTS.forEach(slot => {
+      qualityRequestIds.current[slot.key] = (qualityRequestIds.current[slot.key] || 0) + 1;
+    });
+  };
 
   // File readers
   const readPhoto = (file: File): Promise<{ name: string; data: string }> => {
@@ -84,11 +107,16 @@ const CustomerFlow: React.FC = () => {
 
   const handleQualityCheck = async (slot: string, event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file || submitInFlightRef.current || submitStateRef.current === 'success') return;
     const requestId = (qualityRequestIds.current[slot] || 0) + 1;
     qualityRequestIds.current[slot] = requestId;
-    const isCurrent = () => qualityRequestIds.current[slot] === requestId;
+    const requestEpoch = qualityEpoch.current;
+    const isCurrent = () => qualityRequestIds.current[slot] === requestId
+      && qualityEpoch.current === requestEpoch
+      && submitStateRef.current !== 'success';
     // Reset as soon as a new file is selected so no previous pass result can enable submission.
+    setSubmitError(null);
+    if (submitStateRef.current === 'error') setSubmissionState('idle');
     setCheckedPhotos(prev => ({ ...prev, [slot]: { status: 'checking', filename: file.name } }));
 
     try {
@@ -116,7 +144,7 @@ const CustomerFlow: React.FC = () => {
       }
       
       const basePayload = getPayload(slot, fileData);
-      const response = await apiPost('/api/photos/quality-check', basePayload);
+      const response = await apiPost('/api/photos/quality-check', basePayload, { suppressErrorToast: true });
       if (!isCurrent()) return;
       
       setCheckedPhotos(prev => ({
@@ -133,7 +161,7 @@ const CustomerFlow: React.FC = () => {
         }
       }));
 
-      showToast("照片品質檢查完成", `${slot}: ${response.quality.message}`);
+      showToast("照片品質檢查完成", `${slot}: ${response.quality.message}`, CUSTOMER_SUBMISSION_TOAST_SCOPE);
     } catch (error: any) {
       if (!isCurrent()) return;
       const quality = error.payload?.quality;
@@ -151,28 +179,38 @@ const CustomerFlow: React.FC = () => {
           errorMessage: isBlurFailure ? '照片過於模糊，請重新拍攝後再上傳。' : '目前無法完成照片品質檢查，請重新嘗試。'
         }
       }));
-      showToast(isBlurFailure ? '照片模糊' : '品質檢查失敗', isBlurFailure ? '照片過於模糊，請重新拍攝後再上傳。' : '目前無法完成照片品質檢查，請重新嘗試。');
+      showToast(isBlurFailure ? '照片模糊' : '品質檢查失敗', isBlurFailure ? '照片過於模糊，請重新拍攝後再上傳。' : '目前無法完成照片品質檢查，請重新嘗試。', CUSTOMER_SUBMISSION_TOAST_SCOPE);
     }
   };
 
   const resetPhotos = () => {
-    PHOTO_SLOTS.forEach(slot => {
-      qualityRequestIds.current[slot.key] = (qualityRequestIds.current[slot.key] || 0) + 1;
-    });
+    invalidateQualityRequests();
+    setSubmitError(null);
+    if (submitStateRef.current === 'error') setSubmissionState('idle');
     setCheckedPhotos({});
   };
 
   const submitPhotoFlow = async () => {
-    if (submitting) return;
+    if (submitInFlightRef.current || submitStateRef.current === 'success') return;
     const allPhotosPassed = PHOTO_SLOTS.every(slot => {
       const checked = checkedPhotos[slot.key];
       return checked?.status === 'passed' && Boolean(checked.photoId) && checked.quality?.blur.passed;
     });
     if (!allPhotosPassed) {
-      showToast('尚未完成照片檢查', '所有必填照片都必須先通過後端品質檢查。');
+      const message = '所有必填照片都必須先通過後端品質檢查。';
+      setSubmitError(message);
+      setSubmissionState('error');
+      clearToasts(CUSTOMER_SUBMISSION_TOAST_SCOPE);
+      showToast('尚未完成照片檢查', message, CUSTOMER_SUBMISSION_TOAST_SCOPE);
       return;
     }
-    setSubmitting(true);
+    const requestId = ++submissionRequestId.current;
+    submitInFlightRef.current = true;
+    setSubmissionState('submitting');
+    setSubmitError(null);
+    setShowSuccessModal(false);
+    setLastSubmission(null);
+    clearToasts(CUSTOMER_SUBMISSION_TOAST_SCOPE);
     
     const photos = PHOTO_SLOTS.map(slot => {
       const checked = checkedPhotos[slot.key];
@@ -195,7 +233,12 @@ const CustomerFlow: React.FC = () => {
     };
 
     try {
-      const response = await apiPost('/api/photo-submissions', payload);
+      const response = await apiPost('/api/photo-submissions', payload, { suppressErrorToast: true });
+      if (requestId !== submissionRequestId.current) return;
+      // A backend success response is the sole source of truth for a completed submission.
+      invalidateQualityRequests();
+      clearToasts(CUSTOMER_SUBMISSION_TOAST_SCOPE);
+      setSubmitError(null);
       setLastSubmission({
         submissionId: response.submissionId,
         overallStatus: response.overallStatus,
@@ -203,12 +246,33 @@ const CustomerFlow: React.FC = () => {
         title: response.createdIncidents.length ? '已送出，需營運端確認' : '已送出，未偵測異常',
         body: `提交編號 ${response.submissionId}，AI 狀態 ${response.overallStatus}。`
       });
-      showToast("提交成功", `已完成還/取車相片提交，ID: ${response.submissionId}`);
+      setSubmissionState('success');
+      setShowSuccessModal(true);
     } catch (error: any) {
-      showToast("送出失敗", error.message);
+      if (requestId !== submissionRequestId.current) return;
+      const isQualityFailure = error.code === 'IMAGE_QUALITY_CHECK_FAILED';
+      const title = isQualityFailure ? '照片品質檢查未通過' : '送出失敗';
+      const message = error.message || '目前無法完成送出，請重新嘗試。';
+      setSubmitError(message);
+      setSubmissionState('error');
+      setShowSuccessModal(false);
+      clearToasts(CUSTOMER_SUBMISSION_TOAST_SCOPE);
+      showToast(title, message, CUSTOMER_SUBMISSION_TOAST_SCOPE);
     } finally {
-      setSubmitting(false);
+      if (requestId === submissionRequestId.current) submitInFlightRef.current = false;
     }
+  };
+
+  const closeSuccessModal = () => {
+    setShowSuccessModal(false);
+    setSubmissionState('idle');
+  };
+
+  const submissionLocked = submitState === 'submitting' || submitState === 'success';
+
+  const switchIdentity = async () => {
+    await auth.logout();
+    navigate('/login', { replace: true });
   };
 
   return (
@@ -226,8 +290,8 @@ const CustomerFlow: React.FC = () => {
           >
             <Settings size={16} />
           </button>
-          <button 
-            onClick={() => navigate('/')}
+          <button type="button"
+            onClick={() => void switchIdentity()}
             className="min-h-[38px] flex-1 sm:flex-initial px-3 border border-irent-line rounded-xl text-irent-muted flex items-center justify-center gap-1.5 hover:bg-irent-soft-red hover:text-irent-red transition-all duration-200"
           >
             <ArrowLeft size={16} />
@@ -247,14 +311,18 @@ const CustomerFlow: React.FC = () => {
           {/* Segmented Phase */}
           <div className="grid grid-cols-2 gap-2 p-1.5 rounded-2xl bg-irent-bg">
             <button
+              type="button"
+              disabled={submissionLocked}
               onClick={() => { setPhase('pickup'); resetPhotos(); }}
-              className={`border-0 rounded-xl min-h-[42px] font-extrabold text-sm transition-all duration-200 ${phase === 'pickup' ? 'bg-irent-red text-white shadow-lg' : 'text-irent-muted hover:text-irent-red'}`}
+              className={`border-0 rounded-xl min-h-[42px] font-extrabold text-sm transition-all duration-200 disabled:opacity-50 ${phase === 'pickup' ? 'bg-irent-red text-white shadow-lg' : 'text-irent-muted hover:text-irent-red'}`}
             >
               取車檢查
             </button>
             <button
+              type="button"
+              disabled={submissionLocked}
               onClick={() => { setPhase('return'); resetPhotos(); }}
-              className={`border-0 rounded-xl min-h-[42px] font-extrabold text-sm transition-all duration-200 ${phase === 'return' ? 'bg-irent-red text-white shadow-lg' : 'text-irent-muted hover:text-irent-red'}`}
+              className={`border-0 rounded-xl min-h-[42px] font-extrabold text-sm transition-all duration-200 disabled:opacity-50 ${phase === 'return' ? 'bg-irent-red text-white shadow-lg' : 'text-irent-muted hover:text-irent-red'}`}
             >
               還車檢查
             </button>
@@ -356,6 +424,7 @@ const CustomerFlow: React.FC = () => {
                         id={`customer-file-${slot.key}`}
                         accept="image/*"
                         capture="environment"
+                        disabled={submissionLocked}
                         onClick={event => { event.currentTarget.value = ''; }}
                         onChange={e => handleQualityCheck(slot.key, e)}
                         className="w-full text-xs text-slate-500 file:mr-4 file:py-1.5 file:px-3.5 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-irent-soft-red file:text-irent-red hover:file:bg-irent-soft-red-strong cursor-pointer"
@@ -399,15 +468,17 @@ const CustomerFlow: React.FC = () => {
           {/* Actions */}
           <div className="grid grid-cols-1 gap-2.5 mt-2">
             <button
+              type="button"
               onClick={submitPhotoFlow}
-              disabled={submitting || !PHOTO_SLOTS.every(slot => {
+              disabled={submissionLocked || !PHOTO_SLOTS.every(slot => {
                 const checked = checkedPhotos[slot.key];
                 return checked?.status === 'passed' && Boolean(checked.photoId) && checked.quality?.blur.passed;
               })}
               className="w-full min-h-[44px] rounded-2xl border border-irent-red bg-irent-red text-white font-extrabold text-sm hover:shadow-hover hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:pointer-events-none"
             >
-              {submitting ? '送出中...' : '完成送出'}
+              {submitState === 'submitting' ? '送出中...' : '完成送出'}
             </button>
+            {submitState === 'error' && submitError && <p role="alert" className="m-0 rounded-xl border border-[#fde5e5] bg-[#fff3f3] px-3 py-2 text-xs font-bold text-irent-red">{submitError}</p>}
           </div>
         </section>
 
@@ -454,6 +525,18 @@ const CustomerFlow: React.FC = () => {
           </div>
         </section>
       </main>
+
+      {showSuccessModal && lastSubmission && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/25 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="submission-success-title">
+          <section className="w-full max-w-sm rounded-3xl border border-irent-line bg-white p-7 text-center shadow-2xl">
+            <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#e9f4ea] text-irent-green"><CheckCircle2 size={34} strokeWidth={2.5} /></span>
+            <h2 id="submission-success-title" className="mb-2 mt-4 text-xl font-black text-irent-ink">{phase === 'pickup' ? '取車檢查成功' : '還車檢查成功'}</h2>
+            <p className="m-0 text-sm text-irent-muted">照片已成功送出</p>
+            <p className="mt-4 rounded-xl bg-irent-bg px-3 py-2 font-mono text-xs font-bold text-irent-ink break-all">{lastSubmission.submissionId}</p>
+            <button type="button" onClick={closeSuccessModal} className="mt-5 min-h-11 w-full rounded-xl bg-irent-red px-5 font-extrabold text-white transition-colors hover:bg-red-700">完成</button>
+          </section>
+        </div>
+      )}
 
       {/* Settings Modal */}
       {showSettingsModal && (

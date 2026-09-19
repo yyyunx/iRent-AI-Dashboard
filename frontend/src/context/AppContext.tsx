@@ -95,6 +95,7 @@ export interface Toast {
   id: string;
   title: string;
   text: string;
+  scope?: string;
 }
 
 export interface AppState {
@@ -138,10 +139,11 @@ interface AppContextType {
   selectedId: string | null;
   setSelectedId: (id: string | null) => void;
   toastStack: Toast[];
-  showToast: (title: string, text: string) => void;
+  showToast: (title: string, text: string, scope?: string) => void;
   removeToast: (id: string) => void;
+  clearToasts: (scope: string) => void;
   refreshState: () => Promise<boolean>;
-  apiPost: (path: string, payload: any) => Promise<any>;
+  apiPost: (path: string, payload: any, options?: { suppressErrorToast?: boolean }) => Promise<any>;
   developerMode: boolean;
   setDeveloperMode: (val: boolean) => void;
   searchQuery: string;
@@ -175,9 +177,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('developerMode', String(val));
   }, []);
 
-  const showToast = useCallback((title: string, text: string) => {
+  const showToast = useCallback((title: string, text: string, scope?: string) => {
     const id = Math.random().toString(36).substring(2, 9);
-    setToastStack(prev => [{ id, title, text }, ...prev]);
+    setToastStack(prev => [{ id, title, text, scope }, ...prev]);
     setTimeout(() => {
       setToastStack(prev => prev.filter(t => t.id !== id));
     }, 5200);
@@ -185,6 +187,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const removeToast = useCallback((id: string) => {
     setToastStack(prev => prev.filter(t => t.id !== id));
+  }, []);
+
+  const clearToasts = useCallback((scope: string) => {
+    setToastStack(prev => prev.filter(toast => toast.scope !== scope));
   }, []);
 
   const refreshState = useCallback(async () => {
@@ -221,7 +227,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [selectedId, isAuthenticated, refreshUser]);
 
-  const apiPost = useCallback(async (path: string, payload: any) => {
+  const apiPost = useCallback(async (path: string, payload: any, options?: { suppressErrorToast?: boolean }) => {
     try {
       const csrfToken = await getCsrfToken();
       const response = await fetch(path, {
@@ -268,7 +274,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       return data;
     } catch (error: any) {
-      showToast("連線錯誤", error.message || "請求失敗");
+      if (!options?.suppressErrorToast) showToast("連線錯誤", error.message || "請求失敗");
       throw error;
     }
   }, [showToast, getCsrfToken, refreshUser]);
@@ -306,6 +312,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toastStack,
         showToast,
         removeToast,
+        clearToasts,
         refreshState,
         apiPost,
         developerMode,

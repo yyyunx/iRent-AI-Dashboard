@@ -3,7 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AppProvider } from './context/AppContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ToastContainer } from './components/ToastContainer';
-import { ProtectedRoute, RequireRole } from './components/auth/ProtectedRoute';
+import { RequireRole } from './components/auth/ProtectedRoute';
 
 // Lazy loading views for page chunking
 const Login = React.lazy(() => import('./pages/Login'));
@@ -29,7 +29,7 @@ const PageLoader: React.FC = () => (
 const HomeRedirect: React.FC = () => {
   const { user, isLoading } = useAuth();
   if (isLoading) return <PageLoader />;
-  return <Navigate to={user ? '/operator/dashboard' : '/login'} replace />;
+  return <Navigate to={user ? (user.role === 'admin' ? '/operator/dashboard' : '/customer') : '/login'} replace />;
 };
 
 const App: React.FC = () => {
@@ -42,10 +42,10 @@ const App: React.FC = () => {
             <Route path="/" element={<HomeRedirect />} />
             <Route path="/login" element={<Login />} />
             <Route path="/403" element={<Forbidden />} />
-            <Route path="/customer" element={<ProtectedRoute><CustomerFlow /></ProtectedRoute>} />
+            <Route path="/customer" element={<RequireRole roles={['user']}><CustomerFlow /></RequireRole>} />
             
             {/* Operator sub-pages */}
-            <Route path="/operator" element={<ProtectedRoute><OperatorLayout /></ProtectedRoute>}>
+            <Route path="/operator" element={<RequireRole roles={['admin']}><OperatorLayout /></RequireRole>}>
               <Route index element={<Navigate to="/operator/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="submissions" element={<Submissions />} />
