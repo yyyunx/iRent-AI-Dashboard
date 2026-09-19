@@ -80,7 +80,7 @@ textarea { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
 
 /* Modern SaaS operations shell */
-.ops-shell { min-height: 100vh; display: grid; grid-template-columns: 242px minmax(0, 1fr); background: radial-gradient(circle at 85% 0%, #eaf3ff 0, transparent 32%), var(--color-bg); }
+.ops-shell { --ops-sidebar-width: 242px; min-height: 100vh; background: radial-gradient(circle at 85% 0%, #eaf3ff 0, transparent 32%), var(--color-bg); }
 /* =========================================================
    iRent Ops AI — Sidebar / Toolbar
    設計原則：
@@ -91,12 +91,15 @@ button { -webkit-tap-highlight-color: transparent; }
    ========================================================= */
 
 .ops-sidebar {
-  position: sticky;
+  position: fixed;
   top: 0;
+  left: 0;
+  width: var(--ops-sidebar-width);
   height: 100vh;
   z-index: 40;
   isolation: isolate;
   overflow: hidden;
+  box-sizing: border-box;
 
   display: flex;
   flex-direction: column;
@@ -289,6 +292,10 @@ button { -webkit-tap-highlight-color: transparent; }
    Navigation
    --------------------------------------------------------- */
 .ops-sidebar nav {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -455,7 +462,7 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 
 .sidebar-spacer {
-  flex: 1;
+  display: none;
 }
 
 /* ---------------------------------------------------------
@@ -464,6 +471,7 @@ button { -webkit-tap-highlight-color: transparent; }
    而不是「卡片 + 突然出現的波浪」。
    --------------------------------------------------------- */
 .sidebar-user {
+  flex: 0 0 auto;
   width: 100%;
 
   position: relative;
@@ -557,7 +565,7 @@ button { -webkit-tap-highlight-color: transparent; }
   font-size: 10px;
 }
 
-.ops-main { min-width: 0; padding: 0 24px 28px; }
+.ops-main { min-width: 0; margin-left: var(--ops-sidebar-width); padding: 0 24px 28px; }
 .topbar { min-height: 64px; display: flex; align-items: center; gap: 16px; }
 .mobile-menu { display: none; width: 40px; height: 40px; place-items: center; border: 1px solid var(--color-border); background: white; border-radius: 12px; color: var(--color-text); }
 .topbar-search { width: min(380px, 42vw); height: 40px; padding: 0 16px; display: flex; align-items: center; gap: 10px; background: rgba(255,255,255,.84); border: 1px solid rgba(229,231,235,.8); border-radius: 999px; color: #8290a7; box-shadow: 0 1px 2px rgba(15,23,42,.025); }
@@ -855,12 +863,11 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 
 @media (max-width: 980px) {
-  .ops-shell { grid-template-columns: 1fr; }
-  .ops-sidebar { position: fixed; left: 0; transform: translateX(-102%); width: 250px; transition: transform .2s ease; }
+  .ops-sidebar { transform: translateX(-102%); width: 250px; transition: transform .2s ease; }
   .ops-sidebar.is-open { transform: translateX(0); }
   .sidebar-close, .mobile-menu { display: grid; }
   .sidebar-scrim { display: block; position: fixed; z-index: 35; inset: 0; border: 0; background: rgba(15,23,42,.34); }
-  .ops-main { padding: 0 18px 24px; }
+  .ops-main { margin-left: 0; padding: 0 18px 24px; }
   .dashboard-hero { grid-template-columns: minmax(0,1.35fr) minmax(280px,.8fr); }
   .dashboard-hero__actions { width: 100%; }
 }
