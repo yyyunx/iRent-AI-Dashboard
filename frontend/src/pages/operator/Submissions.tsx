@@ -39,6 +39,7 @@ const Submissions: React.FC = () => {
                 </div>
 
                 <p className="text-irent-ink text-sm leading-relaxed m-0">{item.aiSummary}</p>
+                {item.phase === 'return' && item.returnLocation && <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 text-xs text-irent-muted"><strong className="text-irent-ink">還車停車位置</strong><p className="m-0 mt-1">{[item.returnLocation.address, item.returnLocation.parkingFacility, item.returnLocation.floor, item.returnLocation.zone, item.returnLocation.pillar, item.returnLocation.parkingSlot].filter(Boolean).join(' / ') || '未提供'}</p>{item.returnLocation.locationNote && <p className="m-0 mt-1">補充：{item.returnLocation.locationNote}</p>}</div>}
 
                 {/* Photo grid of this submission */}
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2.5">

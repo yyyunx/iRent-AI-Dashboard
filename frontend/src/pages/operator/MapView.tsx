@@ -1,5 +1,7 @@
-import React from 'react';
-import { useApp } from '../../context/AppContext';
+import React, { useEffect, useRef } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { Incident, useApp } from '../../context/AppContext';
 import { HelpCircle } from 'lucide-react';
 
 const MapView: React.FC = () => {
@@ -7,6 +9,10 @@ const MapView: React.FC = () => {
 
   const incidents = state?.incidents || [];
   const selected = incidents.find(i => i.id === selectedId) || incidents[0];
+  const hasGps = selected && selected.latitude !== null && selected.longitude !== null;
+  const severityClass: Record<string, string> = {
+    normal: 'bg-irent-green', low: 'bg-yellow-400', medium: 'bg-irent-orange', high: 'bg-orange-500', critical: 'bg-irent-danger'
+  };
 
   const handlePinClick = (id: string) => {
     setSelectedId(id);
@@ -20,32 +26,13 @@ const MapView: React.FC = () => {
           <h2 className="text-[#222222] text-lg font-black m-0">地圖模式</h2>
           <span className="text-xs font-bold text-irent-red bg-irent-soft-red px-2.5 py-1 rounded-full">站點即時風險分布</span>
         </div>
+        <div className="flex gap-2 overflow-x-auto border-b border-irent-line p-3">
+          {incidents.filter(item => item.latitude !== null && item.longitude !== null).map(item => <button key={item.id} onClick={() => handlePinClick(item.id)} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold ${item.id === selected?.id ? 'border-irent-red bg-irent-soft-red text-irent-red' : 'border-irent-line bg-white text-irent-muted'}`}><span className={`mr-1 inline-block h-2 w-2 rounded-full ${severityClass[item.severity] || 'bg-irent-green'}`} />{item.plate}</button>)}
+          {!incidents.some(item => item.latitude !== null && item.longitude !== null) && <span className="text-xs text-irent-muted">目前沒有含 GPS 的 Incident marker。</span>}
+        </div>
 
-        <div className="relative flex-1 min-h-[640px] map-canvas m-4">
-          {/* Static Mock Roads */}
-          <div className="map-road r1"></div>
-          <div className="map-road r2"></div>
-          <div className="map-road r3"></div>
-          <div className="map-road r4"></div>
-
-          {/* Interactive Pins */}
-          {incidents.map(item => {
-            const isActive = item.id === selectedId;
-            let severityColor = 'bg-irent-green';
-            if (item.severity === 'high') severityColor = 'bg-irent-danger';
-            else if (item.severity === 'medium') severityColor = 'bg-irent-orange';
-
-            return (
-              <button
-                key={item.id}
-                onClick={() => handlePinClick(item.id)}
-                className={`map-pin ${severityColor} ${isActive ? 'active' : ''}`}
-                style={{ left: `${item.x}%`, top: `${item.y}%` }}
-                title={`${item.plate} ${item.label}`}
-                aria-label={`${item.plate} ${item.label}`}
-              />
-            );
-          })}
+        <div className="relative flex-1 min-h-[640px] map-canvas m-4 overflow-hidden rounded-2xl border border-irent-line bg-slate-100">
+          {hasGps ? <OsmIncidentMap incidents={incidents} selectedId={selected!.id} onSelect={handlePinClick} /> : <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-8 text-center text-irent-muted"><HelpCircle size={40} className="text-irent-line" /><strong>此 Incident 未提供 GPS</strong><span className="max-w-sm text-xs leading-relaxed">仍保留手動停車資訊：{selected ? [selected.address || selected.station, selected.parkingFacility, selected.floor, selected.pillar, selected.parkingSlot].filter(Boolean).join(' / ') : '-'}</span></div>}
         </div>
       </section>
 
@@ -77,7 +64,7 @@ const MapView: React.FC = () => {
               </div>
               <div className="flex justify-between border-b border-dashed border-irent-line pb-2.5">
                 <span className="text-irent-muted text-xs">站點</span>
-                <strong className="text-irent-ink text-xs font-extrabold">{selected.station}</strong>
+                <strong className="text-irent-ink text-xs font-extrabold">{selected.address || selected.station}</strong>
               </div>
               <div className="flex justify-between border-b border-dashed border-irent-line pb-2.5">
                 <span className="text-irent-muted text-xs">異常</span>
@@ -92,6 +79,11 @@ const MapView: React.FC = () => {
                 <strong className="text-irent-ink text-xs font-extrabold">
                   {selected.type === 'damage' ? '客服確認 8 分鐘' : '清潔 15 分鐘'}
                 </strong>
+              </div>
+              <div className="grid grid-cols-2 gap-2 text-xs text-irent-muted pt-1">
+                <span>停車場：<strong className="text-irent-ink">{selected.parkingFacility || '-'}</strong></span><span>樓層：<strong className="text-irent-ink">{selected.floor || '-'}</strong></span>
+                <span>區域：<strong className="text-irent-ink">{selected.zone || '-'}</strong></span><span>柱號：<strong className="text-irent-ink">{selected.pillar || '-'}</strong></span>
+                <span>車格：<strong className="text-irent-ink">{selected.parkingSlot || '-'}</strong></span><span>補充：<strong className="text-irent-ink">{selected.locationNote || '-'}</strong></span>
               </div>
             </div>
 
@@ -116,3 +108,38 @@ const MapView: React.FC = () => {
 };
 
 export default MapView;
+
+const markerColor = (severity: string) => ({ normal: '#16803a', low: '#eab308', medium: '#f97316', high: '#f97316', critical: '#dc2626' }[severity] || '#16803a');
+
+const OsmIncidentMap: React.FC<{ incidents: Incident[]; selectedId: string; onSelect: (id: string) => void }> = ({ incidents, selectedId, onSelect }) => {
+  const host = useRef<HTMLDivElement | null>(null);
+  const map = useRef<L.Map | null>(null);
+  const layer = useRef<L.LayerGroup | null>(null);
+  const gpsIncidents = incidents.filter(item => item.latitude !== null && item.longitude !== null);
+
+  useEffect(() => {
+    if (!host.current || map.current) return;
+    map.current = L.map(host.current, { zoomControl: true, attributionControl: true });
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OpenStreetMap contributors' }).addTo(map.current);
+    layer.current = L.layerGroup().addTo(map.current);
+    return () => { map.current?.remove(); map.current = null; layer.current = null; };
+  }, []);
+
+  useEffect(() => {
+    if (!map.current || !layer.current) return;
+    layer.current.clearLayers();
+    const selected = gpsIncidents.find(item => item.id === selectedId) || gpsIncidents[0];
+    for (const item of gpsIncidents) {
+      const icon = L.divIcon({ className: 'irent-osm-marker', html: `<span style="background:${markerColor(item.severity)}"></span>`, iconSize: [22, 22], iconAnchor: [11, 11] });
+      const popup = `<strong>${escapeHtml(item.plate)}</strong><br/>Incident: ${escapeHtml(item.label)}<br/>Severity: ${escapeHtml(item.severity.toUpperCase())}<br/>Damage / Dirty: ${escapeHtml(item.type)}<br/>地址：${escapeHtml(item.address || item.station)}<br/>停車場：${escapeHtml(item.parkingFacility || '-')}<br/>樓層：${escapeHtml(item.floor || '-')}　區域：${escapeHtml(item.zone || '-')}<br/>柱號：${escapeHtml(item.pillar || '-')}　車格：${escapeHtml(item.parkingSlot || '-')}<br/>時間：${escapeHtml(item.time)}`;
+      L.marker([item.latitude!, item.longitude!], { icon }).bindPopup(popup).on('click', () => onSelect(item.id)).addTo(layer.current);
+    }
+    if (selected) map.current.setView([selected.latitude!, selected.longitude!], 17);
+  }, [gpsIncidents, selectedId, onSelect]);
+
+  return <div ref={host} className="absolute inset-0" aria-label="OpenStreetMap Incident map" />;
+};
+
+function escapeHtml(value: string) {
+  return value.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[character] || character));
+}

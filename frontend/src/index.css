@@ -2,6 +2,9 @@
 @tailwind components;
 @tailwind utilities;
 
+.irent-osm-marker { background: transparent; border: 0; }
+.irent-osm-marker span { display: block; width: 18px; height: 18px; border: 3px solid #fff; border-radius: 50% 50% 50% 0; box-shadow: 0 2px 7px rgba(15, 23, 42, .35); transform: rotate(-45deg); }
+
 :root {
   --color-primary: #e60023;
   --color-primary-hover: #d71920;

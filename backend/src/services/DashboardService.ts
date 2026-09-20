@@ -147,6 +147,26 @@ export class DashboardService {
     };
   }
 
+  public getIncidentMapMarkers() {
+    return this.repo.getIncidents().map(incident => ({
+      incidentId: incident.id,
+      carNumber: incident.plate,
+      latitude: incident.latitude ?? null,
+      longitude: incident.longitude ?? null,
+      severity: incident.severity,
+      address: incident.address || '',
+      parkingFacility: incident.parking_facility || '',
+      floor: incident.floor || '',
+      zone: incident.zone || '',
+      pillar: incident.pillar || '',
+      parkingSlot: incident.parking_slot || '',
+      locationNote: incident.location_note || '',
+      incident: incident.label,
+      type: incident.type,
+      detectedAt: incident.created_at
+    }));
+  }
+
   private incidentAgeMinutes(incident: Incident): number {
     const raw = incident.created_at || incident.detected_time;
     const timestamp = new Date(raw.includes('T') ? raw : raw.replace(' ', 'T')).getTime();

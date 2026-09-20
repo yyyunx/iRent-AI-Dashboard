@@ -25,6 +25,19 @@ export interface Incident {
   aiReviewSummary: string | null;
   manualReviewRequired: boolean;
   resolvedAt: string | null;
+  latitude: number | null;
+  longitude: number | null;
+  gpsAccuracy: number | null;
+  address: string;
+  parkingFacility: string;
+  floor: string;
+  zone: string;
+  pillar: string;
+  parkingSlot: string;
+  locationNote: string;
+  operationalUrgency: string | null;
+  slaMinutes: number | null;
+  vehicleUnavailable: boolean;
 }
 
 export interface PhotoSubmission {
@@ -38,6 +51,10 @@ export interface PhotoSubmission {
   overallStatus: string;
   aiSummary: string | null;
   createdAt: string;
+  returnLocation: {
+    latitude: number | null; longitude: number | null; gpsAccuracy: number | null; gpsCapturedAt: string | null;
+    address: string; station: string; parkingFacility: string; floor: string; zone: string; pillar: string; parkingSlot: string; locationNote: string;
+  };
   photos?: UploadedPhoto[];
 }
 
@@ -59,6 +76,8 @@ export interface UploadedPhoto {
   angleValid: boolean;
   distanceValid: boolean;
   aiResult: any;
+  orientation: { angle: number | null; label: string | null; confidence: number | null; passed: boolean | null; checkedAt: string | null; };
+  condition: { damageDetected: boolean | null; damageType: string | null; damageConfidence: number | null; dirtyDetected: boolean | null; dirtyConfidence: number | null; checkedAt: string | null; };
   createdAt: string;
 }
 
@@ -118,6 +137,7 @@ export interface AppState {
     keyConfigured: boolean;
     keySource: 'environment' | 'dashboard';
   };
+  inspectionConfig: { orientationCheckEnabled: boolean; conditionCheckEnabled: boolean; };
   lineLogs: { title: string; time: string; group: string; message: string; status: string; error: string | null }[];
   timelines: Record<string, TimelineItem[]>;
   comments: Record<string, CommentItem[]>;

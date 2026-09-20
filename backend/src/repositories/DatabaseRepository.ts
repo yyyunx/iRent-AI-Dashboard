@@ -638,7 +638,7 @@ export class DatabaseRepository {
         region, assigned_team, manual_review_required, owner_user_id, source_submission_id,
         latitude, longitude, gps_accuracy, address, parking_facility, floor, zone, pillar, parking_slot, location_note,
         operational_urgency, sla_minutes, vehicle_unavailable, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       item.id, item.plate, item.station, item.type, item.label, item.severity,
       item.confidence, item.detected_time || new Date().toLocaleTimeString('zh-TW', { hour12: false }).substring(0, 5),

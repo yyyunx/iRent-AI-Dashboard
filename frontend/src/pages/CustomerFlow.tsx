@@ -41,6 +41,21 @@ interface LastSubmission {
   title: string;
 }
 
+interface ReturnLocationForm {
+  latitude?: number;
+  longitude?: number;
+  gpsAccuracy?: number;
+  gpsCapturedAt?: string;
+  address: string;
+  station: string;
+  parkingFacility: string;
+  floor: string;
+  zone: string;
+  pillar: string;
+  parkingSlot: string;
+  locationNote: string;
+}
+
 type SubmitState = 'idle' | 'submitting' | 'success' | 'error';
 const CUSTOMER_SUBMISSION_TOAST_SCOPE = 'customer-submission';
 
@@ -54,6 +69,11 @@ const CustomerFlow: React.FC = () => {
   const [plate, setPlate] = useState('ABC-1234');
   const [station, setStation] = useState('台北 101 站');
   const [parkingLocation, setParkingLocation] = useState('B3 100');
+  const [returnLocation, setReturnLocation] = useState<ReturnLocationForm>({
+    address: '', station: '台北 101 站', parkingFacility: '', floor: '', zone: '', pillar: '', parkingSlot: '', locationNote: ''
+  });
+  const [gpsState, setGpsState] = useState<'idle' | 'capturing' | 'captured' | 'unavailable'>('idle');
+  const [gpsMessage, setGpsMessage] = useState('');
   const [note, setNote] = useState('');
   const [checkedPhotos, setCheckedPhotos] = useState<Record<string, CheckedPhoto>>({});
   const [submitState, setSubmitState] = useState<SubmitState>('idle');
@@ -79,6 +99,44 @@ const CustomerFlow: React.FC = () => {
     PHOTO_SLOTS.forEach(slot => {
       qualityRequestIds.current[slot.key] = (qualityRequestIds.current[slot.key] || 0) + 1;
     });
+  };
+
+  const updateReturnLocation = (field: keyof ReturnLocationForm, value: string) => {
+    setReturnLocation(previous => ({ ...previous, [field]: value }));
+  };
+
+  const captureGps = () => {
+    if (!navigator.geolocation) {
+      setGpsState('unavailable');
+      setGpsMessage('此裝置不支援 GPS，請手動輸入停車位置。');
+      return;
+    }
+    setGpsState('capturing');
+    setGpsMessage('正在取得 GPS...');
+    navigator.geolocation.getCurrentPosition(
+      position => {
+        setReturnLocation(previous => ({
+          ...previous,
+          latitude: Number(position.coords.latitude.toFixed(6)),
+          longitude: Number(position.coords.longitude.toFixed(6)),
+          gpsAccuracy: Math.round(position.coords.accuracy),
+          gpsCapturedAt: new Date(position.timestamp).toISOString()
+        }));
+        setGpsState('captured');
+        setGpsMessage(`已取得目前位置，定位精度：約 ${Math.round(position.coords.accuracy)} 公尺`);
+      },
+      () => {
+        setGpsState('unavailable');
+        setGpsMessage('無法取得 GPS，請確認定位權限。你仍可手動輸入停車位置。');
+      },
+      { enableHighAccuracy: true, timeout: 10_000, maximumAge: 0 }
+    );
+  };
+
+  const switchPhase = (nextPhase: 'pickup' | 'return') => {
+    setPhase(nextPhase);
+    resetPhotos();
+    if (nextPhase === 'return') void captureGps();
   };
 
   // File readers
@@ -204,6 +262,13 @@ const CustomerFlow: React.FC = () => {
       showToast('尚未完成照片檢查', message, CUSTOMER_SUBMISSION_TOAST_SCOPE);
       return;
     }
+    if (phase === 'return' && (!returnLocation.address.trim() || !returnLocation.parkingSlot.trim())) {
+      const message = '還車時請填寫地址與車格號碼；若為路邊停車，車格可填「路邊停車」。';
+      setSubmitError(message);
+      setSubmissionState('error');
+      showToast('停車位置尚未完成', message, CUSTOMER_SUBMISSION_TOAST_SCOPE);
+      return;
+    }
     const requestId = ++submissionRequestId.current;
     submitInFlightRef.current = true;
     setSubmissionState('submitting');
@@ -229,6 +294,7 @@ const CustomerFlow: React.FC = () => {
       phase,
       station: station.trim(),
       parkingLocation: parkingLocation.trim(),
+      returnLocation: phase === 'return' ? returnLocation : undefined,
       photos
     };
 
@@ -313,7 +379,7 @@ const CustomerFlow: React.FC = () => {
             <button
               type="button"
               disabled={submissionLocked}
-              onClick={() => { setPhase('pickup'); resetPhotos(); }}
+              onClick={() => switchPhase('pickup')}
               className={`border-0 rounded-xl min-h-[42px] font-extrabold text-sm transition-all duration-200 disabled:opacity-50 ${phase === 'pickup' ? 'bg-irent-red text-white shadow-lg' : 'text-irent-muted hover:text-irent-red'}`}
             >
               取車檢查
@@ -321,7 +387,7 @@ const CustomerFlow: React.FC = () => {
             <button
               type="button"
               disabled={submissionLocked}
-              onClick={() => { setPhase('return'); resetPhotos(); }}
+              onClick={() => switchPhase('return')}
               className={`border-0 rounded-xl min-h-[42px] font-extrabold text-sm transition-all duration-200 disabled:opacity-50 ${phase === 'return' ? 'bg-irent-red text-white shadow-lg' : 'text-irent-muted hover:text-irent-red'}`}
             >
               還車檢查
@@ -364,12 +430,31 @@ const CustomerFlow: React.FC = () => {
             </div>
           </div>
 
+          {phase === 'return' && (
+            <section className="rounded-2xl border border-blue-200 bg-blue-50/40 p-4 flex flex-col gap-3" aria-labelledby="return-location-title">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div><h3 id="return-location-title" className="m-0 text-sm font-black text-irent-ink">停車位置</h3><p className="m-0 mt-1 text-xs text-irent-muted">位置只在還車時取得一次，用於確認還車地點與後續派工。</p></div>
+                <button type="button" onClick={captureGps} disabled={gpsState === 'capturing' || submissionLocked} className="min-h-[38px] rounded-xl border border-blue-300 bg-white px-3 text-xs font-bold text-blue-800 disabled:opacity-50">{gpsState === 'capturing' ? '正在定位...' : '重新定位'}</button>
+              </div>
+              {gpsMessage && <p className={`m-0 text-xs font-bold ${gpsState === 'unavailable' ? 'text-amber-800' : 'text-blue-800'}`}>{gpsState === 'captured' ? '✓ ' : ''}{gpsMessage}</p>}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <LocationInput label="地址 *" hint="請輸入實際停車場地址或還車站點地址" value={returnLocation.address} onChange={value => updateReturnLocation('address', value)} />
+                <LocationInput label="停車場 / 站點" hint="例如：中山大學地下停車場" value={returnLocation.parkingFacility || returnLocation.station} onChange={value => updateReturnLocation('parkingFacility', value)} />
+                <LocationInput label="樓層" hint="例如：1F、B1、B2、B3" value={returnLocation.floor} onChange={value => updateReturnLocation('floor', value)} />
+                <LocationInput label="區域" hint="例如：A區" value={returnLocation.zone} onChange={value => updateReturnLocation('zone', value)} />
+                <LocationInput label="柱號" hint="若有柱號，請輸入，例如 A-12" value={returnLocation.pillar} onChange={value => updateReturnLocation('pillar', value)} />
+                <LocationInput label="車格號碼 *" hint="例如：100、A105；路邊可填路邊停車" value={returnLocation.parkingSlot} onChange={value => updateReturnLocation('parkingSlot', value)} />
+              </div>
+              <LocationInput label="補充資訊" hint="例如：靠近電梯、出口、充電樁、服務台" value={returnLocation.locationNote} onChange={value => updateReturnLocation('locationNote', value)} multiline />
+            </section>
+          )}
+
           <div className="flex flex-col gap-1.5">
             <label className="text-xs font-extrabold text-irent-muted">備註</label>
             <textarea 
               value={note} 
               onChange={e => setNote(e.target.value)}
-              placeholder="可輸入 scratch / dent / dirty 來測試 mock AI 結果。"
+              placeholder="可補充本次拍攝或還車狀況。"
               className="w-full min-h-[80px] border border-irent-line rounded-2xl p-[10px_12px] text-sm resize-y focus:outline-none focus:border-irent-red focus:ring-3 focus:ring-red-100"
             />
           </div>
@@ -470,7 +555,7 @@ const CustomerFlow: React.FC = () => {
             <button
               type="button"
               onClick={submitPhotoFlow}
-              disabled={submissionLocked || !PHOTO_SLOTS.every(slot => {
+              disabled={submissionLocked || (phase === 'return' && (!returnLocation.address.trim() || !returnLocation.parkingSlot.trim())) || !PHOTO_SLOTS.every(slot => {
                 const checked = checkedPhotos[slot.key];
                 return checked?.status === 'passed' && Boolean(checked.photoId) && checked.quality?.blur.passed;
               })}
@@ -607,3 +692,11 @@ const CustomerFlow: React.FC = () => {
 };
 
 export default CustomerFlow;
+
+const LocationInput: React.FC<{ label: string; hint: string; value: string; onChange: (value: string) => void; multiline?: boolean }> = ({ label, hint, value, onChange, multiline }) => (
+  <label className="flex flex-col gap-1.5 text-xs font-extrabold text-irent-muted">
+    {label}
+    {multiline ? <textarea value={value} maxLength={500} onChange={event => onChange(event.target.value)} className="min-h-[72px] w-full rounded-xl border border-blue-400 bg-white p-3 text-sm font-normal text-irent-ink focus:outline-none focus:ring-3 focus:ring-blue-100" /> : <input value={value} maxLength={180} onChange={event => onChange(event.target.value)} className="min-h-[42px] w-full rounded-xl border border-blue-400 bg-white px-3 text-sm font-normal text-irent-ink focus:outline-none focus:ring-3 focus:ring-blue-100" />}
+    <small className="font-normal text-[10px] text-irent-muted">{hint}</small>
+  </label>
+);

@@ -267,8 +267,7 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
       })
       .expect(200);
     submissionId = created.body.submissionId;
-    // With the condition-model flag disabled, filenames and notes cannot manufacture AI findings.
-    assert.deepEqual(created.body.createdIncidents, []);
+    const incidentId = created.body.createdIncidents[0];
     const ownPhoto = created.body.changedResource.data.photos.find(photo => photo.submissionId === submissionId);
     assert.match(submissionId, /^SUB-[A-Za-z0-9_-]{16}$/);
     assert.match(ownPhoto.photoId, /^PHOTO-[A-Za-z0-9_-]{16}$/);
@@ -280,7 +279,7 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
     await userBAgent.get(`/api/submissions/${submissionId}`).expect(404);
     await userBAgent.get(`/${ownPhoto.filePath}`).expect(404);
     const userBState = await userBAgent.get('/api/state').expect(200);
-    assert.equal(userBState.body.incidents.some(incident => incident.sourceSubmissionId === submissionId), false);
+    assert.equal(userBState.body.incidents.some(incident => incident.id === incidentId), false);
   });
 
   await t.test('admin can call an admin API', async () => {

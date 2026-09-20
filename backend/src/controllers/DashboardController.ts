@@ -124,6 +124,10 @@ export class DashboardController {
     }
   };
 
+  public getIncidentMapMarkers = (_req: Request, res: Response) => {
+    res.json({ ok: true, markers: this.service.getIncidentMapMarkers() });
+  };
+
   public runOrientationCheck = async (req: Request, res: Response) => {
     try {
       const result = await this.service.handleOrientationCheckAction(req.body, req.authUser!.id);

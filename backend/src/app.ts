@@ -37,7 +37,7 @@ export function createApp(dbPath: string, uploadDir: string) {
     res.set('X-Frame-Options', 'DENY');
     res.set('Referrer-Policy', 'no-referrer');
     res.set('Permissions-Policy', 'camera=(self)');
-    res.set('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
+    res.set('Content-Security-Policy', "default-src 'self'; img-src 'self' data: blob: https://*.tile.openstreetmap.org; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'");
     next();
   });
 
