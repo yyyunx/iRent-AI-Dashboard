@@ -18,6 +18,8 @@ export function createApiRouter(controller: DashboardController, authController:
   router.get('/submissions/:submissionId', controller.getPhotoSubmissionDetail);
 
   router.post('/photos/quality-check', csrfProtection, controller.runQualityCheck);
+  router.post('/photos/orientation-check', csrfProtection, controller.runOrientationCheck);
+  router.post('/photos/condition-check', csrfProtection, controller.runConditionCheck);
   router.post('/photo-submissions', csrfProtection, controller.handlePhotoSubmission);
 
   router.post('/incidents', roleRequired('admin'), csrfProtection, controller.insertIncident);

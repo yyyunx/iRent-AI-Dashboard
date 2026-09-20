@@ -262,11 +262,13 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
       .set('X-CSRF-Token', userACsrf)
       .send({
         rentalId: 'R-OWNER-A', plate: 'AAA-0001', phase: 'return', station: '台北站',
+        returnLocation: { address: '台北市信義區信義路五段 7 號', parkingSlot: '路邊停車', station: '台北站' },
         photos
       })
       .expect(200);
     submissionId = created.body.submissionId;
-    const incidentId = created.body.createdIncidents[0];
+    // With the condition-model flag disabled, filenames and notes cannot manufacture AI findings.
+    assert.deepEqual(created.body.createdIncidents, []);
     const ownPhoto = created.body.changedResource.data.photos.find(photo => photo.submissionId === submissionId);
     assert.match(submissionId, /^SUB-[A-Za-z0-9_-]{16}$/);
     assert.match(ownPhoto.photoId, /^PHOTO-[A-Za-z0-9_-]{16}$/);
@@ -278,7 +280,7 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
     await userBAgent.get(`/api/submissions/${submissionId}`).expect(404);
     await userBAgent.get(`/${ownPhoto.filePath}`).expect(404);
     const userBState = await userBAgent.get('/api/state').expect(200);
-    assert.equal(userBState.body.incidents.some(incident => incident.id === incidentId), false);
+    assert.equal(userBState.body.incidents.some(incident => incident.sourceSubmissionId === submissionId), false);
   });
 
   await t.test('admin can call an admin API', async () => {

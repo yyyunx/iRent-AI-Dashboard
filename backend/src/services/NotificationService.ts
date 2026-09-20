@@ -52,6 +52,9 @@ export class NotificationService {
   }
 
   public queueLineMessage(incidentId: string | null, eventType: string, message: string) {
+    // A client retry must never fan out the same incident event to the ops group.
+    // Failed rows remain retryable; queued/sending/sent are already represented by one delivery.
+    if (incidentId && this.repo.hasSuccessfulNotification(incidentId, eventType)) return 'deduplicated';
     const config = this.getConfig();
     if (!config.enabled || !config.targetId || !config.tokenConfigured) {
       const reason = !config.enabled ? 'LINE notifications are disabled' : !config.tokenConfigured

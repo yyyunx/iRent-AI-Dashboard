@@ -83,6 +83,19 @@ export class DatabaseRepository {
         resolved_at TEXT,
         owner_user_id INTEGER,
         source_submission_id TEXT,
+        latitude REAL,
+        longitude REAL,
+        gps_accuracy REAL,
+        address TEXT,
+        parking_facility TEXT,
+        floor TEXT,
+        zone TEXT,
+        pillar TEXT,
+        parking_slot TEXT,
+        location_note TEXT,
+        operational_urgency TEXT,
+        sla_minutes INTEGER,
+        vehicle_unavailable INTEGER NOT NULL DEFAULT 0,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL
       );
@@ -177,6 +190,17 @@ export class DatabaseRepository {
         overall_status TEXT NOT NULL,
         ai_summary TEXT,
         user_id INTEGER,
+        latitude REAL,
+        longitude REAL,
+        gps_accuracy REAL,
+        gps_captured_at TEXT,
+        address TEXT,
+        parking_facility TEXT,
+        floor TEXT,
+        zone TEXT,
+        pillar TEXT,
+        parking_slot TEXT,
+        location_note TEXT,
         created_at TEXT NOT NULL
       );
 
@@ -199,6 +223,17 @@ export class DatabaseRepository {
         angle_valid INTEGER NOT NULL DEFAULT 1,
         distance_valid INTEGER NOT NULL DEFAULT 1,
         ai_result_json TEXT,
+        orientation_angle INTEGER,
+        orientation_label TEXT,
+        orientation_confidence REAL,
+        orientation_passed INTEGER,
+        orientation_checked_at TEXT,
+        damage_detected INTEGER,
+        damage_type TEXT,
+        damage_confidence REAL,
+        dirty_detected INTEGER,
+        dirty_confidence REAL,
+        condition_checked_at TEXT,
         user_id INTEGER,
         created_at TEXT NOT NULL,
         FOREIGN KEY (submission_id) REFERENCES PhotoSubmission(submission_id) ON DELETE SET NULL
@@ -268,6 +303,14 @@ export class DatabaseRepository {
         FOREIGN KEY (created_by) REFERENCES User(id) ON DELETE SET NULL
       );
       CREATE INDEX IF NOT EXISTS idx_agent_action_draft_status ON AgentActionDraft(status, expires_at);
+
+      CREATE TABLE IF NOT EXISTS VehicleAvailability (
+        plate TEXT PRIMARY KEY,
+        status TEXT NOT NULL CHECK(status IN ('AVAILABLE', 'UNAVAILABLE')),
+        reason_incident_id TEXT,
+        updated_at TEXT NOT NULL,
+        FOREIGN KEY (reason_incident_id) REFERENCES Incident(id) ON DELETE SET NULL
+      );
     `);
 
     this.migrateDb();
@@ -310,7 +353,10 @@ export class DatabaseRepository {
       manual_review_required: "INTEGER NOT NULL DEFAULT 0",
       resolved_at: "TEXT",
       owner_user_id: "INTEGER",
-      source_submission_id: "TEXT"
+      source_submission_id: "TEXT",
+      latitude: "REAL", longitude: "REAL", gps_accuracy: "REAL", address: "TEXT", parking_facility: "TEXT",
+      floor: "TEXT", zone: "TEXT", pillar: "TEXT", parking_slot: "TEXT", location_note: "TEXT",
+      operational_urgency: "TEXT", sla_minutes: "INTEGER", vehicle_unavailable: "INTEGER NOT NULL DEFAULT 0"
     };
 
     for (const [col, def] of Object.entries(migrations)) {
@@ -329,6 +375,13 @@ export class DatabaseRepository {
     this.addColumnIfMissing('UploadedPhoto', 'user_id', 'INTEGER');
     this.addColumnIfMissing('UploadedPhoto', 'blur_threshold', 'REAL');
     this.addColumnIfMissing('UploadedPhoto', 'blur_checked_at', 'TEXT');
+    for (const [column, definition] of Object.entries({
+      latitude: 'REAL', longitude: 'REAL', gps_accuracy: 'REAL', gps_captured_at: 'TEXT', address: 'TEXT', parking_facility: 'TEXT', floor: 'TEXT', zone: 'TEXT', pillar: 'TEXT', parking_slot: 'TEXT', location_note: 'TEXT'
+    })) this.addColumnIfMissing('PhotoSubmission', column, definition);
+    for (const [column, definition] of Object.entries({
+      orientation_angle: 'INTEGER', orientation_label: 'TEXT', orientation_confidence: 'REAL', orientation_passed: 'INTEGER', orientation_checked_at: 'TEXT',
+      damage_detected: 'INTEGER', damage_type: 'TEXT', damage_confidence: 'REAL', dirty_detected: 'INTEGER', dirty_confidence: 'REAL', condition_checked_at: 'TEXT'
+    })) this.addColumnIfMissing('UploadedPhoto', column, definition);
     this.migrateUsernames();
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_submission_user ON PhotoSubmission(user_id, id DESC)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_photo_user ON UploadedPhoto(user_id, id DESC)');
@@ -338,6 +391,7 @@ export class DatabaseRepository {
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_timeline_incident ON IncidentTimeline(incident_id, id ASC)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_comment_incident ON Comment(incident_id, id ASC)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_report_incident ON MaintenanceReport(incident_id, id ASC)');
+    this.db.exec('CREATE INDEX IF NOT EXISTS idx_incident_gps ON Incident(latitude, longitude)');
     this.db.prepare('DELETE FROM AuthSession WHERE expires_at <= ? OR revoked_at IS NOT NULL').run(new Date().toISOString());
   }
 
@@ -581,13 +635,18 @@ export class DatabaseRepository {
       INSERT OR REPLACE INTO Incident(
         id, plate, station, type, label, severity, confidence, detected_time,
         next_booking, hot_station, map_x, map_y, assignee, status, score,
-        region, assigned_team, manual_review_required, owner_user_id, source_submission_id, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)
+        region, assigned_team, manual_review_required, owner_user_id, source_submission_id,
+        latitude, longitude, gps_accuracy, address, parking_facility, floor, zone, pillar, parking_slot, location_note,
+        operational_urgency, sla_minutes, vehicle_unavailable, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       item.id, item.plate, item.station, item.type, item.label, item.severity,
       item.confidence, item.detected_time || new Date().toLocaleTimeString('zh-TW', { hour12: false }).substring(0, 5),
       item.next_booking ?? 24, item.hot_station ?? 0, item.map_x ?? 50.0, item.map_y ?? 50.0, assignee,
-      status, item.score ?? 0, region, team, item.owner_user_id ?? null, item.source_submission_id ?? null, ts, ts
+      status, item.score ?? 0, region, team, item.owner_user_id ?? null, item.source_submission_id ?? null,
+      item.latitude ?? null, item.longitude ?? null, item.gps_accuracy ?? null, item.address ?? null, item.parking_facility ?? null,
+      item.floor ?? null, item.zone ?? null, item.pillar ?? null, item.parking_slot ?? null, item.location_note ?? null,
+      item.operational_urgency ?? null, item.sla_minutes ?? null, item.vehicle_unavailable ?? 0, ts, ts
     );
 
     this.addTimeline(item.id!, "ai_detected", "AI Detected", `${item.label} | Confidence ${item.confidence}%`);
@@ -719,11 +778,13 @@ export class DatabaseRepository {
 
   public insertPhotoSubmission(sub: Partial<PhotoSubmission>) {
     this.db.prepare(`
-      INSERT INTO PhotoSubmission(submission_id, rental_id, plate, phase, station, parking_location, status, overall_status, ai_summary, user_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO PhotoSubmission(submission_id, rental_id, plate, phase, station, parking_location, status, overall_status, ai_summary, user_id, latitude, longitude, gps_accuracy, gps_captured_at, address, parking_facility, floor, zone, pillar, parking_slot, location_note, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       sub.submission_id, sub.rental_id, sub.plate, sub.phase, sub.station || null,
-      sub.parking_location || null, sub.status, sub.overall_status, sub.ai_summary || null, sub.user_id ?? null, this.nowText()
+      sub.parking_location || null, sub.status, sub.overall_status, sub.ai_summary || null, sub.user_id ?? null,
+      sub.latitude ?? null, sub.longitude ?? null, sub.gps_accuracy ?? null, sub.gps_captured_at ?? null, sub.address ?? null,
+      sub.parking_facility ?? null, sub.floor ?? null, sub.zone ?? null, sub.pillar ?? null, sub.parking_slot ?? null, sub.location_note ?? null, this.nowText()
     );
   }
 
@@ -762,6 +823,25 @@ export class DatabaseRepository {
     this.db.prepare(`
       UPDATE UploadedPhoto SET submission_id = ?, ai_result_json = ?, user_id = COALESCE(user_id, ?) WHERE photo_id = ?
     `).run(submissionId, aiResultJson, userId ?? null, photoId);
+  }
+
+  public hasSuccessfulNotification(incidentId: string, eventType: string): boolean {
+    return Boolean(this.db.prepare(`SELECT 1 FROM NotificationLog WHERE provider = 'line' AND incident_id = ? AND event_type = ? AND status IN ('queued', 'sending', 'sent') LIMIT 1`).get(incidentId, eventType));
+  }
+
+  public updatePhotoOrientation(photoId: string, result: { angle: number; label: string; confidence: number; passed: boolean }, userId: number) {
+    this.db.prepare(`UPDATE UploadedPhoto SET orientation_angle = ?, orientation_label = ?, orientation_confidence = ?, orientation_passed = ?, orientation_checked_at = ? WHERE photo_id = ? AND user_id = ?`)
+      .run(result.angle, result.label, result.confidence, result.passed ? 1 : 0, new Date().toISOString(), photoId, userId);
+  }
+
+  public updatePhotoCondition(photoId: string, result: { damage: { detected: boolean; confidence: number; type?: string }; dirty: { detected: boolean; confidence: number } }, userId: number) {
+    this.db.prepare(`UPDATE UploadedPhoto SET damage_detected = ?, damage_type = ?, damage_confidence = ?, dirty_detected = ?, dirty_confidence = ?, condition_checked_at = ? WHERE photo_id = ? AND user_id = ?`)
+      .run(result.damage.detected ? 1 : 0, result.damage.type || null, result.damage.confidence, result.dirty.detected ? 1 : 0, result.dirty.confidence, new Date().toISOString(), photoId, userId);
+  }
+
+  public setVehicleAvailability(plate: string, unavailable: boolean, incidentId: string | null) {
+    this.db.prepare(`INSERT INTO VehicleAvailability(plate, status, reason_incident_id, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(plate) DO UPDATE SET status = excluded.status, reason_incident_id = excluded.reason_incident_id, updated_at = excluded.updated_at`)
+      .run(plate, unavailable ? 'UNAVAILABLE' : 'AVAILABLE', incidentId, this.nowText());
   }
 
   // --- Authentication, sessions, and audit ---

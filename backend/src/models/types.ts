@@ -24,6 +24,19 @@ export interface Incident {
   resolved_at?: string | null;
   owner_user_id?: number | null;
   source_submission_id?: string | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  gps_accuracy?: number | null;
+  address?: string | null;
+  parking_facility?: string | null;
+  floor?: string | null;
+  zone?: string | null;
+  pillar?: string | null;
+  parking_slot?: string | null;
+  location_note?: string | null;
+  operational_urgency?: string | null;
+  sla_minutes?: number | null;
+  vehicle_unavailable?: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -52,6 +65,19 @@ export interface IncidentResponse {
   aiReviewSummary: string | null;
   manualReviewRequired: boolean; // maps to manual_review_required
   resolvedAt: string | null; // maps to resolved_at
+  latitude: number | null;
+  longitude: number | null;
+  gpsAccuracy: number | null;
+  address: string;
+  parkingFacility: string;
+  floor: string;
+  zone: string;
+  pillar: string;
+  parkingSlot: string;
+  locationNote: string;
+  operationalUrgency: string | null;
+  slaMinutes: number | null;
+  vehicleUnavailable: boolean;
 }
 
 export interface IncidentTimeline {
@@ -125,6 +151,17 @@ export interface PhotoSubmission {
   overall_status: string;
   ai_summary?: string | null;
   user_id?: number | null;
+  latitude?: number | null;
+  longitude?: number | null;
+  gps_accuracy?: number | null;
+  gps_captured_at?: string | null;
+  address?: string | null;
+  parking_facility?: string | null;
+  floor?: string | null;
+  zone?: string | null;
+  pillar?: string | null;
+  parking_slot?: string | null;
+  location_note?: string | null;
   created_at: string;
 }
 
@@ -139,6 +176,10 @@ export interface PhotoSubmissionResponse {
   overallStatus: string;
   aiSummary: string | null;
   createdAt: string;
+  returnLocation: {
+    latitude: number | null; longitude: number | null; gpsAccuracy: number | null; gpsCapturedAt: string | null;
+    address: string; station: string; parkingFacility: string; floor: string; zone: string; pillar: string; parkingSlot: string; locationNote: string;
+  };
 }
 
 export interface UploadedPhoto {
@@ -160,6 +201,17 @@ export interface UploadedPhoto {
   angle_valid: number; // 0 or 1
   distance_valid: number; // 0 or 1
   ai_result_json?: string | null;
+  orientation_angle?: number | null;
+  orientation_label?: string | null;
+  orientation_confidence?: number | null;
+  orientation_passed?: number | null;
+  orientation_checked_at?: string | null;
+  damage_detected?: number | null;
+  damage_type?: string | null;
+  damage_confidence?: number | null;
+  dirty_detected?: number | null;
+  dirty_confidence?: number | null;
+  condition_checked_at?: string | null;
   user_id?: number | null;
   created_at: string;
 }
@@ -182,6 +234,8 @@ export interface UploadedPhotoResponse {
   angleValid: boolean;
   distanceValid: boolean;
   aiResult: any;
+  orientation: { angle: number | null; label: string | null; confidence: number | null; passed: boolean | null; checkedAt: string | null; };
+  condition: { damageDetected: boolean | null; damageType: string | null; damageConfidence: number | null; dirtyDetected: boolean | null; dirtyConfidence: number | null; checkedAt: string | null; };
   createdAt: string;
 }
 
@@ -244,6 +298,19 @@ export function dbRowToIncidentResponse(row: any): IncidentResponse {
     aiReviewSummary: row.ai_review_summary ?? null,
     manualReviewRequired: Boolean(row.manual_review_required),
     resolvedAt: row.resolved_at ?? null,
+    latitude: row.latitude ?? null,
+    longitude: row.longitude ?? null,
+    gpsAccuracy: row.gps_accuracy ?? null,
+    address: row.address || '',
+    parkingFacility: row.parking_facility || '',
+    floor: row.floor || '',
+    zone: row.zone || '',
+    pillar: row.pillar || '',
+    parkingSlot: row.parking_slot || '',
+    locationNote: row.location_note || '',
+    operationalUrgency: row.operational_urgency ?? null,
+    slaMinutes: row.sla_minutes ?? null,
+    vehicleUnavailable: Boolean(row.vehicle_unavailable),
   };
 }
 
@@ -259,6 +326,10 @@ export function dbRowToSubmissionResponse(row: any): PhotoSubmissionResponse {
     overallStatus: row.overall_status,
     aiSummary: row.ai_summary ?? null,
     createdAt: row.created_at,
+    returnLocation: {
+      latitude: row.latitude ?? null, longitude: row.longitude ?? null, gpsAccuracy: row.gps_accuracy ?? null, gpsCapturedAt: row.gps_captured_at ?? null,
+      address: row.address || '', station: row.station || '', parkingFacility: row.parking_facility || '', floor: row.floor || '', zone: row.zone || '', pillar: row.pillar || '', parkingSlot: row.parking_slot || '', locationNote: row.location_note || ''
+    },
   };
 }
 
@@ -289,6 +360,8 @@ export function dbRowToPhotoResponse(row: any): UploadedPhotoResponse {
     angleValid: Boolean(row.angle_valid),
     distanceValid: Boolean(row.distance_valid),
     aiResult,
+    orientation: { angle: row.orientation_angle ?? null, label: row.orientation_label ?? null, confidence: row.orientation_confidence ?? null, passed: row.orientation_passed === null || row.orientation_passed === undefined ? null : Boolean(row.orientation_passed), checkedAt: row.orientation_checked_at ?? null },
+    condition: { damageDetected: row.damage_detected === null || row.damage_detected === undefined ? null : Boolean(row.damage_detected), damageType: row.damage_type ?? null, damageConfidence: row.damage_confidence ?? null, dirtyDetected: row.dirty_detected === null || row.dirty_detected === undefined ? null : Boolean(row.dirty_detected), dirtyConfidence: row.dirty_confidence ?? null, checkedAt: row.condition_checked_at ?? null },
     createdAt: row.created_at,
   };
 }

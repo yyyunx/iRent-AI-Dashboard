@@ -124,6 +124,24 @@ export class DashboardController {
     }
   };
 
+  public runOrientationCheck = async (req: Request, res: Response) => {
+    try {
+      const result = await this.service.handleOrientationCheckAction(req.body, req.authUser!.id);
+      res.json({ ok: true, ...result });
+    } catch (e: any) {
+      res.status(e.status || (e.code === 'ORIENTATION_MODEL_UNAVAILABLE' ? 503 : 500)).json({ ok: false, error: { code: e.code || 'ORIENTATION_CHECK_FAILED', message: e.message || 'Orientation analysis failed.' } });
+    }
+  };
+
+  public runConditionCheck = async (req: Request, res: Response) => {
+    try {
+      const result = await this.service.handleConditionCheckAction(req.body, req.authUser!.id);
+      res.json({ ok: true, ...result });
+    } catch (e: any) {
+      res.status(e.status || (e.code === 'DAMAGE_MODEL_UNAVAILABLE' ? 503 : 500)).json({ ok: false, error: { code: e.code || 'CONDITION_ANALYSIS_FAILED', message: e.message || 'Condition analysis failed.' } });
+    }
+  };
+
   public handlePhotoSubmission = async (req: Request, res: Response) => {
     try {
       const result = await this.service.handlePhotoSubmissionAction(req.body, req.authUser!.id);

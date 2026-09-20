@@ -14,6 +14,8 @@ import {
 } from '../models/types';
 import { analyzeImageQuality, validateImageDataUrl } from './ImageValidation';
 import { OPERATIONS_SOP } from '../knowledge/operationsSop';
+import { analyzeOrientation, analyzeVehicleCondition, isFeatureEnabled } from './InspectionModels';
+import { validateReturnLocation } from './ReturnLocation';
 
 export class DashboardService {
   private repo: DatabaseRepository;
@@ -113,6 +115,7 @@ export class DashboardService {
       maintenanceReports: reports,
       photoSubmissions: submissions,
       uploadedPhotos,
+      inspectionConfig: this.getInspectionConfig(),
       opsMetrics: isAdmin ? this.getOpsMetrics(incidentsRaw) : { autoCloseRate: '0%', manualReviewReduced: 0, avgTimeSaved: '0分' }
     };
   }
@@ -135,6 +138,13 @@ export class DashboardService {
 
   public getAiConfig() {
     return this.aiAgent.getConfig();
+  }
+
+  public getInspectionConfig() {
+    return {
+      orientationCheckEnabled: isFeatureEnabled('ORIENTATION_CHECK_ENABLED'),
+      conditionCheckEnabled: isFeatureEnabled('CONDITION_CHECK_ENABLED')
+    };
   }
 
   private incidentAgeMinutes(incident: Incident): number {
@@ -592,6 +602,30 @@ export class DashboardService {
     };
   }
 
+  public async handleOrientationCheckAction(payload: any, userId: number) {
+    const orientation = await analyzeOrientation(String(payload?.imageData || payload?.data || ''));
+    const photoId = payload?.photoId ? String(payload.photoId) : undefined;
+    if (photoId) {
+      if (!this.repo.userOwnsPhoto(userId, photoId)) {
+        const error: any = new Error('Photo not found'); error.status = 404; throw error;
+      }
+      this.repo.updatePhotoOrientation(photoId, orientation, userId);
+    }
+    return { orientation, photoId };
+  }
+
+  public async handleConditionCheckAction(payload: any, userId: number) {
+    const condition = await analyzeVehicleCondition(String(payload?.imageData || payload?.data || ''));
+    const photoId = payload?.photoId ? String(payload.photoId) : undefined;
+    if (photoId) {
+      if (!this.repo.userOwnsPhoto(userId, photoId)) {
+        const error: any = new Error('Photo not found'); error.status = 404; throw error;
+      }
+      this.repo.updatePhotoCondition(photoId, condition, userId);
+    }
+    return { condition, photoId };
+  }
+
   // --- Photo Submission AI analysis ---
   public mockVehicleAiAnalysis(submission: any) {
     const results: any[] = [];
@@ -694,6 +728,7 @@ export class DashboardService {
   public async handlePhotoSubmissionAction(payload: any, userId: number) {
     const submissionId = this.createOpaqueId('SUB');
     const photos: any[] = Array.isArray(payload.photos) ? payload.photos : [];
+    const phase = String(payload.phase || 'return');
     const requiredSlots = ['front', 'right_side', 'rear', 'left_side', 'front_interior', 'backseat_interior'];
     const receivedSlots = photos.map(photo => String(photo?.slot || ''));
     const hasExactlyRequiredSlots = photos.length === requiredSlots.length
@@ -724,13 +759,16 @@ export class DashboardService {
       }
     }
 
+    const returnLocation = validateReturnLocation(payload.returnLocation, phase === 'return');
+
     const submissionObj = {
       submission_id: submissionId,
       rental_id: payload.rentalId || "",
       plate: payload.plate || "",
-      phase: payload.phase || "return",
-      station: payload.station || payload.location || "",
-      parking_location: payload.parkingLocation || "",
+      phase,
+      station: returnLocation?.station || payload.station || payload.location || "",
+      parking_location: returnLocation?.parkingSlot || payload.parkingLocation || "",
+      returnLocation,
       photos
     };
 
@@ -748,13 +786,24 @@ export class DashboardService {
       submission_id: submissionId,
       rental_id: payload.rentalId || "",
       plate: payload.plate || "",
-      phase: payload.phase || "return",
-      station: payload.station || payload.location || "",
-      parking_location: payload.parkingLocation || "",
+      phase,
+      station: returnLocation?.station || payload.station || payload.location || "",
+      parking_location: returnLocation?.parkingSlot || payload.parkingLocation || "",
       status,
       overall_status: overallStatus,
       ai_summary: aiSummary,
-      user_id: userId
+      user_id: userId,
+      latitude: returnLocation?.latitude,
+      longitude: returnLocation?.longitude,
+      gps_accuracy: returnLocation?.gpsAccuracy,
+      gps_captured_at: returnLocation?.gpsCapturedAt,
+      address: returnLocation?.address,
+      parking_facility: returnLocation?.parkingFacility,
+      floor: returnLocation?.floor,
+      zone: returnLocation?.zone,
+      pillar: returnLocation?.pillar,
+      parking_slot: returnLocation?.parkingSlot,
+      location_note: returnLocation?.locationNote
     });
 
     // Save individual photos
