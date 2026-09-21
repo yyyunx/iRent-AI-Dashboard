@@ -2,10 +2,11 @@ import { Request, Response, NextFunction } from 'express';
 
 type Sample = { method: string; path: string; status: number; durationMs: number; at: number };
 
-function normalizedPath(path: string): string {
+/** Keep real API names intact; only opaque database IDs are collapsed for aggregation. */
+export function normalizedPath(path: string): string {
   return path
     .replace(/^\/uploads\/[^/]+$/, '/uploads/:filename')
-    .replace(/\/(?:SUB|INC|PHOTO)-[^/]+/gi, '/:id');
+    .replace(/\/(?:SUB|INC|PHOTO)(?:-AI)?-[A-Za-z0-9_-]{16}(?=\/|$)/g, '/:id');
 }
 
 export class PerformanceMonitor {
