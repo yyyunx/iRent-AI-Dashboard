@@ -4,6 +4,7 @@ import fs from 'fs';
 import { randomBytes } from 'crypto';
 import {
   Incident,
+  IncidentMapRow,
   IncidentTimeline,
   DispatchTask,
   Comment,
@@ -519,6 +520,14 @@ export class DatabaseRepository {
   // --- Read operations ---
   public getIncidents(): Incident[] {
     return this.db.prepare("SELECT * FROM Incident ORDER BY created_at DESC, id DESC").all() as Incident[];
+  }
+
+  public getIncidentMapRows(): IncidentMapRow[] {
+    return this.db.prepare(`
+      SELECT id, plate, latitude, longitude, severity, address, parking_facility,
+             floor, zone, pillar, parking_slot, location_note, label, type, created_at
+      FROM Incident ORDER BY created_at DESC, id DESC
+    `).all() as IncidentMapRow[];
   }
 
   public getIncidentsForUser(userId: number): Incident[] {

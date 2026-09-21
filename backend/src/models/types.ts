@@ -41,6 +41,12 @@ export interface Incident {
   updated_at: string;
 }
 
+export type IncidentMapRow = Pick<Incident,
+  'id' | 'plate' | 'latitude' | 'longitude' | 'severity' | 'address' |
+  'parking_facility' | 'floor' | 'zone' | 'pillar' | 'parking_slot' |
+  'location_note' | 'label' | 'type' | 'created_at'
+>;
+
 export interface IncidentResponse {
   id: string;
   plate: string;

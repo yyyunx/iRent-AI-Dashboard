@@ -148,7 +148,7 @@ export class DashboardService {
   }
 
   public getIncidentMapMarkers() {
-    return this.repo.getIncidents().map(incident => ({
+    return this.repo.getIncidentMapRows().map(incident => ({
       incidentId: incident.id,
       carNumber: incident.plate,
       latitude: incident.latitude ?? null,
