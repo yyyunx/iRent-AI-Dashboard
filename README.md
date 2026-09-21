@@ -740,9 +740,14 @@ iRent/
 │   │   │   ├── DashboardService.ts
 │   │   │   ├── ImageValidation.ts
 │   │   │   ├── Laplacian.ts
+│   │   │   ├── InspectionModels.ts
+│   │   │   ├── ReturnLocation.ts
+│   │   │   ├── SeverityEngine.ts
 │   │   │   ├── AiAgentService.ts
 │   │   │   ├── NotificationService.ts
-│   │   │   └── PerformanceMonitor.ts
+│   │   │   ├── PerformanceMonitor.ts
+│   │   │   └── photo/
+│   │   │       └── ScenarioConditionAnalysis.ts
 │   │   │
 │   │   ├── repositories/
 │   │   │   └── DatabaseRepository.ts
@@ -755,6 +760,8 @@ iRent/
 │   │
 │   └── test/
 │       ├── laplacian.unit.test.js
+│       ├── performance-monitor.unit.test.js
+│       ├── api-latency.benchmark.js
 │       └── security.integration.test.js
 │
 ├── outputs/
@@ -772,7 +779,7 @@ iRent/
 └── package.json
 ```
 
-`outputs/irent_ops.db` 與 runtime uploads 不應提交至 Git。
+`outputs/irent_ops.db`、runtime uploads 與 secrets 不由 Git 追蹤；本機 SQLite 由應用程式在需要時建立。既有本機資料庫不應因整理檔案而刪除或覆寫。
 
 ---
 
@@ -786,6 +793,8 @@ iRent/
 | GET | `/api/submissions` | Submission 清單 |
 | GET | `/api/submissions/:submissionId` | Submission 與照片詳細資料 |
 | POST | `/api/photos/quality-check` | Backend Photo Quality Check |
+| POST | `/api/photos/orientation-check` | Orientation Analysis contract（模型未配置時回報 unavailable） |
+| POST | `/api/photos/condition-check` | Vehicle Condition Analysis contract（模型未配置時回報 unavailable） |
 | POST | `/api/photo-submissions` | 提交整批驗車照片 |
 | GET | `/api/incidents/map` | Admin Incident Map marker data |
 | POST | `/api/incidents` | 手動建立 Incident |
@@ -801,16 +810,16 @@ iRent/
 | POST | `/api/auth/logout` | Logout |
 | GET | `/api/auth/me` | Current User |
 
-Photo Inspection 已預留：
+Photo Inspection 已提供下列 service contract：
 
 ```text
 Orientation Analysis
 Vehicle Condition Analysis
 ```
 
-的 service contract。
-
 正式 AI model 尚未啟用時不會以 fake result 取代正式 inference。
+
+`/api/state` 保持既有欄位相容；管理端僅在可見的 `/operator` 頁面每 15 秒同步，使用者頁面不輪詢這份管理端資料。API 延遲可用 `pnpm --dir backend benchmark:api` 在臨時 SQLite fixture 上重測；該命令不讀寫本機 runtime DB。
 
 ---
 
@@ -889,7 +898,6 @@ BLUR_THRESHOLD=100
 LINE_CHANNEL_ACCESS_TOKEN=
 LINE_CHANNEL_SECRET=
 LINE_TARGET_ID=
-LINE_WEBHOOK_ENABLED=false
 
 GEMINI_API_KEY=
 GEMINI_MODEL=gemini-3.8-flash

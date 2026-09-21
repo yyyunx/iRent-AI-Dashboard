@@ -12,7 +12,7 @@ sequenceDiagram
     participant Web as React 前端
     participant API as Express API
     participant DB as SQLite
-    participant AI as AI 分析服務
+    participant AI as 驗車情境分析
     participant LINE as LINE Messaging API
     actor Ops as 營運人員／群組
 
@@ -23,18 +23,19 @@ sequenceDiagram
     else 品質合格
         Web->>API: POST /api/photo-submissions
         API->>DB: 保存照片與 Submission
-        API->>AI: 執行車損／髒污分析
+        API->>AI: 執行目前的情境分析
         AI-->>API: 回傳分析結果
         alt 沒有異常
             API->>DB: 標記 clear
             API-->>Web: 完成驗車
         else 發現異常
             API->>DB: 建立 Incident、Task、Timeline
-            API->>LINE: POST /v2/bot/message/push
+            API->>DB: 保存 queued Notification Log
+            API-->>Web: 回傳 Incident ID
+            API->>LINE: 背景工作者 POST /v2/bot/message/push
             LINE-->>Ops: 推送案件通知
             LINE-->>API: HTTP 結果
-            API->>DB: 保存 Notification Log
-            API-->>Web: 回傳 Incident ID
+            API->>DB: 更新 Notification Log 與 Timeline
         end
     end
 ```
@@ -116,43 +117,36 @@ Token、Secret 和 Target ID 都視為敏感資料，不應放在 README、前�
 - Access Token 只存在後端環境變數或 Secrets Manager。
 - API 回傳給前端時不得包含 Token、Secret 或完整 Target ID。
 - 通知保存事件、目標類型、狀態、嘗試次數與錯誤訊息，但不保存 Access Token。
-- 對暫時性錯誤進行有限重試，並使用唯一 retry key 避免重複推送。
+- 每筆通知最多嘗試兩次；同一 Incident/eventType 若已有 queued、sending 或 sent 紀錄，避免重複排入佇列。失敗紀錄仍可重新嘗試。
 - 正式環境應將不同站點／區域對應到不同 LINE Target ID。
 
-## 8. 建議後端模組
+## 8. 目前後端模組
 
 ```text
 backend/src/
-├── services/LineMessagingService.ts
-├── controllers/LineWebhookController.ts
-├── routes/lineRoutes.ts
-└── models/notificationTypes.ts
+├── services/NotificationService.ts
+├── services/DashboardService.ts
+├── controllers/DashboardController.ts
+├── routes/apiRoutes.ts
+└── app.ts
 ```
 
-建議將目前 `sendSlack()` 抽象成共同的 `NotificationService`，保留 Slack 或切換 LINE，而不是在各個案件 action 中重複呼叫不同平台。
+`NotificationService` 負責持久化通知、去重、最多兩個背景工作者與 LINE 發送；`DashboardService` 在案件事件中排入通知。`/api/line/webhook` 於 `app.ts` 以 raw body 註冊，由 controller 驗證簽章並擷取目標 ID。
 
 ```text
 Incident event
       ↓
 NotificationService
-      ├── LineMessagingProvider
-      └── SlackProvider（可選）
-      ↓
-Notification Log
+      ├── Notification Log (queued)
+      └── LINE background delivery → sent / failed
 ```
 
-## 9. 實作順序
+## 9. 部署設定與驗證
 
-1. 建立 LINE Official Account 並啟用 Messaging API。
-2. 取得 Channel access token 與 Channel secret。
-3. 新增 `/api/line/webhook` 並驗證簽章。
-4. 取得測試用 `userId` 或營運群組 `groupId`。
-5. 實作 `LineMessagingService.sendPush()`。
-6. 將既有 Incident 事件接到 `NotificationService`。
-7. 新增 LINE 設定頁及測試通知按鈕。
-8. 記錄發送結果並測試失敗重試。
-9. 在 Render 設定 Secret 環境變數。
-10. 完成個人、群組、Token 錯誤及 LINE API 暫時失敗測試。
+1. 建立 LINE Official Account、啟用 Messaging API，並取得 Channel access token 與 Channel secret。
+2. 在部署環境設定 Secret；透過已簽章的 `/api/line/webhook` 或環境變數取得營運群組／個人的 Target ID。
+3. 使用管理端設定頁的測試通知，檢查 queued、sent、failed 或 not_configured 紀錄。
+4. 實測 Incident、派工、完工與結案事件；確認 LINE 失敗不阻止案件 API 完成。
 
 ## 10. 驗收條件
 
@@ -162,4 +156,3 @@ Notification Log
 - Token 無效或 API 失敗時，系統保存錯誤但不洩漏 Token。
 - webhook 簽章錯誤時回傳 `401`。
 - 同一事件重試不會造成重複通知。
-

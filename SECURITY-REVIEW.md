@@ -85,6 +85,8 @@
 
 ## Validation and traceability
 
+The following records describe the original `codex/auth-rbac` review at that point in time. Its branch, working-tree, and test-count statements are historical evidence, not the current repository status; run the current build and security suite for release validation.
+
 - Baseline/rollback target: Git commit `ae91d7c821e9034381ec66ef324430a332e2a7e5`.
 - Review state: uncommitted working-tree diff on `codex/auth-rbac`, intentionally not pushed at user request.
 - Migration-copy evidence: Incident 11→11, PhotoSubmission 1→1, UploadedPhoto 10→10, Settings 6→6; User/AuthSession/AuditLog added.

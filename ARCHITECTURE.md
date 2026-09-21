@@ -15,12 +15,12 @@ flowchart LR
 ## 目錄
 
 - `frontend/src/pages`：角色、管理端儀表板、LINE 通知、AI Agent 與系統設定頁面。
-- `frontend/src/context/AppContext.tsx`：共用 API state 與三秒輪詢。
+- `frontend/src/context/AppContext.tsx`：管理端共用 API state；僅在可見的 `/operator` 頁面每 15 秒輪詢，並避免重疊請求。使用者頁面不輪詢管理端 state。
 - `backend/src/controllers`：HTTP 輸入驗證與回應。
-- `backend/src/services`：案件流程、Google Gemini Agent、LINE 發送佇列與效能量測。
+- `backend/src/services`：案件流程、照片檢查（`photo/ScenarioConditionAnalysis.ts` 與既有影像驗證／模型介面）、Google Gemini Agent、LINE 發送佇列與效能量測。
 - `backend/src/repositories`：SQLite schema 與資料存取。
 - `backend/src/routes`：一般 REST API；LINE Webhook 在 `app.ts` 以 raw body 優先註冊。
-- `outputs`：SQLite、上傳圖片與舊版展示檔；不屬於新的前後端程式碼。
+- `outputs`：本機 SQLite、上傳圖片與舊版展示檔；runtime DB、uploads、secrets 不由 Git 追蹤。
 
 ## 通知設計
 
@@ -32,4 +32,4 @@ flowchart LR
 
 - `GET /api/performance` 回傳最近 200 個 API request 的平均、P50、P95 與錯誤率。
 - AI Agent 只透過後端呼叫 Google Gemini API，瀏覽器不會取得 API Key；去敏後的任務摘要仍依既有 Agent history 規則保存。
-- 目前 state 輪詢間隔為三秒。資料量顯著增加時，應改成摘要 API、分頁與 Server-Sent Events／WebSocket。
+- `/api/state` 保持既有回應欄位相容；管理端在頁面可見時每 15 秒輪詢，使用者頁面不抓取完整管理端 state。Submission 清單與事件地圖另有 `/api/submissions`、`/api/incidents/map` 專用端點。資料量顯著增加時，應先以實際量測評估相容的摘要或分頁方案。
