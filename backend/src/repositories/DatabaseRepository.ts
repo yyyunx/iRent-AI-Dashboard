@@ -26,7 +26,7 @@ const SEED_INCIDENTS = [
   { id: "INC-307", plate: "TPE-1688", station: "信義安和站", type: "cleaning", label: "一般灰塵", severity: "low", confidence: 79, time: "08:58", nextBooking: 126, hotStation: false, x: 58, y: 72, assignee: "排入例行清潔", status: "todo", score: 0 },
 ];
 
-const DAMAGE_HOTSPOTS = [["右後門", 12], ["前保桿", 9], ["左後輪弧", 7], ["後保桿", 5], ["車頂", 2]];
+export const DEFAULT_DAMAGE_HOTSPOTS = [["右後門", 12], ["前保桿", 9], ["左後輪弧", 7], ["後保桿", 5], ["車頂", 2]];
 
 const REGION_TEAMS: [string, string, string[]][] = [
   ["北區小隊", "北區", ["台北", "臺北", "新北", "基隆", "板橋", "中山", "士林", "信義"]],
@@ -321,7 +321,7 @@ export class DatabaseRepository {
     this.db.prepare("INSERT OR IGNORE INTO Settings(key, value, updated_at) VALUES (?, ?, ?)").run("lineGroup", "iRent Ops Alerts", now);
     this.db.prepare("INSERT OR IGNORE INTO Settings(key, value, updated_at) VALUES (?, ?, ?)").run("lineTargetId", "", now);
     this.db.prepare("INSERT OR IGNORE INTO Settings(key, value, updated_at) VALUES (?, ?, ?)").run("lineNotificationEnabled", "true", now);
-    this.db.prepare("INSERT OR IGNORE INTO Settings(key, value, updated_at) VALUES (?, ?, ?)").run("damageHotspots", JSON.stringify(DAMAGE_HOTSPOTS), now);
+    this.db.prepare("INSERT OR IGNORE INTO Settings(key, value, updated_at) VALUES (?, ?, ?)").run("damageHotspots", JSON.stringify(DEFAULT_DAMAGE_HOTSPOTS), now);
 
     const incidentCount = (this.db.prepare("SELECT COUNT(*) as count FROM Incident").get() as any).count;
     if (incidentCount === 0) {

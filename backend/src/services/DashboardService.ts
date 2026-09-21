@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { randomBytes } from 'crypto';
-import { DatabaseRepository } from '../repositories/DatabaseRepository';
+import { DatabaseRepository, DEFAULT_DAMAGE_HOTSPOTS } from '../repositories/DatabaseRepository';
 import { NotificationService } from './NotificationService';
 import { AiAgentService } from './AiAgentService';
 import {
@@ -16,6 +16,7 @@ import { analyzeImageQuality, validateImageDataUrl } from './ImageValidation';
 import { OPERATIONS_SOP } from '../knowledge/operationsSop';
 import { analyzeOrientation, analyzeVehicleCondition, isFeatureEnabled } from './InspectionModels';
 import { validateReturnLocation } from './ReturnLocation';
+import { analyzeScenarioCondition } from './photo/ScenarioConditionAnalysis';
 
 export class DashboardService {
   private repo: DatabaseRepository;
@@ -99,8 +100,7 @@ export class DashboardService {
       error: row.error || null
     }));
 
-    const DAMAGE_HOTSPOTS = [["右後門", 12], ["前保桿", 9], ["左後輪弧", 7], ["後保桿", 5], ["車頂", 2]];
-    const hotspotsVal = JSON.parse(this.repo.getSetting("damageHotspots", JSON.stringify(DAMAGE_HOTSPOTS)));
+    const hotspotsVal = JSON.parse(this.repo.getSetting('damageHotspots', JSON.stringify(DEFAULT_DAMAGE_HOTSPOTS)));
 
     return {
       incidents,
@@ -648,45 +648,7 @@ export class DashboardService {
 
   // --- Photo Submission AI analysis ---
   public mockVehicleAiAnalysis(submission: any) {
-    const results: any[] = [];
-    const photoSlotsMap: Record<string, string> = {
-      front: "車頭",
-      right_side: "右側",
-      rear: "車尾",
-      left_side: "左側",
-      front_interior: "前座內裝",
-      backseat_interior: "後座內裝",
-    };
-
-    for (const photo of submission.photos || []) {
-      const slot = photo.slot || "front";
-      const text = `${photo.filename || ''} ${slot} ${photo.note || ''}`.toLowerCase();
-      const isInterior = slot === "front_interior" || slot === "backseat_interior";
-      const quality = photo.qualityPassed !== false;
-
-      if (isInterior) {
-        const dirty = text.includes("dirty") || text.includes("trash") || text.includes("stain") || text.includes("髒") || text.includes("垃圾");
-        results.push({
-          slot,
-          qualityPassed: quality,
-          damageDetected: false,
-          cleanliness: dirty ? "dirty" : "normal",
-          confidence: dirty ? 0.89 : 0.93
-        });
-      } else {
-        const damaged = text.includes("scratch") || text.includes("dent") || text.includes("damage") || text.includes("crack") || text.includes("擦傷") || text.includes("凹") || text.includes("破");
-        results.push({
-          slot,
-          qualityPassed: quality,
-          damageDetected: damaged,
-          damageType: damaged ? "scratch" : null,
-          damageLocation: photoSlotsMap[slot] || slot,
-          isNewDamage: damaged && submission.phase === "return",
-          confidence: damaged ? 0.88 : 0.92
-        });
-      }
-    }
-    return results;
+    return analyzeScenarioCondition(submission);
   }
 
   public async createIncidentFromAiResult(submission: any, aiResults: any[], userId: number, submissionId: string): Promise<string[]> {
