@@ -180,7 +180,7 @@ function replaceOrPrepend<T>(items: T[], value: T, key: (item: T) => string): T[
 }
 
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const { isAuthenticated, isLoading: authLoading, getCsrfToken, refreshUser } = useAuth();
+  const { user, isAuthenticated, isLoading: authLoading, getCsrfToken, refreshUser } = useAuth();
   const [state, setState] = useState<AppState | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -215,7 +215,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const refreshState = useCallback(async () => {
     if (stateRequestInFlight.current) return false;
-    if (!isAuthenticated) {
+    // CustomerFlow consumes mutation responses directly and never renders the admin state.
+    if (!isAuthenticated || user?.role !== 'admin') {
       setState(null);
       setIsLoading(false);
       return false;
@@ -231,10 +232,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const data = await response.json();
       setState(data);
       setLoadError(null);
-      if (data.incidents && data.incidents.length > 0 && !selectedId) {
-        // Find first active or first incident
+      if (data.incidents && data.incidents.length > 0) {
         const active = data.incidents.find((i: Incident) => i.status !== 'resolved' && i.status !== 'done');
-        setSelectedId(active ? active.id : data.incidents[0].id);
+        setSelectedId(previous => previous || (active ? active.id : data.incidents[0].id));
       }
       return true;
     } catch (error) {
@@ -245,7 +245,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       stateRequestInFlight.current = false;
       setIsLoading(false);
     }
-  }, [selectedId, isAuthenticated, refreshUser]);
+  }, [isAuthenticated, user?.role, refreshUser]);
 
   const apiPost = useCallback(async (path: string, payload: any, options?: { suppressErrorToast?: boolean }) => {
     try {
@@ -304,22 +304,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     if (!authLoading) void refreshState();
   }, [authLoading, isAuthenticated, refreshState]);
 
-  // Full state includes incidents, photos and notifications. Poll only while this tab is visible,
-  // at a rate suitable for the operations dashboard; mutations still update state immediately.
+  // Admin state is refreshed only on visible operator pages. Mutations update it immediately.
   useEffect(() => {
-    if (!isAuthenticated) return;
+    if (!isAuthenticated || user?.role !== 'admin') return;
     const interval = setInterval(() => {
+      if (!window.location.pathname.startsWith('/operator') || document.visibilityState !== 'visible') return;
       // Check if user is typing in common inputs to prevent layout refresh jitter
       const activeEl = document.activeElement?.id;
       const typingInputs = ["commentText", "photoNote", "customerPhotoNote", "reportNote", "agentQuery", "aiApiKey", "aiModel"];
       if (activeEl && typingInputs.includes(activeEl)) {
         return;
       }
-      if (document.visibilityState === 'visible') void refreshState();
+      void refreshState();
     }, STATE_POLL_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [refreshState, isAuthenticated]);
+  }, [refreshState, isAuthenticated, user?.role]);
 
   return (
     <AppContext.Provider

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AlertTriangle, BrainCircuit, Clock3, Route, ShieldAlert } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
@@ -42,6 +42,7 @@ interface AgentTask {
 }
 
 const AgentOperationsPanel: React.FC = () => {
+  const loadInFlight = useRef(false);
   const { apiPost, showToast } = useApp();
   const [operations, setOperations] = useState<AgentOperations | null>(null);
   const [history, setHistory] = useState<AgentTask[]>([]);
@@ -79,6 +80,8 @@ const AgentOperationsPanel: React.FC = () => {
   };
 
   const load = useCallback(async () => {
+    if (loadInFlight.current) return;
+    loadInFlight.current = true;
     try {
       const [operationsResponse, historyResponse] = await Promise.all([
         fetch('/api/agent/operations', { credentials: 'include', cache: 'no-store' }),
@@ -91,6 +94,8 @@ const AgentOperationsPanel: React.FC = () => {
       setError('');
     } catch {
       setError('無法載入 Agent 營運摘要。');
+    } finally {
+      loadInFlight.current = false;
     }
   }, []);
 
