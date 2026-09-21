@@ -12,9 +12,6 @@ dist/
 build/
 .tsbuildinfo
 
-# Local ML model weights
-*.pt
-
 # Environment variables
 .env
 .env.local
@@ -41,6 +38,7 @@ Thumbs.db
 *.db-wal
 
 outputs/__pycache__/
+outputs/irent_ops.db
 outputs/uploads/
 outputs/secrets/
 backend/outputs/secrets/
