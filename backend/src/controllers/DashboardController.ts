@@ -137,12 +137,23 @@ export class DashboardController {
     }
   };
 
+  public runCaptureGuidance = async (req: Request, res: Response) => {
+    try {
+      const result = await this.service.handleCaptureGuidanceAction(req.body, req.authUser!.id);
+      res.json({ ok: true, ...result });
+    } catch (e: any) {
+      const unavailable = ['KPT_MODEL_UNAVAILABLE', 'AI_SERVICE_TIMEOUT', 'AI_SERVICE_ERROR'].includes(e.code);
+      res.status(e.status || (unavailable ? 503 : 500)).json({ ok: false, error: { code: e.code || 'CAPTURE_GUIDANCE_FAILED', message: e.message || 'Capture guidance failed.' } });
+    }
+  };
+
   public runConditionCheck = async (req: Request, res: Response) => {
     try {
       const result = await this.service.handleConditionCheckAction(req.body, req.authUser!.id);
       res.json({ ok: true, ...result });
     } catch (e: any) {
-      res.status(e.status || (e.code === 'DAMAGE_MODEL_UNAVAILABLE' ? 503 : 500)).json({ ok: false, error: { code: e.code || 'CONDITION_ANALYSIS_FAILED', message: e.message || 'Condition analysis failed.' } });
+      const unavailable = ['DAMAGE_MODEL_UNAVAILABLE', 'AI_SERVICE_TIMEOUT', 'AI_SERVICE_ERROR'].includes(e.code);
+      res.status(e.status || (unavailable ? 503 : 500)).json({ ok: false, error: { code: e.code || 'CONDITION_ANALYSIS_FAILED', message: e.message || 'Condition analysis failed.' } });
     }
   };
 
@@ -153,6 +164,8 @@ export class DashboardController {
         ok: true,
         submissionId: result.submissionId,
         overallStatus: result.overallStatus,
+        coverageSummary: result.coverageSummary,
+        damageSummary: result.damageSummary,
         results: result.results,
         createdIncidents: result.createdIncidents,
         changedResource: {

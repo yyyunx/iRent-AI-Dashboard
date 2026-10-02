@@ -14,9 +14,9 @@ import {
 } from '../models/types';
 import { analyzeImageQuality, validateImageDataUrl } from './ImageValidation';
 import { OPERATIONS_SOP } from '../knowledge/operationsSop';
-import { analyzeOrientation, analyzeVehicleCondition, isFeatureEnabled } from './InspectionModels';
+import { analyzeCaptureGuidance, analyzeOrientation, analyzeVehicleCondition, isFeatureEnabled, PersistedDamageResult } from './InspectionModels';
 import { validateReturnLocation } from './ReturnLocation';
-import { analyzeScenarioCondition } from './photo/ScenarioConditionAnalysis';
+import { calculateCoverage, normalizeGuidance, PersistedGuidance } from './Coverage';
 
 export class DashboardService {
   private repo: DatabaseRepository;
@@ -634,21 +634,52 @@ export class DashboardService {
     return { orientation, photoId };
   }
 
-  public async handleConditionCheckAction(payload: any, userId: number) {
-    const condition = await analyzeVehicleCondition(String(payload?.imageData || payload?.data || ''));
-    const photoId = payload?.photoId ? String(payload.photoId) : undefined;
-    if (photoId) {
-      if (!this.repo.userOwnsPhoto(userId, photoId)) {
-        const error: any = new Error('Photo not found'); error.status = 404; throw error;
-      }
-      this.repo.updatePhotoCondition(photoId, condition, userId);
+  public async handleCaptureGuidanceAction(payload: any, userId: number) {
+    const photoId = String(payload?.photoId || '');
+    if (!photoId || !this.repo.userOwnsPhoto(userId, photoId)) {
+      const error: any = new Error('Photo not found'); error.status = 404; throw error;
     }
-    return { condition, photoId };
+    const guidance = await analyzeCaptureGuidance(String(payload?.imageData || payload?.data || ''));
+    const persisted = normalizeGuidance(guidance);
+    this.repo.updatePhotoGuidance(photoId, persisted, userId);
+    return { guidance: { ...guidance, ...persisted }, photoId };
   }
 
-  // --- Photo Submission AI analysis ---
-  public mockVehicleAiAnalysis(submission: any) {
-    return analyzeScenarioCondition(submission);
+  public async handleConditionCheckAction(payload: any, userId: number) {
+    const photoId = String(payload?.photoId || '');
+    const photo = photoId ? this.repo.getUploadedPhotoById(photoId) : null;
+    if (!photo || photo.user_id !== userId) {
+      const error: any = new Error('Photo not found'); error.status = 404; throw error;
+    }
+    if (!photo.quality_passed || photo.is_blur || !photo.file_path) {
+      const error: any = new Error('Photo has not passed quality validation'); error.status = 422; error.code = 'IMAGE_QUALITY_CHECK_FAILED'; throw error;
+    }
+    const absolutePath = path.join(this.uploadDir, path.basename(photo.file_path));
+    const extension = path.extname(absolutePath).toLowerCase();
+    const mime = extension === '.png' ? 'png' : extension === '.webp' ? 'webp' : 'jpeg';
+    const imageData = `data:image/${mime};base64,${(await fs.promises.readFile(absolutePath)).toString('base64')}`;
+    const checkedAt = new Date().toISOString();
+    try {
+      const condition = await analyzeVehicleCondition(imageData);
+      const persistedDamage: PersistedDamageResult = {
+        schema_version: 'irent.damage.v1', photoId,
+        damage_status: condition.damage.detected ? 'detected' : 'none',
+        detection_count: condition.detections.length,
+        confidence: condition.damage.detected ? condition.damage.confidence : null,
+        detections: condition.detections,
+        inference_status: 'success', failure_reason: null, checked_at: checkedAt
+      };
+      this.repo.updatePhotoCondition(photoId, { ...condition, persistedDamage }, userId);
+      return { condition, damage: persistedDamage, photoId };
+    } catch (error: any) {
+      const persistedDamage: PersistedDamageResult = {
+        schema_version: 'irent.damage.v1', photoId, damage_status: 'unavailable',
+        detection_count: 0, confidence: null, detections: [], inference_status: 'failed',
+        failure_reason: error?.code || 'DAMAGE_INFERENCE_FAILED', checked_at: checkedAt
+      };
+      this.repo.updatePhotoCondition(photoId, { damage: { detected: false, confidence: 0 }, dirty: { detected: false, confidence: 0 }, persistedDamage }, userId);
+      return { condition: null, damage: persistedDamage, photoId };
+    }
   }
 
   public async createIncidentFromAiResult(submission: any, aiResults: any[], userId: number, submissionId: string): Promise<string[]> {
@@ -723,6 +754,7 @@ export class DashboardService {
       throw error;
     }
 
+    const savedPhotos: any[] = [];
     for (const photoRequest of photos) {
       const photoId = String(photoRequest?.photoId || '');
       const photo = photoId ? this.repo.getUploadedPhotoById(photoId) : null;
@@ -739,7 +771,14 @@ export class DashboardService {
         error.status = 422;
         throw error;
       }
+      savedPhotos.push(photo);
     }
+
+    const savedGuidance = savedPhotos.map(photo => {
+      try { return normalizeGuidance(JSON.parse(photo.ai_result_json || '{}').guidance); }
+      catch { return normalizeGuidance(null); }
+    }) as PersistedGuidance[];
+    const coverageSummary = calculateCoverage(savedGuidance);
 
     const returnLocation = validateReturnLocation(payload.returnLocation, phase === 'return');
 
@@ -754,7 +793,34 @@ export class DashboardService {
       photos
     };
 
-    const aiResults = this.mockVehicleAiAnalysis(submissionObj);
+    const damageResults: PersistedDamageResult[] = savedPhotos.map(photo => {
+      try {
+        const saved = JSON.parse(photo.ai_result_json || '{}').damage;
+        if (saved?.schema_version === 'irent.damage.v1' && saved.photoId === photo.photo_id) return saved;
+      } catch { /* represented as unavailable below */ }
+      return {
+        schema_version: 'irent.damage.v1', photoId: photo.photo_id, damage_status: 'unavailable',
+        detection_count: 0, confidence: null, detections: [], inference_status: 'failed',
+        failure_reason: 'INFERENCE_NOT_RUN', checked_at: new Date().toISOString()
+      } as PersistedDamageResult;
+    });
+    const aiResults = damageResults.map((damage, index) => ({
+      slot: savedPhotos[index].slot,
+      damageDetected: damage.inference_status === 'success' && damage.damage_status === 'detected',
+      damageType: damage.detections[0]?.label || null,
+      damageLocation: savedPhotos[index].slot,
+      isNewDamage: damage.inference_status === 'success' && damage.damage_status === 'detected' && phase === 'return',
+      confidence: damage.confidence || 0,
+      cleanliness: 'unknown',
+      damage
+    }));
+    const damageSummary = {
+      schema_version: 'irent.damage-summary.v1',
+      detected_photo_count: damageResults.filter(item => item.damage_status === 'detected').length,
+      total_detection_count: damageResults.reduce((sum, item) => sum + item.detection_count, 0),
+      unavailable_photo_count: damageResults.filter(item => item.inference_status === 'failed').length,
+      photos: damageResults
+    };
     const createdIncidents = await this.createIncidentFromAiResult(submissionObj, aiResults, userId, submissionId);
 
     const overallStatus = createdIncidents.length > 0 ? "warning" : "ok";
@@ -774,6 +840,8 @@ export class DashboardService {
       status,
       overall_status: overallStatus,
       ai_summary: aiSummary,
+      coverage_summary_json: JSON.stringify(coverageSummary),
+      damage_summary_json: JSON.stringify(damageSummary),
       user_id: userId,
       latitude: returnLocation?.latitude,
       longitude: returnLocation?.longitude,
@@ -791,8 +859,7 @@ export class DashboardService {
     // Save individual photos
     for (let i = 0; i < photos.length; i++) {
       const p = photos[i];
-      const aiResult = aiResults[i];
-      this.repo.updateUploadedPhotoSubmission(p.photoId, submissionId, JSON.stringify(aiResult), userId);
+      this.repo.updateUploadedPhotoSubmission(p.photoId, submissionId, '', userId);
     }
 
     if (createdIncidents.length > 0) {
@@ -810,6 +877,8 @@ export class DashboardService {
     return {
       submissionId,
       overallStatus,
+      coverageSummary,
+      damageSummary,
       results: aiResults,
       createdIncidents,
       submission: dbRowToSubmissionResponse(this.repo.getPhotoSubmissionDetail(submissionId)!),

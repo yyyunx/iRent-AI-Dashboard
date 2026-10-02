@@ -156,6 +156,8 @@ export interface PhotoSubmission {
   status: string;
   overall_status: string;
   ai_summary?: string | null;
+  coverage_summary_json?: string | null;
+  damage_summary_json?: string | null;
   user_id?: number | null;
   latitude?: number | null;
   longitude?: number | null;
@@ -181,6 +183,8 @@ export interface PhotoSubmissionResponse {
   status: string;
   overallStatus: string;
   aiSummary: string | null;
+  coverageSummary: any;
+  damageSummary: any;
   createdAt: string;
   returnLocation: {
     latitude: number | null; longitude: number | null; gpsAccuracy: number | null; gpsCapturedAt: string | null;
@@ -321,6 +325,10 @@ export function dbRowToIncidentResponse(row: any): IncidentResponse {
 }
 
 export function dbRowToSubmissionResponse(row: any): PhotoSubmissionResponse {
+  let coverageSummary = null;
+  try { coverageSummary = row.coverage_summary_json ? JSON.parse(row.coverage_summary_json) : null; } catch { coverageSummary = null; }
+  let damageSummary = null;
+  try { damageSummary = row.damage_summary_json ? JSON.parse(row.damage_summary_json) : null; } catch { damageSummary = null; }
   return {
     submissionId: row.submission_id,
     rentalId: row.rental_id,
@@ -331,6 +339,8 @@ export function dbRowToSubmissionResponse(row: any): PhotoSubmissionResponse {
     status: row.status,
     overallStatus: row.overall_status,
     aiSummary: row.ai_summary ?? null,
+    coverageSummary,
+    damageSummary,
     createdAt: row.created_at,
     returnLocation: {
       latitude: row.latitude ?? null, longitude: row.longitude ?? null, gpsAccuracy: row.gps_accuracy ?? null, gpsCapturedAt: row.gps_captured_at ?? null,

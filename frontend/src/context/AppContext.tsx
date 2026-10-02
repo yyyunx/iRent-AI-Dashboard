@@ -163,7 +163,7 @@ interface AppContextType {
   removeToast: (id: string) => void;
   clearToasts: (scope: string) => void;
   refreshState: () => Promise<boolean>;
-  apiPost: (path: string, payload: any, options?: { suppressErrorToast?: boolean }) => Promise<any>;
+  apiPost: (path: string, payload: any, options?: { suppressErrorToast?: boolean; signal?: AbortSignal; timeoutMs?: number }) => Promise<any>;
   developerMode: boolean;
   setDeveloperMode: (val: boolean) => void;
   searchQuery: string;
@@ -247,14 +247,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
   }, [isAuthenticated, user?.role, refreshUser]);
 
-  const apiPost = useCallback(async (path: string, payload: any, options?: { suppressErrorToast?: boolean }) => {
+  const apiPost = useCallback(async (path: string, payload: any, options?: { suppressErrorToast?: boolean; signal?: AbortSignal; timeoutMs?: number }) => {
+    const timeoutController = new AbortController();
+    const timeout = options?.timeoutMs ? window.setTimeout(() => timeoutController.abort(), options.timeoutMs) : undefined;
+    const abortFromCaller = () => timeoutController.abort();
+    options?.signal?.addEventListener('abort', abortFromCaller, { once: true });
     try {
       const csrfToken = await getCsrfToken();
       const response = await fetch(path, {
         method: "POST",
         credentials: 'include',
         headers: { "Content-Type": "application/json", "X-CSRF-Token": csrfToken },
-        body: JSON.stringify(payload)
+        body: JSON.stringify(payload),
+        signal: timeoutController.signal
       });
       const data = await response.json();
       if (!response.ok || data.ok === false) {
@@ -296,6 +301,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch (error: any) {
       if (!options?.suppressErrorToast) showToast("連線錯誤", error.message || "請求失敗");
       throw error;
+    } finally {
+      if (timeout !== undefined) window.clearTimeout(timeout);
+      options?.signal?.removeEventListener('abort', abortFromCaller);
     }
   }, [showToast, getCsrfToken, refreshUser]);
 

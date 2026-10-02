@@ -1163,3 +1163,14 @@ Resolution
 - [Sending push messages](https://developers.line.biz/en/docs/messaging-api/sending-messages/)
 - [Getting user IDs, group IDs and room IDs](https://developers.line.biz/en/docs/messaging-api/getting-user-ids/)
 - [LINE Notify discontinuation notice](https://developers.line.biz/en/news/2025/04/01/line-notify/)
+# Local frozen-model integration
+
+The first-stage integration keeps the browser on the Express API (`:5188`) and runs a localhost-only Python model service. Start the Python service first by following `ai_service/README.md`, then start the backend and frontend as usual. Configure the backend only with `AI_SERVICE_URL` (default `http://127.0.0.1:8000`) and `AI_SERVICE_TIMEOUT_MS`.
+
+Authenticated browser routes:
+
+- `POST /api/photos/capture-guidance` returns the original KptNetV1 structured output under `guidance`.
+- `POST /api/photos/condition-check` returns the existing condition summary plus raw DamageNetV1 `detections` (`label_id`, `label`, `confidence`, `bbox_xyxy`).
+
+Both accept the existing `{ "imageData": "data:image/jpeg;base64,..." }` payload. The frozen model packages remain outside this repository and are only read by the adapter.
+
