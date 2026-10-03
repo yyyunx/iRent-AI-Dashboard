@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Replaced operator-facing photo debug JSON with human-readable, photo-type-aware quality and AI damage summaries, local timestamps, and collapsed technical details.
 - Added development logging for verified LINE group webhook IDs, strict source-type ID extraction, hardened constant-time signature validation, setup guidance, and webhook integration coverage.
 - Migrated AI operations and vision calls from OpenAI to the server-side Google Gemini API, including Gemini environment settings, structured JSON requests, UI setup guidance, and integration tests.
 - Added admin-only deterministic shift briefings, SLA warnings, evidence-backed incident clusters, non-mutating dispatch drafts, and persistent redacted Agent task history.
