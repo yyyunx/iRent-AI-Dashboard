@@ -1,9 +1,12 @@
-import React, { useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
-import { ArrowLeft, CheckCircle2, AlertTriangle, HelpCircle, Image, Settings, Eye, X } from 'lucide-react';
+import { ArrowLeft, CheckCircle2, AlertTriangle, HelpCircle, Image, Settings, Eye, X, Camera, CameraOff } from 'lucide-react';
 import { checkBlurScore, FRONTEND_BLUR_THRESHOLD } from '../utils/blurDetection';
 import { useAuth } from '../context/AuthContext';
+import Vehicle3DViewer from '../components/vehicle/Vehicle3DViewer';
+import type { AiViewerPose } from '../components/vehicle/Vehicle3DViewer';
+import { GUIDANCE_INTERVAL_MS, GUIDANCE_JPEG_QUALITY, GUIDANCE_MAX_FRAME_EDGE, canStartGuidanceRequest, isCurrentGuidanceResponse, isReliableGuidance, smoothViewerPose } from '../utils/continuousGuidance';
 
 const PHOTO_SLOTS = [
   { key: 'front', label: '車頭' },
@@ -31,6 +34,17 @@ interface CheckedPhoto {
     distanceValid: boolean;
     message: string;
   };
+  guidance?: GuidanceResult;
+  damage?: DamageResult;
+}
+
+interface DamageResult {
+  damage_status: 'detected' | 'none' | 'unavailable';
+  detection_count: number;
+  confidence: number | null;
+  detections: Array<{ label: 'Scratched' | 'Dented' | 'Broken'; confidence: number; bbox_xyxy: [number, number, number, number] }>;
+  inference_status: 'success' | 'failed';
+  failure_reason: string | null;
 }
 
 interface LastSubmission {
@@ -40,6 +54,35 @@ interface LastSubmission {
   body: string;
   title: string;
 }
+
+interface GuidanceResult {
+  success: boolean;
+  failure_reason: string | null;
+  correspondence_count: number;
+  inlier_count: number;
+  inlier_ratio: number;
+  reprojection_error: number | null;
+  guidance_status: 'FULL' | 'DEGRADED' | 'UNAVAILABLE';
+  solver_used: 'EPNP' | 'AP3P' | 'NONE';
+  degradation_reason: string | null;
+  view_sector: ViewSector | null;
+  covered_sectors: ViewSector[];
+  yaw?: number;
+  pitch?: number;
+  roll?: number;
+  distance?: number;
+  viewer_pose?: {
+    camera_direction_from_target: [number, number, number];
+    camera_up: [number, number, number];
+  };
+}
+
+const VIEW_SECTORS = ['FRONT', 'FRONT_RIGHT', 'RIGHT', 'REAR_RIGHT', 'REAR', 'REAR_LEFT', 'LEFT', 'FRONT_LEFT'] as const;
+type ViewSector = typeof VIEW_SECTORS[number];
+const SECTOR_LABELS: Record<ViewSector, string> = {
+  FRONT: '車頭', FRONT_RIGHT: '右前方', RIGHT: '右側', REAR_RIGHT: '右後方',
+  REAR: '車尾', REAR_LEFT: '左後方', LEFT: '左側', FRONT_LEFT: '左前方'
+};
 
 interface ReturnLocationForm {
   latitude?: number;
@@ -88,6 +131,27 @@ const CustomerFlow: React.FC = () => {
 
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [previewImage, setPreviewImage] = useState<string | null>(null);
+  const [guidance, setGuidance] = useState<GuidanceResult | null>(null);
+  const [guidanceStatus, setGuidanceStatus] = useState<'idle' | 'checking' | 'full' | 'degraded' | 'unavailable'>('idle');
+  const [cameraState, setCameraState] = useState<'idle' | 'starting' | 'streaming' | 'error'>('idle');
+  const [cameraMessage, setCameraMessage] = useState('');
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const guidanceTimerRef = useRef<number | null>(null);
+  const guidanceAbortRef = useRef<AbortController | null>(null);
+  const guidanceInFlightRef = useRef(false);
+  const guidanceGenerationRef = useRef(0);
+  const guidanceRequestIdRef = useRef(0);
+  const acceptedRequestIdRef = useRef(0);
+  const acceptedPoseRef = useRef<AiViewerPose>();
+  const coverage = useMemo(() => {
+    const coveredSet = new Set<ViewSector>();
+    Object.values(checkedPhotos).forEach(photo => photo.guidance?.covered_sectors.forEach(sector => coveredSet.add(sector)));
+    const covered = VIEW_SECTORS.filter(sector => coveredSet.has(sector));
+    const missing = VIEW_SECTORS.filter(sector => !coveredSet.has(sector));
+    return { covered, missing, percentage: covered.length / VIEW_SECTORS.length * 100, next: missing[0] || null };
+  }, [checkedPhotos]);
 
   const setSubmissionState = (nextState: SubmitState) => {
     submitStateRef.current = nextState;
@@ -133,10 +197,101 @@ const CustomerFlow: React.FC = () => {
     );
   };
 
+  const stopContinuousGuidance = useCallback(() => {
+    guidanceGenerationRef.current += 1;
+    guidanceAbortRef.current?.abort();
+    guidanceAbortRef.current = null;
+    guidanceInFlightRef.current = false;
+    if (guidanceTimerRef.current !== null) window.clearInterval(guidanceTimerRef.current);
+    guidanceTimerRef.current = null;
+    mediaStreamRef.current?.getTracks().forEach(track => track.stop());
+    mediaStreamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    setCameraState('idle');
+    setCameraMessage('');
+  }, []);
+
   const switchPhase = (nextPhase: 'pickup' | 'return') => {
+    stopContinuousGuidance();
     setPhase(nextPhase);
     resetPhotos();
     if (nextPhase === 'return') void captureGps();
+  };
+
+  useEffect(() => stopContinuousGuidance, [stopContinuousGuidance]);
+
+  const captureGuidanceFrame = useCallback(async (generation: number) => {
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    if (!video || !canvas || video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA || !canStartGuidanceRequest(guidanceInFlightRef.current)) return;
+    const sourceWidth = video.videoWidth;
+    const sourceHeight = video.videoHeight;
+    if (!sourceWidth || !sourceHeight) return;
+    const scale = Math.min(1, GUIDANCE_MAX_FRAME_EDGE / Math.max(sourceWidth, sourceHeight));
+    canvas.width = Math.max(1, Math.round(sourceWidth * scale));
+    canvas.height = Math.max(1, Math.round(sourceHeight * scale));
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    context.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = canvas.toDataURL('image/jpeg', GUIDANCE_JPEG_QUALITY);
+    const requestId = ++guidanceRequestIdRef.current;
+    const controller = new AbortController();
+    guidanceAbortRef.current = controller;
+    guidanceInFlightRef.current = true;
+    if (!acceptedPoseRef.current) setGuidanceStatus('checking');
+    try {
+      const response = await apiPost('/api/photos/capture-guidance', { imageData }, { suppressErrorToast: true, signal: controller.signal, timeoutMs: 15_000 });
+      if (!isCurrentGuidanceResponse(generation, guidanceGenerationRef.current, requestId, acceptedRequestIdRef.current, controller.signal.aborted)) return;
+      const nextGuidance = response.guidance as GuidanceResult;
+      if (!isReliableGuidance(nextGuidance) || !nextGuidance.viewer_pose || nextGuidance.guidance_status === 'UNAVAILABLE') {
+        setCameraMessage('等待可靠視角');
+        return;
+      }
+      const smoothed = smoothViewerPose(acceptedPoseRef.current, nextGuidance.viewer_pose);
+      if (!smoothed) return;
+      acceptedRequestIdRef.current = requestId;
+      acceptedPoseRef.current = smoothed;
+      setGuidance({ ...nextGuidance, viewer_pose: { ...nextGuidance.viewer_pose, ...smoothed } });
+      setGuidanceStatus(nextGuidance.guidance_status === 'FULL' ? 'full' : 'degraded');
+      setCameraMessage('已鎖定');
+    } catch (error: any) {
+      if (generation !== guidanceGenerationRef.current || error?.name === 'AbortError') return;
+      if (!acceptedPoseRef.current) setGuidanceStatus('unavailable');
+      setCameraMessage(error?.code === 'AI_SERVICE_TIMEOUT' || error?.status === 503 ? 'AI 服務暫時無法使用，仍可上傳照片' : '即時引導連線逾時，仍可上傳照片');
+    } finally {
+      if (generation === guidanceGenerationRef.current && requestId === guidanceRequestIdRef.current) {
+        guidanceInFlightRef.current = false;
+        guidanceAbortRef.current = null;
+      }
+    }
+  }, [apiPost]);
+
+  const startContinuousGuidance = async () => {
+    if (!navigator.mediaDevices?.getUserMedia || cameraState === 'starting' || cameraState === 'streaming') return;
+    stopContinuousGuidance();
+    const generation = guidanceGenerationRef.current;
+    setCameraState('starting');
+    setCameraMessage('正在啟動相機…');
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+      if (generation !== guidanceGenerationRef.current || phase !== 'return') {
+        stream.getTracks().forEach(track => track.stop());
+        return;
+      }
+      mediaStreamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setCameraState('streaming');
+      setCameraMessage(acceptedPoseRef.current ? '已鎖定' : '等待可靠視角');
+      void captureGuidanceFrame(generation);
+      guidanceTimerRef.current = window.setInterval(() => void captureGuidanceFrame(generation), GUIDANCE_INTERVAL_MS);
+    } catch (error: any) {
+      if (generation !== guidanceGenerationRef.current) return;
+      setCameraState('error');
+      setCameraMessage(error?.name === 'NotAllowedError' ? '未取得相機權限，仍可使用照片上傳' : '此裝置無法啟動相機，仍可使用照片上傳');
+    }
   };
 
   // File readers
@@ -176,6 +331,10 @@ const CustomerFlow: React.FC = () => {
     setSubmitError(null);
     if (submitStateRef.current === 'error') setSubmissionState('idle');
     setCheckedPhotos(prev => ({ ...prev, [slot]: { status: 'checking', filename: file.name } }));
+    if (phase === 'return') {
+      setGuidance(null);
+      setGuidanceStatus('checking');
+    }
 
     try {
       const fileData = await readPhoto(file);
@@ -198,6 +357,7 @@ const CustomerFlow: React.FC = () => {
             errorMessage: '照片過於模糊，請重新拍攝後再上傳。'
           }
         }));
+        if (phase === 'return') setGuidanceStatus('unavailable');
         return;
       }
       
@@ -219,11 +379,39 @@ const CustomerFlow: React.FC = () => {
         }
       }));
 
+      if (phase === 'return') {
+        try {
+          const guidanceResponse = await apiPost('/api/photos/capture-guidance', { ...basePayload, photoId: response.photoId }, { suppressErrorToast: true });
+          if (!isCurrent()) return;
+          const nextGuidance = guidanceResponse.guidance as GuidanceResult;
+          setCheckedPhotos(prev => ({ ...prev, [slot]: { ...prev[slot], guidance: nextGuidance } }));
+          setGuidance(nextGuidance);
+          setGuidanceStatus(nextGuidance.guidance_status === 'FULL' ? 'full' : nextGuidance.guidance_status === 'DEGRADED' ? 'degraded' : 'unavailable');
+        } catch {
+          if (!isCurrent()) return;
+          setGuidance(null);
+          setGuidanceStatus('unavailable');
+        }
+      }
+
+      try {
+        const damageResponse = await apiPost('/api/photos/condition-check', { photoId: response.photoId }, { suppressErrorToast: true, timeoutMs: 60_000 });
+        if (!isCurrent()) return;
+        setCheckedPhotos(prev => ({ ...prev, [slot]: { ...prev[slot], damage: damageResponse.damage as DamageResult } }));
+      } catch {
+        if (!isCurrent()) return;
+        setCheckedPhotos(prev => ({ ...prev, [slot]: { ...prev[slot], damage: {
+          damage_status: 'unavailable', detection_count: 0, confidence: null, detections: [],
+          inference_status: 'failed', failure_reason: 'CONDITION_CHECK_UNAVAILABLE'
+        } } }));
+      }
+
       showToast("照片品質檢查完成", `${slot}: ${response.quality.message}`, CUSTOMER_SUBMISSION_TOAST_SCOPE);
     } catch (error: any) {
       if (!isCurrent()) return;
       const quality = error.payload?.quality;
       const isBlurFailure = error.code === 'IMAGE_TOO_BLURRY';
+      if (phase === 'return') setGuidanceStatus('unavailable');
       setCheckedPhotos(prev => ({
         ...prev,
         [slot]: {
@@ -246,6 +434,8 @@ const CustomerFlow: React.FC = () => {
     setSubmitError(null);
     if (submitStateRef.current === 'error') setSubmissionState('idle');
     setCheckedPhotos({});
+    setGuidance(null);
+    setGuidanceStatus('idle');
   };
 
   const submitPhotoFlow = async () => {
@@ -431,6 +621,56 @@ const CustomerFlow: React.FC = () => {
           </div>
 
           {phase === 'return' && (
+            <section className="overflow-hidden rounded-2xl border border-irent-line bg-white shadow-sm" aria-labelledby="continuous-guidance-title">
+              <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                  <h3 id="continuous-guidance-title" className="m-0 text-sm font-black text-irent-ink">相機即時引導</h3>
+                  <p className="m-0 mt-1 text-xs text-irent-muted">{cameraState === 'streaming' ? `即時引導中 · ${cameraMessage}` : cameraMessage || '啟動後會約每 0.45 秒更新 AI 視角'}</p>
+                </div>
+                {cameraState === 'streaming' || cameraState === 'starting' ? (
+                  <button type="button" onClick={stopContinuousGuidance} className="inline-flex min-h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl border border-irent-line bg-white px-4 text-sm font-extrabold text-irent-ink"><CameraOff size={17} /> 停止相機</button>
+                ) : (
+                  <button type="button" onClick={() => void startContinuousGuidance()} disabled={submissionLocked} className="inline-flex min-h-[42px] shrink-0 items-center justify-center gap-2 rounded-xl border-0 bg-irent-red px-4 text-sm font-extrabold text-white disabled:opacity-50"><Camera size={17} /> 啟動即時引導</button>
+                )}
+              </div>
+              <div className={`${cameraState === 'streaming' ? 'block' : 'hidden'} bg-slate-950`}>
+                <video ref={videoRef} muted playsInline className="aspect-video max-h-[360px] w-full object-contain" aria-label="即時相機預覽" />
+              </div>
+              <canvas ref={canvasRef} className="hidden" aria-hidden="true" />
+            </section>
+          )}
+
+          {phase === 'return' && (
+            <Vehicle3DViewer
+              aiPose={guidance?.success && guidance.guidance_status !== 'UNAVAILABLE' ? guidance.viewer_pose : undefined}
+              guidanceStatus={guidanceStatus}
+              guidanceSummary={guidance ? {
+                inlierCount: guidance.inlier_count,
+                correspondenceCount: guidance.correspondence_count,
+                reprojectionError: guidance.reprojection_error,
+                yaw: guidance.yaw,
+                pitch: guidance.guidance_status === 'FULL' ? guidance.pitch : undefined,
+                distance: guidance.guidance_status === 'FULL' ? guidance.distance : undefined,
+                solverUsed: guidance.solver_used,
+                degradationReason: guidance.degradation_reason,
+              } : undefined}
+            />
+          )}
+
+          {phase === 'return' && (
+            <section className="rounded-2xl border border-irent-line bg-white p-4 shadow-sm" aria-labelledby="coverage-title">
+              <div className="flex items-end justify-between gap-3">
+                <div><h3 id="coverage-title" className="m-0 text-sm font-black text-irent-ink">拍攝涵蓋率</h3><p className="m-0 mt-1 text-xs text-irent-muted">依可靠方位做 8 區去重累積</p></div>
+                <strong className="text-2xl text-irent-red">{coverage.percentage.toFixed(1)}%</strong>
+              </div>
+              <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full bg-irent-red transition-all" style={{ width: `${coverage.percentage}%` }} /></div>
+              <p className="m-0 mt-3 text-xs text-irent-muted">已覆蓋：{coverage.covered.length ? coverage.covered.map(sector => SECTOR_LABELS[sector]).join('、') : '尚無'}</p>
+              <p className="m-0 mt-1 text-xs text-irent-muted">缺少：{coverage.missing.length ? coverage.missing.map(sector => SECTOR_LABELS[sector]).join('、') : '無'}</p>
+              <p className="m-0 mt-2 text-sm font-extrabold text-irent-ink">建議下一拍：{coverage.next ? SECTOR_LABELS[coverage.next] : '已完成全部方向'}</p>
+            </section>
+          )}
+
+          {phase === 'return' && (
             <section className="rounded-2xl border border-blue-200 bg-blue-50/40 p-4 flex flex-col gap-3" aria-labelledby="return-location-title">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div><h3 id="return-location-title" className="m-0 text-sm font-black text-irent-ink">停車位置</h3><p className="m-0 mt-1 text-xs text-irent-muted">位置只在還車時取得一次，用於確認還車地點與後續派工。</p></div>
@@ -525,6 +765,10 @@ const CustomerFlow: React.FC = () => {
                   </div>
 
                   {checked?.errorMessage && <p className={`m-0 text-xs font-bold ${checked.status === 'failed' ? 'text-irent-red' : 'text-[#8a5b00]'}`}>{checked.errorMessage}</p>}
+                  {checked?.guidance && <p className="m-0 text-xs font-bold text-irent-muted">拍攝方向：{checked.guidance.view_sector ? SECTOR_LABELS[checked.guidance.view_sector] : '無法判定'}{checked.guidance.guidance_status === 'DEGRADED' ? '（粗略）' : ''}</p>}
+                  {checked?.damage && <p className={`m-0 text-xs font-bold ${checked.damage.damage_status === 'detected' ? 'text-irent-red' : 'text-irent-muted'}`}>
+                    車損辨識：{checked.damage.inference_status === 'failed' ? '目前無法辨識（不影響提交）' : checked.damage.damage_status === 'detected' ? `偵測到 ${checked.damage.detection_count} 處` : '未偵測到明顯車損'}
+                  </p>}
 
                   {/* Inline developer stats when Developer Mode is active */}
                   {developerMode && checked && (checked.feSharpness !== undefined || checked.feWallTime !== undefined) && (

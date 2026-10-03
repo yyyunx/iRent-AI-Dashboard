@@ -190,6 +190,8 @@ export class DatabaseRepository {
         status TEXT NOT NULL,
         overall_status TEXT NOT NULL,
         ai_summary TEXT,
+        coverage_summary_json TEXT,
+        damage_summary_json TEXT,
         user_id INTEGER,
         latitude REAL,
         longitude REAL,
@@ -373,6 +375,8 @@ export class DatabaseRepository {
     }
 
     this.addColumnIfMissing('PhotoSubmission', 'user_id', 'INTEGER');
+    this.addColumnIfMissing('PhotoSubmission', 'coverage_summary_json', 'TEXT');
+    this.addColumnIfMissing('PhotoSubmission', 'damage_summary_json', 'TEXT');
     this.addColumnIfMissing('UploadedPhoto', 'user_id', 'INTEGER');
     this.addColumnIfMissing('UploadedPhoto', 'blur_threshold', 'REAL');
     this.addColumnIfMissing('UploadedPhoto', 'blur_checked_at', 'TEXT');
@@ -787,11 +791,11 @@ export class DatabaseRepository {
 
   public insertPhotoSubmission(sub: Partial<PhotoSubmission>) {
     this.db.prepare(`
-      INSERT INTO PhotoSubmission(submission_id, rental_id, plate, phase, station, parking_location, status, overall_status, ai_summary, user_id, latitude, longitude, gps_accuracy, gps_captured_at, address, parking_facility, floor, zone, pillar, parking_slot, location_note, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO PhotoSubmission(submission_id, rental_id, plate, phase, station, parking_location, status, overall_status, ai_summary, coverage_summary_json, damage_summary_json, user_id, latitude, longitude, gps_accuracy, gps_captured_at, address, parking_facility, floor, zone, pillar, parking_slot, location_note, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       sub.submission_id, sub.rental_id, sub.plate, sub.phase, sub.station || null,
-      sub.parking_location || null, sub.status, sub.overall_status, sub.ai_summary || null, sub.user_id ?? null,
+      sub.parking_location || null, sub.status, sub.overall_status, sub.ai_summary || null, sub.coverage_summary_json || null, sub.damage_summary_json || null, sub.user_id ?? null,
       sub.latitude ?? null, sub.longitude ?? null, sub.gps_accuracy ?? null, sub.gps_captured_at ?? null, sub.address ?? null,
       sub.parking_facility ?? null, sub.floor ?? null, sub.zone ?? null, sub.pillar ?? null, sub.parking_slot ?? null, sub.location_note ?? null, this.nowText()
     );
@@ -829,9 +833,21 @@ export class DatabaseRepository {
   }
 
   public updateUploadedPhotoSubmission(photoId: string, submissionId: string, aiResultJson: string, userId?: number) {
+    const current = this.getUploadedPhotoById(photoId);
+    let existing: any = {};
+    try { existing = current?.ai_result_json ? JSON.parse(current.ai_result_json) : {}; } catch { existing = {}; }
+    const composed = JSON.stringify(existing);
     this.db.prepare(`
       UPDATE UploadedPhoto SET submission_id = ?, ai_result_json = ?, user_id = COALESCE(user_id, ?) WHERE photo_id = ?
-    `).run(submissionId, aiResultJson, userId ?? null, photoId);
+    `).run(submissionId, composed, userId ?? null, photoId);
+  }
+
+  public updatePhotoGuidance(photoId: string, guidance: unknown, userId: number) {
+    const current = this.getUploadedPhotoById(photoId);
+    let existing: any = {};
+    try { existing = current?.ai_result_json ? JSON.parse(current.ai_result_json) : {}; } catch { existing = {}; }
+    this.db.prepare('UPDATE UploadedPhoto SET ai_result_json = ? WHERE photo_id = ? AND user_id = ?')
+      .run(JSON.stringify({ ...existing, guidance }), photoId, userId);
   }
 
   public hasSuccessfulNotification(incidentId: string, eventType: string): boolean {
@@ -843,9 +859,15 @@ export class DatabaseRepository {
       .run(result.angle, result.label, result.confidence, result.passed ? 1 : 0, new Date().toISOString(), photoId, userId);
   }
 
-  public updatePhotoCondition(photoId: string, result: { damage: { detected: boolean; confidence: number; type?: string }; dirty: { detected: boolean; confidence: number } }, userId: number) {
+  public updatePhotoCondition(photoId: string, result: any, userId: number) {
+    const current = this.getUploadedPhotoById(photoId);
+    let existing: any = {};
+    try { existing = current?.ai_result_json ? JSON.parse(current.ai_result_json) : {}; } catch { existing = {}; }
+    const damage = result.persistedDamage || result;
     this.db.prepare(`UPDATE UploadedPhoto SET damage_detected = ?, damage_type = ?, damage_confidence = ?, dirty_detected = ?, dirty_confidence = ?, condition_checked_at = ? WHERE photo_id = ? AND user_id = ?`)
-      .run(result.damage.detected ? 1 : 0, result.damage.type || null, result.damage.confidence, result.dirty.detected ? 1 : 0, result.dirty.confidence, new Date().toISOString(), photoId, userId);
+      .run(result.damage?.detected ? 1 : 0, result.damage?.type || null, result.damage?.confidence ?? null, result.dirty?.detected ? 1 : 0, result.dirty?.confidence ?? 0, damage.checked_at || new Date().toISOString(), photoId, userId);
+    this.db.prepare('UPDATE UploadedPhoto SET ai_result_json = ? WHERE photo_id = ? AND user_id = ?')
+      .run(JSON.stringify({ ...existing, damage }), photoId, userId);
   }
 
   public setVehicleAvailability(plate: string, unavailable: boolean, incidentId: string | null) {

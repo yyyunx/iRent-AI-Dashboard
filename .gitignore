@@ -49,3 +49,10 @@ backend/outputs/secrets/
 *.pt
 *.pth
 *.onnx
+
+# Python local/runtime artifacts
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+*.py[cod]
