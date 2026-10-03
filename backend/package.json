@@ -10,6 +10,7 @@
     "create-admin": "ts-node src/cli/create-admin.ts",
     "create-user": "ts-node src/cli/create-user.ts",
     "test:security": "node --test -r ts-node/register test/security.integration.test.js",
+    "test:line-webhook": "node --test -r ts-node/register test/line-webhook.integration.test.js",
     "test:laplacian": "node --test test/laplacian.unit.test.js",
     "test:performance": "node --test -r ts-node/register test/performance-monitor.unit.test.js",
     "benchmark:api": "node -r ts-node/register test/api-latency.benchmark.js"

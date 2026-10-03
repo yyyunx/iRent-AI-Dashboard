@@ -19,7 +19,7 @@
 - Files (hardening update): data URL MIME is cross-checked against magic bytes; Sharp fully decodes JPEG/PNG/WebP and rejects malformed, oversized, or excessive-dimension images before disk write.
 - Operations (hardening update): JSON compression is enabled while `/uploads` is excluded; stale LINE `sending` rows recover to queued on startup; opaque resource IDs remove count-based collision risk.
 - Secrets/audit: no credentials are returned by auth APIs; audit metadata recursively redacts password/token/secret/cookie/API-key field names.
-- Webhook: existing LINE HMAC signature verification remains outside cookie auth; target changes now produce an audit event.
+- Webhook: LINE uses the exact raw request bytes and `LINE_CHANNEL_SECRET` for HMAC-SHA256 verification before JSON parsing; malformed or invalid signatures fail closed, group/user/room IDs are selected only from their matching `source.type`, and target changes produce an audit event. Channel secrets and access tokens are represented to the frontend only as configured/not-configured booleans.
 - Change safety: migrations use `CREATE TABLE IF NOT EXISTS` and `ALTER TABLE ADD COLUMN`; the username migration preserves legacy User rows, IDs, password hashes, roles, and the legacy email column while removing email from login/API behavior.
 - Agent controls: operations snapshots and task history are admin-only; dispatch recommendations are read-only drafts; persisted prompts/results are bounded and redact password/token/secret/API-key patterns.
 - Agent action confirmation: dispatch/LINE drafts use opaque IDs, expire after 10 minutes, are atomically claimed once, and are revalidated against live Incident state. Frontend/model-supplied team and message fields are ignored; only server-generated payloads execute after a second admin confirmation.
@@ -95,6 +95,7 @@ The following records describe the original `codex/auth-rbac` review at that poi
 - Bootstrap safety: first `create-admin` succeeded, the second invocation refused, and the stored password hash remained unchanged.
 - Frontend: TypeScript, ESLint, and Vite production build passed; backend TypeScript compile passed.
 - Dependency audit: backend and frontend production dependency audits reported no known vulnerabilities after patch upgrades.
+- LINE webhook validation: the dedicated integration test rejects an invalid signature without processing its group event, accepts a correctly signed group message and captures its `groupId`, verifies the development log format, and returns 503 when `LINE_CHANNEL_SECRET` is absent.
 - Rollback: restore application code to the baseline commit. Additive nullable columns/tables can remain safely unused; do not drop them during emergency rollback. Restore SQLite/files from the persistent-volume backup if data rollback is required.
 
 ## Decision

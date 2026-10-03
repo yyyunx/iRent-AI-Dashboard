@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Added development logging for verified LINE group webhook IDs, strict source-type ID extraction, hardened constant-time signature validation, setup guidance, and webhook integration coverage.
 - Migrated AI operations and vision calls from OpenAI to the server-side Google Gemini API, including Gemini environment settings, structured JSON requests, UI setup guidance, and integration tests.
 - Added admin-only deterministic shift briefings, SLA warnings, evidence-backed incident clusters, non-mutating dispatch drafts, and persistent redacted Agent task history.
 - Added expiring, server-owned dispatch and LINE message drafts with explicit admin confirmation, CSRF/RBAC enforcement, current-state revalidation, atomic one-time claiming, and audit events.

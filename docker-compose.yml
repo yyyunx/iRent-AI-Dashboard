@@ -1,0 +1,81 @@
+name: irent-ai-integration
+
+services:
+  ai:
+    build:
+      context: .
+      dockerfile: ai_service/Dockerfile
+    environment:
+      KPTNET_ROOT: /models/kptnetv1
+      DAMAGENET_ROOT: /models/damagenetv1
+      ALTIS_LANDMARKS_PATH: /app/ai_service/data/altis_30_landmarks.json
+      PNP_NORMALIZED_FOCAL: ${PNP_NORMALIZED_FOCAL:-1.2}
+      PNP_RANSAC_REPROJECTION_PX: ${PNP_RANSAC_REPROJECTION_PX:-8}
+      PNP_RANSAC_ITERATIONS: ${PNP_RANSAC_ITERATIONS:-100}
+    volumes:
+      - type: bind
+        source: ${KPTNET_ROOT:?Set KPTNET_ROOT in .env to the host KptNetV1 directory}
+        target: /models/kptnetv1
+        read_only: true
+      - type: bind
+        source: ${DAMAGENET_ROOT:?Set DAMAGENET_ROOT in .env to the host DamageNetV1 directory}
+        target: /models/damagenetv1
+        read_only: true
+    ports:
+      - "127.0.0.1:${AI_PORT:-8000}:8000"
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,urllib.request; data=json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=10)); raise SystemExit(0 if data.get('ok') else 1)"
+      interval: 10s
+      timeout: 15s
+      retries: 60
+      start_period: 120s
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      NODE_ENV: development
+      SERVE_FRONTEND: "true"
+      PORT: 5188
+      DATABASE_PATH: /app/outputs/irent_ops.db
+      UPLOAD_DIR: /app/outputs/uploads
+      CORS_ORIGIN: http://localhost:${IRENT_PORT:-5188}
+      COOKIE_SAME_SITE: Lax
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-28800}
+      BLUR_THRESHOLD: ${BLUR_THRESHOLD:-100}
+      ORIENTATION_CHECK_ENABLED: "false"
+      CONDITION_CHECK_ENABLED: "true"
+      AI_SERVICE_URL: http://ai:8000
+      AI_SERVICE_TIMEOUT_MS: ${AI_SERVICE_TIMEOUT_MS:-60000}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GEMINI_MODEL: ${GEMINI_MODEL:-gemini-3.8-flash}
+      LINE_CHANNEL_ACCESS_TOKEN: ${LINE_CHANNEL_ACCESS_TOKEN:-}
+      LINE_CHANNEL_SECRET: ${LINE_CHANNEL_SECRET:-}
+      LINE_TARGET_ID: ${LINE_TARGET_ID:-}
+    volumes:
+      - irent_outputs:/app/outputs
+    ports:
+      - "127.0.0.1:${IRENT_PORT:-5188}:5188"
+    depends_on:
+      ai:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:5188/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  irent_outputs:

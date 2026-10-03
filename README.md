@@ -1174,3 +1174,36 @@ Authenticated browser routes:
 
 Both accept the existing `{ "imageData": "data:image/jpeg;base64,..." }` payload. The frozen model packages remain outside this repository and are only read by the adapter.
 
+## Docker Compose integration test
+
+The Compose stack runs two containers: `web` builds the React frontend and serves it from the Node backend on port 5188, while `ai` runs the localhost model adapter on port 8000. The two frozen model directories remain outside the image and are mounted read-only.
+
+```powershell
+Copy-Item .env.docker.example .env
+# Edit .env and set absolute KPTNET_ROOT and DAMAGENET_ROOT host paths.
+docker compose build
+docker compose up -d --wait
+```
+
+Create the first local admin in the persistent Compose volume:
+
+```powershell
+$env:ADMIN_INITIAL_PASSWORD='use-a-strong-one-time-value'
+docker compose run --rm --no-deps -e ADMIN_INITIAL_PASSWORD web pnpm create-admin --username admin01
+Remove-Item Env:ADMIN_INITIAL_PASSWORD
+```
+
+Run health-only checks:
+
+```powershell
+.\scripts\docker-smoke.ps1 -HealthOnly
+```
+
+Run the authenticated image pipeline. Use a sharp vehicle image; the script prompts for the admin password without placing it in shell history.
+
+```powershell
+.\scripts\docker-smoke.ps1 -Username admin01 -ImagePath C:\path\to\vehicle.jpg
+```
+
+The full smoke test verifies frontend delivery, backend and AI readiness, login/CSRF cookies, server-side image quality validation, KptNet capture guidance, and DamageNet inference. Stop the stack with `docker compose down`; add `-v` only when intentionally deleting the local SQLite database and uploads.
+

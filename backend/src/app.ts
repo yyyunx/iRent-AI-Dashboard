@@ -75,8 +75,10 @@ export function createApp(dbPath: string, uploadDir: string) {
 
   const frontendDist = process.env.FRONTEND_DIST || path.resolve(__dirname, '../../frontend/dist');
   const frontendIndex = path.join(frontendDist, 'index.html');
+  const serveFrontend = process.env.NODE_ENV === 'production'
+    || /^(1|true|yes|on)$/i.test(String(process.env.SERVE_FRONTEND || ''));
 
-  if (process.env.NODE_ENV === 'production' && fs.existsSync(frontendIndex)) {
+  if (serveFrontend && fs.existsSync(frontendIndex)) {
     app.use(express.static(frontendDist));
     app.get('*', (req, res) => {
       res.sendFile(frontendIndex);

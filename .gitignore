@@ -46,6 +46,7 @@ backend/outputs/secrets/
 
 
 # Model weights
+irent-models/
 *.pt
 *.pth
 *.onnx
