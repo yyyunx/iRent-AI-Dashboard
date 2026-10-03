@@ -17,7 +17,7 @@ from pydantic import BaseModel
 from ultralytics import YOLO
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-IRENT_ROOT = PROJECT_ROOT.parents[1]
+IRENT_ROOT = PROJECT_ROOT.parent
 KPTNET_ROOT = Path(os.getenv("KPTNET_ROOT", IRENT_ROOT / "kptnetv1")).resolve()
 DAMAGENET_ROOT = Path(os.getenv("DAMAGENET_ROOT", IRENT_ROOT / "damagenetv1")).resolve()
 MAX_IMAGE_BYTES = 10 * 1024 * 1024

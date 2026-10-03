@@ -33,9 +33,11 @@ LINE_TARGET_ID=
 
 ### 群組
 
-1. 把 Official Account 邀入目標群組。
-2. 在群組傳一則訊息或讓 Bot 加入，產生 webhook event。
-3. 系統從 event 的 `source.groupId` 取得 ID。確認後到管理端「LINE Bot 通知設定」檢查／儲存。
+1. 在 Channel 的 **Messaging API** 分頁開啟 **Allow bot to join group chats**。
+2. 把 Official Account 邀入目標群組。
+3. 在群組傳一則訊息，產生 group message webhook event。
+4. 系統驗證 `x-line-signature` 後，從 `event.source.groupId` 取得 ID。開發環境會輸出 `[LINE] groupId: Cxxxxxxxx`；Docker 可用 `docker compose logs -f web` 查看。
+5. 確認後到管理端「LINE Bot 通知設定」檢查／儲存。
 
 > 正式環境建議直接在 Render 設定 `LINE_TARGET_ID`，避免第一個 webhook 來源意外成為通知對象。
 
@@ -49,5 +51,6 @@ LINE_TARGET_ID=
 
 - `/api/line/webhook` 以原始 request body 配合 `x-line-signature` 的 HMAC-SHA256 驗證；無效簽章回應 401。
 - 未設定 `LINE_CHANNEL_SECRET` 時回應 503，避免未驗證的 webhook 被接收。
+- LINE Developers Console 必須填可公開存取的 HTTPS URL，例如 `https://你的網域/api/line/webhook`；`localhost` 無法接收 LINE 平台送出的 webhook。
 - Token 不經過前端、不進資料庫、不寫入 log。
 - LINE API 發送最多重試一次，單次 timeout 為 4 秒，但在背景佇列執行，因此不增加案件操作的 API latency。

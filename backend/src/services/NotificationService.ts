@@ -73,8 +73,9 @@ export class NotificationService {
     const secret = process.env.LINE_CHANNEL_SECRET;
     if (!secret) return { valid: false, reason: 'LINE_CHANNEL_SECRET is not configured' };
     if (!signature) return { valid: false, reason: 'Missing x-line-signature' };
-    const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('base64');
-    const valid = signature.length === expected.length && crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
+    const expected = crypto.createHmac('sha256', secret).update(rawBody).digest();
+    const received = Buffer.from(signature, 'base64');
+    const valid = received.length === expected.length && crypto.timingSafeEqual(received, expected);
     return { valid, reason: valid ? '' : 'Invalid LINE webhook signature' };
   }
 
@@ -82,11 +83,19 @@ export class NotificationService {
     let captured = 0;
     for (const event of Array.isArray(body?.events) ? body.events : []) {
       const source = event?.source || {};
-      const targetId = source.groupId || source.roomId || source.userId;
+      let targetId: string | undefined;
+      if (source.type === 'group' && typeof source.groupId === 'string') {
+        targetId = source.groupId;
+        if (process.env.NODE_ENV !== 'production') console.info(`[LINE] groupId: ${source.groupId}`);
+      } else if (source.type === 'room' && typeof source.roomId === 'string') {
+        targetId = source.roomId;
+      } else if (source.type === 'user' && typeof source.userId === 'string') {
+        targetId = source.userId;
+      }
       if (!targetId) continue;
       captured++;
       this.repo.setSetting('lineLastWebhookTargetId', targetId);
-      this.repo.setSetting('lineLastWebhookSourceType', source.type || 'unknown');
+      this.repo.setSetting('lineLastWebhookSourceType', source.type);
       if (!process.env.LINE_TARGET_ID && !this.repo.getSetting('lineTargetId')) {
         this.repo.setSetting('lineTargetId', targetId);
       }
