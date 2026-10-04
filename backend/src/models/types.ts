@@ -19,6 +19,7 @@ export interface Incident {
   assigned_user_id?: number | null;
   issue_count?: number;
   urgency_score?: number | null;
+  urgency_breakdown_json?: string | null;
   auto_closed: number; // 0 or 1
   ai_review_confidence?: number | null;
   ai_review_result?: string | null;
@@ -72,6 +73,7 @@ export interface IncidentResponse {
   sourceSubmissionId: string | null;
   issueCount: number;
   urgencyScore: number;
+  urgencyBreakdown: Array<{ type: string; count: number; weight: number; subtotal: number }>;
   autoClosed: boolean; // maps to auto_closed
   aiReviewConfidence: number | null;
   aiReviewResult: string | null;
@@ -256,7 +258,7 @@ export interface UploadedPhotoResponse {
   createdAt: string;
 }
 
-export type UserRole = 'user' | 'admin';
+export type UserRole = 'user' | 'operator' | 'admin';
 
 export interface UserAccount {
   id: number;
@@ -291,6 +293,8 @@ export interface AuthSessionRecord {
 
 // Helpers for data mapping
 export function dbRowToIncidentResponse(row: any): IncidentResponse {
+  let urgencyBreakdown = [];
+  try { urgencyBreakdown = JSON.parse(row.urgency_breakdown_json || '[]'); } catch { /* legacy row */ }
   return {
     id: row.id,
     plate: row.plate,
@@ -313,6 +317,7 @@ export function dbRowToIncidentResponse(row: any): IncidentResponse {
     sourceSubmissionId: row.source_submission_id ?? null,
     issueCount: row.issue_count ?? 0,
     urgencyScore: row.urgency_score ?? (row.severity === 'high' ? 8 : row.severity === 'medium' ? 5 : 1),
+    urgencyBreakdown,
     autoClosed: Boolean(row.auto_closed),
     aiReviewConfidence: row.ai_review_confidence ?? null,
     aiReviewResult: row.ai_review_result ?? null,

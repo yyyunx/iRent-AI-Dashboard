@@ -14,7 +14,7 @@ export function createApiRouter(controller: DashboardController, authController:
   router.use(loginRequired);
 
   router.get('/state', controller.getProjectState);
-  router.get('/incidents/map', roleRequired('admin'), controller.getIncidentMapMarkers);
+  router.get('/incidents/map', roleRequired('admin', 'operator'), controller.getIncidentMapMarkers);
   router.get('/operators', roleRequired('admin'), controller.getAssignableUsers);
   router.get('/submissions', controller.getPhotoSubmissions);
   router.get('/submissions/:submissionId', controller.getPhotoSubmissionDetail);
@@ -26,7 +26,7 @@ export function createApiRouter(controller: DashboardController, authController:
   router.post('/photo-submissions', csrfProtection, controller.handlePhotoSubmission);
 
   router.post('/incidents', roleRequired('admin'), csrfProtection, controller.insertIncident);
-  router.post('/action', roleRequired('admin'), csrfProtection, controller.handleAction);
+  router.post('/action', roleRequired('admin', 'operator'), csrfProtection, controller.handleAction);
   router.post('/settings/line', roleRequired('admin'), csrfProtection, controller.updateLineSettings);
   router.post('/settings/ai', roleRequired('admin'), csrfProtection, controller.updateAiSettings);
   router.post('/agent/query', roleRequired('admin'), csrfProtection, controller.runAiAgent);

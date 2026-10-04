@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { CommentItem, Incident, MaintenanceReportItem, UploadedPhoto } from '../../context/AppContext';
 import UrgencyBadge from './UrgencyBadge';
+import { useAuth } from '../../context/AuthContext';
 
 interface IncidentDetailPanelProps {
   incident?: Incident;
@@ -44,6 +45,7 @@ const STATUS_TEXT: Record<string, string> = {
 };
 
 const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
+  const { user } = useAuth();
   const [toolsOpen, setToolsOpen] = useState(false);
   const [preview, setPreview] = useState<number | null>(null);
   const matchingPhotos = useMemo(() => props.incident?.sourceSubmissionId ? props.photos.filter(photo => photo.submissionId === props.incident?.sourceSubmissionId && photo.filePath) : [], [props.incident, props.photos]);
@@ -66,6 +68,8 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
   }
 
   const incident = props.incident;
+  const isAdmin = user?.role === 'admin';
+  const canWork = isAdmin || incident.assignedUserId === user?.id;
   const latestReport = props.reports[props.reports.length - 1];
   const reviewResult = incident.aiReviewResult || latestReport?.ai_review_result || 'pending';
   const reviewConfidence = incident.aiReviewConfidence ?? latestReport?.ai_review_confidence;
@@ -99,21 +103,23 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
       </div>
 
       <dl className="metadata-list">{metadata.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
-      <div className="urgency-summary"><UrgencyBadge score={incident.urgencyScore} issueCount={incident.issueCount} /><span>{incident.issueCount ? `${incident.issueCount} 個異常項目 · 每項加 1，最高 10` : '既有案件依嚴重度換算'}</span></div>
+      <div className="urgency-summary"><UrgencyBadge score={incident.urgencyScore} issueCount={incident.issueCount} /><span>{incident.issueCount ? `${incident.issueCount} 個異常項目 · 依類型加權，最高 10` : '既有案件依嚴重度換算'}</span></div>
+      {incident.urgencyBreakdown?.length > 0 && <div className="urgency-reasons">{incident.urgencyBreakdown.map(reason => <span key={reason.type}>{reason.type} ×{reason.count} · {reason.weight} × {reason.count} = +{reason.subtotal}</span>)}</div>}
 
       {props.canManage && <div className="detail-actions">
         <button type="button" className="btn btn-primary" disabled={!['todo', 'assigned'].includes(incident.status)} onClick={() => props.onAction('dispatch')}><RefreshCw size={16} />派發任務</button>
-        <button type="button" className="btn btn-secondary" onClick={() => setToolsOpen(value => !value)}><MessageSquareText size={16} />完整處理工具<ChevronDown size={15} className={toolsOpen ? 'rotate-180' : ''} /></button>
+        <button type="button" className="btn btn-secondary" disabled={!canWork} onClick={() => setToolsOpen(value => !value)}><MessageSquareText size={16} />完整處理工具<ChevronDown size={15} className={toolsOpen ? 'rotate-180' : ''} /></button>
       </div>}
 
       <div className={`ai-review-strip ai-review-strip--${reviewResult}`}><Sparkles size={17} /><div><strong>AI Review · {reviewResult}</strong><span>{incident.aiReviewSummary || latestReport?.ai_review_summary || '等待小隊上傳完工照片後自動複檢。'}</span></div>{reviewConfidence !== null && reviewConfidence !== undefined && <b>{reviewConfidence}%</b>}</div>
 
-      {props.canManage && toolsOpen && (
+      {props.canManage && canWork && toolsOpen && (
         <div className="detail-tools">
           <div className="tool-actions">
-            <button type="button" onClick={() => props.onAction('in_progress')}><Play size={15} />任務開始</button>
-            {(incident.manualReviewRequired || reviewResult === 'fail') && <button type="button" onClick={() => props.onAction('resolve')}><UserCheck size={15} />人工確認結案</button>}
-            <button type="button" onClick={() => props.onAction('reopen')}><XOctagon size={15} />重新開案</button>
+            <button type="button" disabled={incident.status !== 'assigned'} onClick={() => props.onAction('in_progress')}><Play size={15} />任務開始</button>
+            {['in_progress', 'waiting_review'].includes(incident.status) && <button type="button" onClick={() => props.onAction('resolve')}><UserCheck size={15} />確認結案</button>}
+            {isAdmin && <button type="button" disabled={!completed} onClick={() => props.onAction('reopen')}><XOctagon size={15} />重新開案</button>}
+            {isAdmin && ['todo', 'assigned', 'waiting_review'].includes(incident.status) && <button type="button" onClick={() => props.onAction('false_positive')}><XOctagon size={15} />人工判定誤報</button>}
           </div>
 
           <form className="report-form" onSubmit={props.onReportSubmit}>

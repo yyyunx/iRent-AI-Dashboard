@@ -33,7 +33,7 @@ async function main() {
     }
     const performance = await agent.get('/api/performance');
     const endpoints = performance.body.performance.endpoints.filter(item =>
-      routes.some(route => item.path === route.slice(4)) || item.path === '/auth/login');
+      routes.some(route => item.path === route) || item.path === '/api/auth/login');
     process.stdout.write(`${JSON.stringify({ fixture: 'fresh SQLite with seeded incidents', iterations: 30, responseBytes, endpoints }, null, 2)}\n`);
   } finally {
     app?.locals.databaseRepository.close();

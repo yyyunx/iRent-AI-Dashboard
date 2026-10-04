@@ -10,7 +10,11 @@ const { incidentUrgency } = require('../src/services/IncidentUrgency');
 const { NotificationService } = require('../src/services/NotificationService');
 
 test('urgency counts damage detections and dirty findings and caps at ten', () => {
-  assert.deepEqual(incidentUrgency([{ damageDetected: true }, { cleanliness: 'dirty' }]), { issueCount: 2, urgencyScore: 2, severity: 'low' });
+  const scored = incidentUrgency([{ damageDetected: true, damageType: 'scratch' }, { damageDetected: true, damageType: 'scratch' }, { damageDetected: true, damageType: 'dent' }]);
+  assert.equal(scored.issueCount, 3);
+  assert.equal(scored.urgencyScore, 7);
+  assert.equal(scored.totalScore, 7);
+  assert.deepEqual(scored.breakdown, [{ type: 'scratch', count: 2, weight: 2, subtotal: 4 }, { type: 'dent', count: 1, weight: 3, subtotal: 3 }]);
   assert.equal(incidentUrgency([{ damageDetected: true, damage: { detections: Array(15).fill({}) } }]).urgencyScore, 10);
   assert.equal(incidentUrgency([{ damageDetected: false, damage: { detections: [{}] } }]).issueCount, 0);
 });
@@ -71,11 +75,15 @@ test('authenticated dispatch, competing claims, LINE links and new submissions',
       process.env.PUBLIC_DASHBOARD_URL = 'https://dashboard.example';
       const notifications = new NotificationService(repo);
       const messages = notifications.buildLineMessages({ incidentId: 'INC-302', message: 'test' });
-      assert.equal(messages.length, 2);
-      const actions = messages[1].template.actions;
-      assert.equal(actions.length, 3);
+      assert.equal(messages.length, 1);
+      assert.equal(messages[0].type, 'flex');
+      // This case is already in progress: only view is available.
+      assert.equal(messages[0].contents.footer.contents.length, 1);
+      const pending = notifications.buildLineMessages({ incidentId: 'INC-303', message: 'test' });
+      const actions = pending[0].contents.footer.contents.map(button => button.action);
+      assert.equal(actions.length, 4);
       assert.equal(new URL(actions[1].uri).searchParams.get('intent'), 'assign_self');
-      assert.equal(new URL(actions[2].uri).searchParams.get('incidentId'), 'INC-302');
+      assert.equal(new URL(actions[2].uri).searchParams.get('incidentId'), 'INC-303');
       process.env.PUBLIC_DASHBOARD_URL = 'javascript:alert(1)';
       assert.equal(notifications.buildLineMessages({ incidentId: 'INC-302', message: 'test' }).length, 1);
       delete process.env.PUBLIC_DASHBOARD_URL;

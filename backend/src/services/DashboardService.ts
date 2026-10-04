@@ -18,6 +18,7 @@ import { analyzeCaptureGuidance, analyzeOrientation, analyzeVehicleCondition, is
 import { validateReturnLocation } from './ReturnLocation';
 import { calculateCoverage, normalizeGuidance, PersistedGuidance } from './Coverage';
 import { incidentUrgency } from './IncidentUrgency';
+import { StageMetrics } from './StageMetrics';
 
 export class DashboardService {
   private repo: DatabaseRepository;
@@ -64,7 +65,7 @@ export class DashboardService {
   }
 
   public getProjectState(user: SafeUser) {
-    const isAdmin = user.role === 'admin';
+    const isAdmin = user.role !== 'user';
     const incidentsRaw = isAdmin ? this.repo.getIncidents() : this.repo.getIncidentsForUser(user.id);
     const incidents = incidentsRaw.map(row => {
       const enriched = { ...row, score: this.calculateScore(row) };
@@ -136,6 +137,9 @@ export class DashboardService {
   public getLineConfig() {
     return this.notifications.getConfig();
   }
+
+  public startOperationsWorker() { this.notifications.startEscalationWorker(); }
+  public close() { this.notifications.close(); }
 
   public getAiConfig() {
     return this.aiAgent.getConfig();
@@ -541,6 +545,7 @@ export class DashboardService {
       `Station: ${incident.station}`,
       `AI confidence: ${incident.confidence}%`,
       `Urgency: ${incident.urgencyScore}/10 (${incident.issueCount} findings)`,
+      `Reason: ${incident.urgencyBreakdown.map(item => `${item.type} ×${item.count} (+${item.subtotal})`).join(' · ') || 'legacy severity mapping'}`,
       `Status: ${incident.status}`,
       `Assignee: ${incident.assignee}`
     ];
@@ -580,6 +585,8 @@ export class DashboardService {
   }
 
   public async handleQualityCheckAction(payload: any, userId: number) {
+    const qualityStartedAt = Date.now();
+    const qualityStarted = process.hrtime.bigint();
     const photoId = this.createOpaqueId('PHOTO');
     const image = await analyzeImageQuality(payload.imageData || payload.data || "");
     const relativePath = await this.savePhotoFile(photoId, image);
@@ -618,6 +625,7 @@ export class DashboardService {
       user_id: userId
     });
 
+    this.repo.recordStageMetric('upload_quality_processing', photoId, qualityStartedAt, Number(process.hrtime.bigint() - qualityStarted) / 1e6, quality.passed ? 'ok' : 'rejected');
     return {
       photoId,
       quality,
@@ -642,7 +650,7 @@ export class DashboardService {
     if (!photoId || !this.repo.userOwnsPhoto(userId, photoId)) {
       const error: any = new Error('Photo not found'); error.status = 404; throw error;
     }
-    const guidance = await analyzeCaptureGuidance(String(payload?.imageData || payload?.data || ''));
+    const guidance = await new StageMetrics(this.repo).measure('ai_guidance', photoId, () => analyzeCaptureGuidance(String(payload?.imageData || payload?.data || '')));
     const persisted = normalizeGuidance(guidance);
     this.repo.updatePhotoGuidance(photoId, persisted, userId);
     return { guidance: { ...guidance, ...persisted }, photoId };
@@ -663,7 +671,7 @@ export class DashboardService {
     const imageData = `data:image/${mime};base64,${(await fs.promises.readFile(absolutePath)).toString('base64')}`;
     const checkedAt = new Date().toISOString();
     try {
-      const condition = await analyzeVehicleCondition(imageData);
+      const condition = await new StageMetrics(this.repo).measure('ai_damage', photoId, () => analyzeVehicleCondition(imageData));
       const persistedDamage: PersistedDamageResult = {
         schema_version: 'irent.damage.v1', photoId,
         damage_status: condition.damage.detected ? 'detected' : 'none',
@@ -740,7 +748,7 @@ export class DashboardService {
 
       this.repo.insertIncident(item);
       this.repo.updateIncidentStatusAndAssignee(incidentId, 'todo', '待派工', {
-        issue_count: urgency.issueCount, urgency_score: urgency.urgencyScore
+        issue_count: urgency.issueCount, urgency_score: urgency.urgencyScore, urgency_breakdown_json: JSON.stringify(urgency.breakdown)
       });
 
       for (const result of findings) this.repo.addTimeline(
@@ -754,6 +762,8 @@ export class DashboardService {
   }
 
   public async handlePhotoSubmissionAction(payload: any, userId: number) {
+    const processingStartedAt = Date.now();
+    const processingStarted = process.hrtime.bigint();
     const submissionId = this.createOpaqueId('SUB');
     const photos: any[] = Array.isArray(payload.photos) ? payload.photos : [];
     const phase = String(payload.phase || 'return');
@@ -836,7 +846,10 @@ export class DashboardService {
       unavailable_photo_count: damageResults.filter(item => item.inference_status === 'failed').length,
       photos: damageResults
     };
+    const incidentStartedAt = Date.now();
+    const incidentStarted = process.hrtime.bigint();
     const createdIncidents = this.createIncidentFromAiResult(submissionObj, aiResults, userId, submissionId);
+    this.repo.recordStageMetric('incident_creation', submissionId, incidentStartedAt, Number(process.hrtime.bigint() - incidentStarted) / 1e6);
 
     const overallStatus = createdIncidents.length > 0 ? "warning" : "ok";
     const status = createdIncidents.length > 0 ? "incident_created" : "clear";
@@ -845,6 +858,8 @@ export class DashboardService {
       : "AI review found no new damage or cleanliness blocker.";
 
     // Insert photo submission row
+    const databaseStartedAt = Date.now();
+    const databaseStarted = process.hrtime.bigint();
     this.repo.insertPhotoSubmission({
       submission_id: submissionId,
       rental_id: payload.rentalId || "",
@@ -876,6 +891,8 @@ export class DashboardService {
       const p = photos[i];
       this.repo.updateUploadedPhotoSubmission(p.photoId, submissionId, '', userId);
     }
+    this.repo.recordStageMetric('submission_db_write', submissionId, databaseStartedAt, Number(process.hrtime.bigint() - databaseStarted) / 1e6);
+    this.repo.recordStageMetric('submission_processing', submissionId, processingStartedAt, Number(process.hrtime.bigint() - processingStarted) / 1e6);
 
     if (createdIncidents.length > 0) {
       const incident = dbRowToIncidentResponse(this.repo.getIncidentById(createdIncidents[0])!);
@@ -947,24 +964,46 @@ export class DashboardService {
     const action = payload.action;
     const incidentId = payload.incidentId;
 
+    // Validate capability before reading the incident: forged assignment requests
+    // receive 403 even when the supplied incident/person IDs do not exist.
+    if (actor?.role === 'operator') {
+      const operatorActions = ['assign_self', 'in_progress', 'resolve', 'comment', 'maintenance_report'];
+      if (!operatorActions.includes(action) || (action === 'assign_self' && payload.assigneeUserId !== undefined && payload.assigneeUserId !== actor.id)) {
+        return { status: 403, ok: false, error: 'Forbidden: operator cannot assign or reassign other users' };
+      }
+    } else if (actor && actor.role !== 'admin') return { status: 403, ok: false, error: 'Forbidden' };
+
     const incident = this.repo.getIncidentById(incidentId);
     if (!incident) {
       return { status: 404, ok: false, error: "Incident not found" };
     }
 
     const incidentRes = dbRowToIncidentResponse(incident);
+    if (actor?.role === 'operator' && action !== 'assign_self' && incident.assigned_user_id !== actor.id) {
+      return { status: 403, ok: false, error: 'Forbidden: operator can only act on their own assigned incident' };
+    }
+    const allowedStates: Record<string, string[]> = {
+      dispatch: ['todo', 'assigned'], assign_self: ['todo', 'assigned'],
+      in_progress: ['assigned', 'in_progress'], maintenance_report: ['assigned', 'in_progress'],
+      resolve: ['in_progress', 'waiting_review'], reopen: ['resolved', 'done'],
+      reject: ['todo', 'assigned', 'waiting_review'], false_positive: ['todo', 'assigned', 'waiting_review']
+    };
+    if (allowedStates[action] && !allowedStates[action].includes(incident.status)) {
+      return { status: 409, ok: false, error: `目前狀態 ${incident.status} 無法執行 ${action}` };
+    }
 
     if (action === 'assign_self' || (action === 'dispatch' && payload.assigneeUserId !== undefined)) {
-      if (!actor || actor.role !== 'admin') return { status: 403, ok: false, error: 'Admin login required' };
+      if (!actor || !['admin', 'operator'].includes(actor.role)) return { status: 403, ok: false, error: 'Staff login required' };
       const userId = action === 'assign_self' ? actor.id : payload.assigneeUserId;
       if (!Number.isInteger(userId)) return { status: 400, ok: false, error: 'Select a valid operator' };
       const assignee = this.repo.getUserById(userId);
-      if (!assignee || !assignee.is_active || assignee.role !== 'admin') return { status: 400, ok: false, error: 'Assignee must be an active admin' };
+      if (!assignee || !assignee.is_active || !['admin', 'operator'].includes(assignee.role)) return { status: 400, ok: false, error: 'Assignee must be active operations staff' };
       if (incident.status === 'assigned' && incident.assigned_user_id === assignee.id) {
         return { status: 200, ok: true, incident: incidentRes };
       }
       if (!this.repo.assignIncidentToUser(incidentId, assignee, action === 'assign_self')) {
-        return { status: 409, ok: false, error: '案件已被領取或狀態已變更，請重新整理後再操作。' };
+        const current = this.repo.getIncidentById(incidentId);
+        return { status: 409, ok: false, error: `此案件已由 ${current?.assignee || '其他人員'} 接手，或狀態已變更。` };
       }
       const updated = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!);
       this.notifyLine(incidentId, 'dispatch', this.getLineMessage(updated, 'dispatch', `Assigned by ${actor.username}`));
@@ -995,6 +1034,8 @@ export class DashboardService {
       this.notifyLine(incidentId, "comment", this.getLineMessage(incidentRes, "comment", body));
 
     } else if (action === "in_progress") {
+      if (actor?.role === 'operator' && actor.id !== incident.assigned_user_id) return { status: 403, ok: false, error: '僅負責人可確認開始處理。' };
+      if (incident.status === 'in_progress') return { status: 200, ok: true, incident: incidentRes };
       this.repo.updateIncidentStatusAndAssignee(incidentId, "in_progress", incident.assignee);
       this.repo.updateDispatchTaskStatus(incidentId, "in_progress");
       this.repo.addTimeline(incidentId, "in_progress", "In Progress", "Task started");
@@ -1002,6 +1043,12 @@ export class DashboardService {
       const updated = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!);
       this.notifyLine(incidentId, "in_progress", this.getLineMessage(updated, "in_progress"));
 
+    } else if (action === 'reject' || action === 'false_positive') {
+      this.repo.updateIncidentStatusAndAssignee(incidentId, 'resolved', incident.assignee, { manual_review_required: 0, resolved_at: this.repo.nowText() });
+      this.repo.updateDispatchTaskStatus(incidentId, 'done');
+      this.repo.addTimeline(incidentId, action, action === 'reject' ? 'Rejected' : 'False Positive', String(payload.reason || '人工判斷，不需處理'));
+      const updated = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!);
+      this.notifyLine(incidentId, action, this.getLineMessage(updated, action, String(payload.reason || '')));
     } else if (action === "resolve") {
       this.repo.updateIncidentStatusAndAssignee(incidentId, "resolved", "人工確認結案", {
         severity: "low",

@@ -55,7 +55,7 @@ const OperatorLayout: React.FC = () => {
     };
     try {
       await apiPost('/api/incidents', incident);
-      showToast('AI 新增 Incident', `${incident.plate} 已建立並排入 LINE 通知。`);
+      showToast('AI 新增 Incident', `${incident.plate} 已建立。`);
       navigate('/operator/dashboard');
     } catch (error: any) {
       showToast('建立失敗', error.message);
@@ -70,7 +70,7 @@ const OperatorLayout: React.FC = () => {
       <aside className={`ops-sidebar ${mobileOpen ? 'is-open' : ''}`}>
         <div className="sidebar-brand"><span className="sidebar-brand__mark">iR</span><span><strong>iRent Ops AI</strong><small>Incident to Action</small></span><button className="sidebar-close" onClick={() => setMobileOpen(false)} aria-label="關閉選單"><X size={19} /></button></div>
         <nav aria-label="營運後台選單">
-          {navItems.map(item => {
+          {navItems.filter(item => auth.user?.role === 'admin' || !['/operator/settings', '/operator/analytics'].includes(item.path)).map(item => {
             const active = location.pathname === item.path;
             const Icon = item.icon;
             return <button key={item.path} className={`${active ? 'active' : ''} ${item.line ? 'line-item' : ''}`} onClick={() => go(item.path)}><span><Icon size={19} strokeWidth={1.9} /><b>{item.label}</b></span>{item.badge ? <em>{item.badge}</em> : item.textBadge ? <em>{item.textBadge}</em> : null}</button>;

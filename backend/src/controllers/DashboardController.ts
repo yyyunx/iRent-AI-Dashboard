@@ -25,7 +25,7 @@ export class DashboardController {
       const rawOffset = Number(req.query.offset ?? 0);
       const limit = Number.isInteger(rawLimit) ? Math.min(Math.max(rawLimit, 1), 100) : 50;
       const offset = Number.isInteger(rawOffset) ? Math.max(rawOffset, 0) : 0;
-      const pageRows = req.authUser!.role === 'admin'
+      const pageRows = req.authUser!.role !== 'user'
         ? this.repo.getPhotoSubmissions(limit + 1, offset)
         : this.repo.getPhotoSubmissionsForUser(req.authUser!.id, limit + 1, offset);
       const hasMore = pageRows.length > limit;
@@ -43,7 +43,7 @@ export class DashboardController {
   public getPhotoSubmissionDetail = async (req: Request, res: Response) => {
     try {
       const row = this.repo.getPhotoSubmissionDetail(req.params.submissionId);
-      if (!row || (req.authUser!.role !== 'admin' && row.user_id !== req.authUser!.id)) {
+      if (!row || (req.authUser!.role === 'user' && row.user_id !== req.authUser!.id)) {
         return res.status(404).json({ ok: false, error: 'Submission not found' });
       }
       const photos = this.repo.getUploadedPhotosBySubmission(req.params.submissionId).map(dbRowToPhotoResponse);
@@ -333,7 +333,7 @@ export class DashboardController {
   public getUpload = (req: Request, res: Response) => {
     const filename = String(req.params.filename || '');
     if (!filename || path.basename(filename) !== filename) return res.status(404).json({ ok: false, error: 'File not found' });
-    if (req.authUser!.role !== 'admin') {
+    if (req.authUser!.role === 'user') {
       const photo = this.repo.getUploadedPhotoByPath(`uploads/${filename}`);
       if (!photo || photo.user_id !== req.authUser!.id) return res.status(404).json({ ok: false, error: 'File not found' });
     }

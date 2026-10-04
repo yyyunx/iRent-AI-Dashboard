@@ -23,6 +23,7 @@ export interface Incident {
   sourceSubmissionId: string | null;
   issueCount: number;
   urgencyScore: number;
+  urgencyBreakdown: Array<{ type: string; count: number; weight: number; subtotal: number }>;
   autoClosed: boolean;
   aiReviewConfidence: number | null;
   aiReviewResult: string | null;
@@ -133,6 +134,8 @@ export interface AppState {
     tokenConfigured: boolean;
     connected: boolean;
     webhookConfigured: boolean;
+    dashboardUrl?: string;
+    dashboardConfigured?: boolean;
     targetSource: 'environment' | 'dashboard';
   };
   aiConfig: {
@@ -220,7 +223,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const refreshState = useCallback(async () => {
     if (stateRequestInFlight.current) return false;
     // CustomerFlow consumes mutation responses directly and never renders the admin state.
-    if (!isAuthenticated || user?.role !== 'admin') {
+    if (!isAuthenticated || user?.role === 'user') {
       setState(null);
       setIsLoading(false);
       return false;
@@ -318,7 +321,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Admin state is refreshed only on visible operator pages. Mutations update it immediately.
   useEffect(() => {
-    if (!isAuthenticated || user?.role !== 'admin') return;
+    if (!isAuthenticated || user?.role === 'user') return;
     const interval = setInterval(() => {
       if (!window.location.pathname.startsWith('/operator') || document.visibilityState !== 'visible') return;
       // Check if user is typing in common inputs to prevent layout refresh jitter

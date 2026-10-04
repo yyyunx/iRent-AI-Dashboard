@@ -10,7 +10,8 @@ import { useAuth } from '../../context/AuthContext';
 const Dashboard: React.FC = () => {
   const { state, isLoading, loadError, refreshState, selectedId, setSelectedId, searchQuery, setSearchQuery, apiPost, showToast } = useApp();
   const { user } = useAuth();
-  const canManage = user?.role === 'admin';
+  const canManage = user?.role === 'admin' || user?.role === 'operator';
+  const canAssignOthers = user?.role === 'admin';
   const [params, setParams] = useSearchParams();
   const linkedId = params.get('incidentId');
   const intent = params.get('intent');
@@ -36,12 +37,12 @@ const Dashboard: React.FC = () => {
 
   useEffect(() => {
     if (linkedId) setSelectedId(linkedId);
-    setDispatchOpen(intent === 'assign' || intent === 'assign_self');
+    setDispatchOpen(intent === 'assign' || intent === 'assign_self' || intent === 'start');
     setAssigneeUserId('');
   }, [linkedId, intent, setSelectedId]);
 
   useEffect(() => {
-    if (!canManage || !dispatchOpen) return;
+    if (!canAssignOthers || !dispatchOpen) return;
     const controller = new AbortController();
     setOperatorError('');
     fetch('/api/operators', { credentials: 'include', signal: controller.signal })
@@ -51,7 +52,7 @@ const Dashboard: React.FC = () => {
         setOperators(data.users);
       }).catch(error => { if (error.name !== 'AbortError') setOperatorError(error.message); });
     return () => controller.abort();
-  }, [canManage, dispatchOpen]);
+  }, [canAssignOthers, dispatchOpen]);
 
   const selectIncident = (id: string) => {
     setSelectedId(id);
@@ -69,7 +70,7 @@ const Dashboard: React.FC = () => {
 
   const runAction = async (action: string, incident: Incident | undefined = selected, extra: Record<string, unknown> = {}) => {
     if (!incident) return;
-    if (action === 'dispatch' || action === 'assign_self') setDispatchingId(incident.id);
+    setDispatchingId(incident.id);
     try {
       await apiPost('/api/action', { action, incidentId: incident.id, ...extra });
       showToast('操作成功', ['dispatch', 'assign_self'].includes(action) ? `${incident.plate} 派工已儲存；LINE 發送狀態請至通知紀錄查看。` : `任務狀態已更新：${action}`);
@@ -142,12 +143,13 @@ const Dashboard: React.FC = () => {
           {canManage && dispatchOpen && selected && <section className="surface-card dispatch-panel" aria-label="案件派工">
             <h3>派工 · {selected.plate}</h3>
             <p>目前負責人：{selected.assignee}。選擇人員後按下按鈕確認派工。</p>
+            {intent === 'start' && <button className="btn btn-primary" disabled={selected.status !== 'assigned' || Boolean(dispatchingId) || Boolean(selected.assignedUserId && selected.assignedUserId !== user?.id)} onClick={() => runAction('in_progress')}>確認開始處理</button>}
             {!['todo', 'assigned'].includes(selected.status) ? <p role="alert">此案件已開始處理或結案，目前無法派工。</p> : <>
               <button className="btn btn-primary" disabled={Boolean(dispatchingId) || Boolean(selected.assignedUserId && selected.assignedUserId !== user?.id)} onClick={() => runAction('assign_self')}>指派給自己（{user?.username}）</button>
-              {operatorError && <p role="alert">{operatorError}</p>}
+              {canAssignOthers && <>{operatorError && <p role="alert">{operatorError}</p>}
               <label className="dispatch-select">指定負責人<select aria-label="指定負責人" value={assigneeUserId} onChange={event => setAssigneeUserId(event.target.value)}><option value="">選擇營運人員</option>{operators.map(operator => <option key={operator.id} value={operator.id}>{operator.username}</option>)}</select></label>
               <button className="btn btn-secondary" disabled={!assigneeUserId || Boolean(dispatchingId)} onClick={() => runAction('dispatch', selected, { assigneeUserId: Number(assigneeUserId) })}>確認指定人員</button>
-              <button className="btn btn-secondary" disabled={Boolean(dispatchingId) || Boolean(selected.assignedUserId)} onClick={() => runAction('dispatch')}>派到{selected.assignedTeam || '區域小隊'}</button>
+              <button className="btn btn-secondary" disabled={Boolean(dispatchingId) || Boolean(selected.assignedUserId)} onClick={() => runAction('dispatch')}>派到{selected.assignedTeam || '區域小隊'}</button></>}
             </>}
             <button className="btn btn-secondary" onClick={() => { setDispatchOpen(false); setParams({ incidentId: selected.id }); }}>取消</button>
           </section>}

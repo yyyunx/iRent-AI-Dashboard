@@ -3,6 +3,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { Incident, useApp } from '../../context/AppContext';
 import { HelpCircle } from 'lucide-react';
+import UrgencyBadge, { urgencyColor } from '../../components/dashboard/UrgencyBadge';
 
 const MapView: React.FC = () => {
   const { state, selectedId, setSelectedId } = useApp();
@@ -10,9 +11,6 @@ const MapView: React.FC = () => {
   const incidents = state?.incidents || [];
   const selected = incidents.find(i => i.id === selectedId) || incidents[0];
   const hasGps = selected && selected.latitude !== null && selected.longitude !== null;
-  const severityClass: Record<string, string> = {
-    normal: 'bg-irent-green', low: 'bg-yellow-400', medium: 'bg-irent-orange', high: 'bg-orange-500', critical: 'bg-irent-danger'
-  };
 
   const handlePinClick = (id: string) => {
     setSelectedId(id);
@@ -27,7 +25,7 @@ const MapView: React.FC = () => {
           <span className="text-xs font-bold text-irent-red bg-irent-soft-red px-2.5 py-1 rounded-full">站點即時風險分布</span>
         </div>
         <div className="flex gap-2 overflow-x-auto border-b border-irent-line p-3">
-          {incidents.filter(item => item.latitude !== null && item.longitude !== null).map(item => <button key={item.id} onClick={() => handlePinClick(item.id)} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold ${item.id === selected?.id ? 'border-irent-red bg-irent-soft-red text-irent-red' : 'border-irent-line bg-white text-irent-muted'}`}><span className={`mr-1 inline-block h-2 w-2 rounded-full ${severityClass[item.severity] || 'bg-irent-green'}`} />{item.plate}</button>)}
+          {incidents.filter(item => item.latitude !== null && item.longitude !== null).map(item => <button key={item.id} onClick={() => handlePinClick(item.id)} className={`shrink-0 rounded-full border px-3 py-1.5 text-xs font-bold ${item.id === selected?.id ? 'border-irent-red bg-irent-soft-red text-irent-red' : 'border-irent-line bg-white text-irent-muted'}`}><span className="mr-1 inline-block h-2 w-2 rounded-full" style={{ backgroundColor: urgencyColor(item.urgencyScore) }} />{item.plate}</button>)}
           {!incidents.some(item => item.latitude !== null && item.longitude !== null) && <span className="text-xs text-irent-muted">目前沒有含 GPS 的 Incident marker。</span>}
         </div>
 
@@ -68,7 +66,7 @@ const MapView: React.FC = () => {
               </div>
               <div className="flex justify-between border-b border-dashed border-irent-line pb-2.5">
                 <span className="text-irent-muted text-xs">異常</span>
-                <strong className="text-irent-ink text-xs font-extrabold">{selected.label}</strong>
+                <strong className="text-irent-ink text-xs font-extrabold">{selected.label}</strong><UrgencyBadge score={selected.urgencyScore} issueCount={selected.issueCount} />
               </div>
               <div className="flex justify-between border-b border-dashed border-irent-line pb-2.5">
                 <span className="text-irent-muted text-xs">最近租客</span>
@@ -109,7 +107,6 @@ const MapView: React.FC = () => {
 
 export default MapView;
 
-const markerColor = (severity: string) => ({ normal: '#16803a', low: '#eab308', medium: '#f97316', high: '#f97316', critical: '#dc2626' }[severity] || '#16803a');
 
 const OsmIncidentMap: React.FC<{ incidents: Incident[]; selectedId: string; onSelect: (id: string) => void }> = ({ incidents, selectedId, onSelect }) => {
   const host = useRef<HTMLDivElement | null>(null);
@@ -130,8 +127,8 @@ const OsmIncidentMap: React.FC<{ incidents: Incident[]; selectedId: string; onSe
     layer.current.clearLayers();
     const selected = gpsIncidents.find(item => item.id === selectedId) || gpsIncidents[0];
     for (const item of gpsIncidents) {
-      const icon = L.divIcon({ className: 'irent-osm-marker', html: `<span style="background:${markerColor(item.severity)}"></span>`, iconSize: [22, 22], iconAnchor: [11, 11] });
-      const popup = `<strong>${escapeHtml(item.plate)}</strong><br/>Incident: ${escapeHtml(item.label)}<br/>Severity: ${escapeHtml(item.severity.toUpperCase())}<br/>Damage / Dirty: ${escapeHtml(item.type)}<br/>地址：${escapeHtml(item.address || item.station)}<br/>停車場：${escapeHtml(item.parkingFacility || '-')}<br/>樓層：${escapeHtml(item.floor || '-')}　區域：${escapeHtml(item.zone || '-')}<br/>柱號：${escapeHtml(item.pillar || '-')}　車格：${escapeHtml(item.parkingSlot || '-')}<br/>時間：${escapeHtml(item.time)}`;
+      const icon = L.divIcon({ className: 'irent-osm-marker', html: `<span style="background:${urgencyColor(item.urgencyScore)}"></span>`, iconSize: [22, 22], iconAnchor: [11, 11] });
+      const popup = `<strong>${escapeHtml(item.plate)}</strong><br/>Incident: ${escapeHtml(item.label)}<br/>緊急程度：${item.urgencyScore}/10 (${item.issueCount} 個異常)<br/>Damage / Dirty: ${escapeHtml(item.type)}<br/>地址：${escapeHtml(item.address || item.station)}<br/>停車場：${escapeHtml(item.parkingFacility || '-')}<br/>樓層：${escapeHtml(item.floor || '-')}　區域：${escapeHtml(item.zone || '-')}<br/>柱號：${escapeHtml(item.pillar || '-')}　車格：${escapeHtml(item.parkingSlot || '-')}<br/>時間：${escapeHtml(item.time)}`;
       L.marker([item.latitude!, item.longitude!], { icon }).bindPopup(popup).on('click', () => onSelect(item.id)).addTo(layer.current);
     }
     if (selected) map.current.setView([selected.latitude!, selected.longitude!], 17);

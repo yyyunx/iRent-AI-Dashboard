@@ -14,7 +14,7 @@ const Login: React.FC = () => {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  if (!auth.isLoading && auth.user) return <Navigate to={auth.user.role === 'admin' ? '/operator/dashboard' : '/customer'} replace />;
+  if (!auth.isLoading && auth.user) return <Navigate to={auth.user.role === 'user' ? '/customer' : '/operator/dashboard'} replace />;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -24,7 +24,7 @@ const Login: React.FC = () => {
       const authenticatedUser = await auth.login(username.trim(), password);
       const requested = (location.state as { from?: string } | null)?.from;
       const safeRequested = requested && /^\/(?!\/)/.test(requested) && !requested.includes('\\');
-      const roleHome = authenticatedUser.role === 'admin' ? '/operator/dashboard' : '/customer';
+      const roleHome = authenticatedUser.role === 'user' ? '/customer' : '/operator/dashboard';
       navigate(safeRequested ? requested : roleHome, { replace: true });
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : '登入失敗');

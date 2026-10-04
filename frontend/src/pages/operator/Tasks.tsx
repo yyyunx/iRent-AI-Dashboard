@@ -14,7 +14,7 @@ const Tasks: React.FC = () => {
   };
 
   const getTaskStatusText = (status: string) => {
-    return status === 'assigned' ? 'Auto Dispatch'
+    return status === 'assigned' ? '已派工'
       : status === 'waiting_review' ? 'Need Human Review'
       : status === 'resolved' || status === 'done' ? 'Closed'
       : 'AI Detect';

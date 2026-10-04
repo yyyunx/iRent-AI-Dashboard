@@ -29,7 +29,7 @@ const PageLoader: React.FC = () => (
 const HomeRedirect: React.FC = () => {
   const { user, isLoading } = useAuth();
   if (isLoading) return <PageLoader />;
-  return <Navigate to={user ? (user.role === 'admin' ? '/operator/dashboard' : '/customer') : '/login'} replace />;
+  return <Navigate to={user ? (user.role === 'user' ? '/customer' : '/operator/dashboard') : '/login'} replace />;
 };
 
 const App: React.FC = () => {
@@ -45,13 +45,13 @@ const App: React.FC = () => {
             <Route path="/customer" element={<RequireRole roles={['user']}><CustomerFlow /></RequireRole>} />
             
             {/* Operator sub-pages */}
-            <Route path="/operator" element={<RequireRole roles={['admin']}><OperatorLayout /></RequireRole>}>
+            <Route path="/operator" element={<RequireRole roles={['admin', 'operator']}><OperatorLayout /></RequireRole>}>
               <Route index element={<Navigate to="/operator/dashboard" replace />} />
               <Route path="dashboard" element={<Dashboard />} />
               <Route path="submissions" element={<Submissions />} />
-              <Route path="map" element={<RequireRole roles={['admin']}><MapView /></RequireRole>} />
-              <Route path="tasks" element={<RequireRole roles={['admin']}><Tasks /></RequireRole>} />
-              <Route path="notifications" element={<RequireRole roles={['admin']}><Notifications /></RequireRole>} />
+              <Route path="map" element={<RequireRole roles={['admin', 'operator']}><MapView /></RequireRole>} />
+              <Route path="tasks" element={<RequireRole roles={['admin', 'operator']}><Tasks /></RequireRole>} />
+              <Route path="notifications" element={<RequireRole roles={['admin', 'operator']}><Notifications /></RequireRole>} />
               <Route path="analytics" element={<RequireRole roles={['admin']}><Analytics /></RequireRole>} />
               <Route path="settings" element={<RequireRole roles={['admin']}><Settings /></RequireRole>} />
             </Route>

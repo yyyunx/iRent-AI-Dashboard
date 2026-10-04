@@ -8,6 +8,7 @@ import { DashboardService } from './services/DashboardService';
 import { DashboardController } from './controllers/DashboardController';
 import { createApiRouter } from './routes/apiRoutes';
 import { PerformanceMonitor } from './services/PerformanceMonitor';
+import { StageMetrics } from './services/StageMetrics';
 import { AuthService } from './auth/AuthService';
 import { AuthController } from './auth/AuthController';
 import { attachAuthentication, configuredOrigins, loginRequired, roleRequired } from './auth/middleware';
@@ -20,6 +21,8 @@ export function createApp(dbPath: string, uploadDir: string) {
   const authController = new AuthController(new AuthService(repo));
   const performanceMonitor = new PerformanceMonitor();
   app.locals.databaseRepository = repo;
+  service.startOperationsWorker();
+  app.locals.stopWorkers = () => service.close();
 
   // Middleware
   if (process.env.NODE_ENV === 'production') app.set('trust proxy', 1);
@@ -65,7 +68,7 @@ export function createApp(dbPath: string, uploadDir: string) {
   });
 
   app.get('/api/performance', loginRequired, roleRequired('admin'), (req, res) => {
-    res.json({ ok: true, performance: performanceMonitor.snapshot(), notifications: service.getNotificationStats() });
+    res.json({ ok: true, performance: performanceMonitor.snapshot(), stages: new StageMetrics(repo).snapshot(), notifications: service.getNotificationStats() });
   });
 
   // Mount API router

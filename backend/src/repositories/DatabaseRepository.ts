@@ -52,6 +52,7 @@ export class DatabaseRepository {
     // rather than an immediate "database is locked" response.
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('busy_timeout = 5000');
+    this.migrateOperatorRole();
     this.initDb();
   }
 
@@ -246,7 +247,7 @@ export class DatabaseRepository {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT NOT NULL UNIQUE COLLATE NOCASE,
         password_hash TEXT NOT NULL,
-        role TEXT NOT NULL CHECK(role IN ('user', 'admin')),
+        role TEXT NOT NULL CHECK(role IN ('user', 'operator', 'admin')),
         is_active INTEGER NOT NULL DEFAULT 1 CHECK(is_active IN (0, 1)),
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
@@ -342,6 +343,17 @@ export class DatabaseRepository {
   }
 
   private migrateDb() {
+    this.db.exec(`CREATE TABLE IF NOT EXISTS StageMetric (
+      id INTEGER PRIMARY KEY AUTOINCREMENT, stage TEXT NOT NULL, trace_id TEXT,
+      started_at_ms REAL NOT NULL, duration_ms REAL NOT NULL, outcome TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    ); CREATE INDEX IF NOT EXISTS idx_stage_metric_trace ON StageMetric(trace_id, stage);`);
+    this.addColumnIfMissing('NotificationLog', 'payload_json', 'TEXT');
+    this.addColumnIfMissing('NotificationLog', 'retry_key', 'TEXT');
+    this.db.exec(`CREATE TABLE IF NOT EXISTS IncidentEscalation (
+      incident_id TEXT PRIMARY KEY, created_at TEXT NOT NULL,
+      FOREIGN KEY (incident_id) REFERENCES Incident(id) ON DELETE CASCADE
+    );`);
     // Add columns dynamically to match Python's migrate_db
     const incidentColumns = this.db.prepare("PRAGMA table_info(Incident)").all() as any[];
     const existingIncidentCols = new Set(incidentColumns.map(c => c.name));
@@ -352,6 +364,7 @@ export class DatabaseRepository {
       assigned_user_id: "INTEGER",
       issue_count: "INTEGER NOT NULL DEFAULT 0",
       urgency_score: "INTEGER",
+      urgency_breakdown_json: "TEXT",
       auto_closed: "INTEGER NOT NULL DEFAULT 0",
       ai_review_confidence: "INTEGER",
       ai_review_result: "TEXT",
@@ -685,7 +698,7 @@ export class DatabaseRepository {
     const allowedFields = new Set([
       'assigned_team', 'region', 'manual_review_required', 'severity', 'resolved_at',
       'auto_closed', 'ai_review_result', 'ai_review_confidence', 'ai_review_summary'
-      , 'assigned_user_id', 'issue_count', 'urgency_score'
+      , 'assigned_user_id', 'issue_count', 'urgency_score', 'urgency_breakdown_json'
     ]);
     for (const [key, val] of Object.entries(extraFields)) {
       if (!allowedFields.has(key)) throw new Error(`Unsupported incident field: ${key}`);
@@ -721,15 +734,15 @@ export class DatabaseRepository {
 
   public addNotification(notification: {
     provider: 'line'; incidentId: string | null; eventType: string; targetId?: string | null;
-    message: string; status: string; attempts?: number; error?: string | null;
+    message: string; status: string; attempts?: number; error?: string | null; payloadJson?: string; retryKey?: string;
   }): number {
     const ts = this.nowText();
     const result = this.db.prepare(`
-      INSERT INTO NotificationLog(provider, incident_id, event_type, target_id, message, status, attempts, error, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO NotificationLog(provider, incident_id, event_type, target_id, message, status, attempts, error, created_at, updated_at, payload_json, retry_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       notification.provider, notification.incidentId, notification.eventType, notification.targetId || null,
-      notification.message, notification.status, notification.attempts || 0, notification.error || null, ts, ts
+      notification.message, notification.status, notification.attempts || 0, notification.error || null, ts, ts, notification.payloadJson || null, notification.retryKey || null
     );
     return Number(result.lastInsertRowid);
   }
@@ -919,9 +932,68 @@ export class DatabaseRepository {
     return row ? row as UserAccount : null;
   }
 
-  public getAssignableUsers() {
-    return this.db.prepare("SELECT id, username, role FROM User WHERE role = 'admin' AND is_active = 1 ORDER BY username").all() as Array<{ id: number; username: string; role: 'admin' }>;
+  /** SQLite CHECK constraints require a table rebuild. Preserve IDs, columns, indexes,
+   * triggers and all referencing sessions/audit rows; run only on the old two-role schema. */
+  private migrateOperatorRole() {
+    const table = this.db.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'User'").get() as { sql: string } | undefined;
+    if (!table) return;
+    const oldCheck = /CHECK\s*\(\s*role\s+IN\s*\(\s*'user'\s*,\s*'admin'\s*\)\s*\)/i;
+    if (!oldCheck.test(table.sql)) return;
+    const columns = (this.db.prepare('PRAGMA table_info(User)').all() as Array<{ name: string }>).map(column => `"${column.name.replace(/"/g, '""')}"`).join(', ');
+    const dependentSql = this.db.prepare("SELECT sql FROM sqlite_master WHERE tbl_name = 'User' AND type IN ('index', 'trigger') AND sql IS NOT NULL").all() as Array<{ sql: string }>;
+    const createSql = table.sql.replace(/^CREATE TABLE\s+(?:IF NOT EXISTS\s+)?["\[]?User["\]]?/i, 'CREATE TABLE User_role_migration')
+      .replace(oldCheck, "CHECK(role IN ('user', 'operator', 'admin'))");
+    this.db.pragma('foreign_keys = OFF');
+    try {
+      this.db.transaction(() => {
+        this.db.exec(createSql);
+        this.db.exec(`INSERT INTO User_role_migration(${columns}) SELECT ${columns} FROM User`);
+        this.db.exec('DROP TABLE User');
+        this.db.exec('ALTER TABLE User_role_migration RENAME TO User');
+        for (const item of dependentSql) this.db.exec(item.sql);
+        if ((this.db.pragma('foreign_key_check') as unknown[]).length) throw new Error('Role migration failed foreign key validation');
+      })();
+    } finally { this.db.pragma('foreign_keys = ON'); }
   }
+
+  public saveNotificationPayload(id: number, payloadJson: string, retryKey: string) {
+    this.db.prepare('UPDATE NotificationLog SET payload_json = ?, retry_key = ? WHERE id = ?').run(payloadJson, retryKey, id);
+  }
+
+  public getAssignableUsers() {
+    return this.db.prepare("SELECT id, username, role FROM User WHERE role IN ('admin', 'operator') AND is_active = 1 ORDER BY username").all() as Array<{ id: number; username: string; role: 'admin' | 'operator' }>;
+  }
+
+  public recordStageMetric(stage: string, traceId: string | null, startedAt: number, durationMs: number, outcome = 'ok') {
+    this.db.prepare('INSERT INTO StageMetric(stage, trace_id, started_at_ms, duration_ms, outcome, created_at) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(stage, traceId, startedAt, Math.max(0, durationMs), outcome, new Date().toISOString());
+    this.db.prepare('DELETE FROM StageMetric WHERE id <= (SELECT MAX(id) - 5000 FROM StageMetric)').run();
+  }
+
+  public getMetricStart(stage: string, traceId: string): number | null {
+    const row = this.db.prepare('SELECT started_at_ms FROM StageMetric WHERE stage = ? AND trace_id = ? ORDER BY id ASC LIMIT 1').get(stage, traceId) as any;
+    return row?.started_at_ms ?? null;
+  }
+
+  public getStageMetrics() {
+    return this.db.prepare('SELECT stage, trace_id AS traceId, started_at_ms AS startedAt, duration_ms AS durationMs, outcome, created_at AS createdAt FROM StageMetric ORDER BY id DESC LIMIT 500').all() as any[];
+  }
+
+  public getUnassignedUrgentIncidents(ageMinutes: number): Incident[] {
+    const cutoff = new Date(Date.now() - ageMinutes * 60_000).toISOString().replace('T', ' ').slice(0, 19);
+    return this.db.prepare(`SELECT * FROM Incident WHERE status = 'todo'
+      AND COALESCE(urgency_score, CASE severity WHEN 'high' THEN 8 WHEN 'medium' THEN 5 ELSE 1 END) >= 8
+      AND created_at <= ? AND id NOT IN (SELECT incident_id FROM IncidentEscalation)`)
+      .all(cutoff) as Incident[];
+  }
+
+  public claimAssignmentEscalation(incidentId: string): boolean {
+    return this.db.prepare(`INSERT OR IGNORE INTO IncidentEscalation(incident_id, created_at)
+      SELECT id, ? FROM Incident WHERE id = ? AND status = 'todo'`)
+      .run(new Date().toISOString(), incidentId).changes === 1;
+  }
+
+  public isOpen(): boolean { return this.db.open; }
 
   /** Keep the claim and its task update atomic, including across SQLite connections. */
   public assignIncidentToUser(incidentId: string, user: UserAccount, selfOnly: boolean): boolean {

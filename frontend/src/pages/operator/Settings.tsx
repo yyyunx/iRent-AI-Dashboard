@@ -81,6 +81,7 @@ const Settings: React.FC = () => {
   const aiConfig = state?.aiConfig;
   return (
     <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)] gap-5 items-start">
+      <div className="surface-card p-4 xl:col-span-2"><strong>LINE 案件按鈕：{config?.dashboardConfigured ? '已設定' : '尚未設定'}</strong><p className="text-sm text-irent-muted mt-2">{config?.dashboardConfigured ? `案件通知將附上查看案件、指派給自己、指定人員派工按鈕。連結：${config.dashboardUrl}` : '請設定 PUBLIC_DASHBOARD_URL 為 Dashboard 的公開 HTTPS 網址；目前只發送文字通知。'}</p></div>
       <form onSubmit={saveAi} className="xl:col-span-2 bg-white border border-irent-line rounded-2xl shadow-premium p-5 flex flex-col gap-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-irent-line">
           <h2 className="text-lg font-black text-irent-ink flex items-center gap-2"><Bot size={20} className="text-irent-red" /> AI Agent 模型設定</h2>

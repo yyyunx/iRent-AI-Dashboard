@@ -83,7 +83,7 @@ test('DamageNet production persistence and submission data flow', async t => {
       assert.equal(result.damageSummary.unavailable_photo_count, 1);
       assert.equal(result.createdIncidents.length, 1);
       assert.equal(result.incidents[0].issueCount, 3);
-      assert.equal(result.incidents[0].urgencyScore, 3);
+      assert.equal(result.incidents[0].urgencyScore, 7);
       assert.equal(result.incidents[0].status, 'todo');
       assert.equal(result.incidents[0].sourceSubmissionId, result.submissionId);
       assert.equal(repo.getTimelines()[result.createdIncidents[0]].filter(row => row.event_type === 'photo_ai_analysis').length, 2);

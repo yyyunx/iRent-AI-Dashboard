@@ -7,6 +7,9 @@ type QueuedLineNotification = {
   eventType: string;
   targetId: string;
   message: string;
+  messages?: any[];
+  retryKey?: string;
+  queuedAt?: number;
 };
 
 /**
@@ -17,13 +20,15 @@ export class NotificationService {
   private readonly queue: QueuedLineNotification[] = [];
   private activeWorkers = 0;
   private readonly maxWorkers = 2;
+  private escalationTimer?: NodeJS.Timeout;
 
   constructor(private readonly repo: DatabaseRepository) {
     const configured = Number(process.env.LINE_SENDING_STALE_SECONDS || 300);
     this.repo.recoverStaleLineNotifications(Number.isFinite(configured) ? configured : 300);
     for (const row of this.repo.getPendingNotifications()) {
       if (row.target_id) {
-        this.queue.push({ id: row.id, incidentId: row.incident_id, eventType: row.event_type, targetId: row.target_id, message: row.message });
+        this.queue.push({ id: row.id, incidentId: row.incident_id, eventType: row.event_type, targetId: row.target_id, message: row.message,
+          messages: row.payload_json ? JSON.parse(row.payload_json) : undefined, retryKey: row.retry_key || undefined, queuedAt: Date.parse(row.created_at) });
       }
     }
     this.drain();
@@ -56,7 +61,7 @@ export class NotificationService {
   public queueLineMessage(incidentId: string | null, eventType: string, message: string) {
     // A client retry must never fan out the same incident event to the ops group.
     // Failed rows remain retryable; queued/sending/sent are already represented by one delivery.
-    if (incidentId && ['ai_detected', 'photo_submission'].includes(eventType)
+    if (incidentId && ['ai_detected', 'photo_submission', 'assignment_escalation'].includes(eventType)
       && this.repo.hasSuccessfulNotification(incidentId, eventType)) return 'deduplicated';
     const config = this.getConfig();
     if (!config.enabled || !config.targetId || !config.tokenConfigured) {
@@ -66,8 +71,10 @@ export class NotificationService {
       return 'not_configured';
     }
 
-    const id = this.repo.addNotification({ provider: 'line', incidentId, eventType, targetId: config.targetId, message, status: 'queued' });
-    this.queue.push({ id, incidentId, eventType, targetId: config.targetId, message });
+    const messages = this.buildLineMessages({ incidentId, message });
+    const retryKey = crypto.randomUUID();
+    const id = this.repo.addNotification({ provider: 'line', incidentId, eventType, targetId: config.targetId, message, status: 'queued', payloadJson: JSON.stringify(messages), retryKey });
+    this.queue.push({ id, incidentId, eventType, targetId: config.targetId, message, messages, retryKey, queuedAt: Date.now() });
     this.drain();
     return 'queued';
   }
@@ -118,6 +125,32 @@ export class NotificationService {
     }
   }
 
+  public startEscalationWorker() {
+    if (this.escalationTimer) return;
+    this.escalationTimer = setInterval(() => {
+      if (!this.repo.isOpen()) return this.close();
+      this.scanAssignmentEscalations();
+    }, 30_000);
+    this.escalationTimer.unref();
+  }
+
+  public close() { if (this.escalationTimer) clearInterval(this.escalationTimer); this.escalationTimer = undefined; }
+
+  public scanAssignmentEscalations() {
+    if (!this.getConfig().connected) return 0;
+    const configured = Number(process.env.LINE_ESCALATION_MINUTES || 10);
+    const ageMinutes = Number.isFinite(configured) && configured > 0 ? configured : 10;
+    let queued = 0;
+    for (const incident of this.repo.getUnassignedUrgentIncidents(ageMinutes)) {
+      if (!this.repo.claimAssignmentEscalation(incident.id)) continue;
+      const message = `🚨 Incident ${incident.id} 尚未有人接單\n車輛：${incident.plate}\n緊急程度：${incident.urgency_score ?? 8}/10\n已超過 ${ageMinutes} 分鐘待派工，請立即確認。`;
+      this.queueLineMessage(incident.id, 'assignment_escalation', message);
+      this.repo.addTimeline(incident.id, 'assignment_escalation', 'Unassigned Incident Escalated', message);
+      queued++;
+    }
+    return queued;
+  }
+
   private dashboardUrl(): URL | null {
     try {
       const url = new URL(process.env.PUBLIC_DASHBOARD_URL || '');
@@ -136,18 +169,40 @@ export class NotificationService {
       if (intent) url.searchParams.set('intent', intent);
       return url.toString();
     };
-    messages.push({
-      type: 'template', altText: '開啟 iRent 案件，指派給自己或指定人員',
-      template: {
-        type: 'buttons', title: 'iRent 案件派工', text: '登入營運帳號後查看案件或確認派工。',
-        actions: [
-          { type: 'uri', label: '查看案件', uri: link() },
-          { type: 'uri', label: '指派給自己', uri: link('assign_self') },
-          { type: 'uri', label: '指定人員派工', uri: link('assign') }
-        ]
+    const incident = this.repo.getIncidentById(item.incidentId);
+    if (!incident) return messages;
+    const submission = incident.source_submission_id ? this.repo.getPhotoSubmissionDetail(incident.source_submission_id) : null;
+    const urgency = incident.urgency_score ?? (incident.severity === 'high' ? 8 : incident.severity === 'medium' ? 5 : 1);
+    const color = ['#16803A', '#42851D', '#698900', '#8B8A00', '#AD8500', '#CE7700', '#E76200', '#EE4400', '#E82912', '#DC2626'][Math.min(9, Math.max(0, urgency - 1))];
+    const statuses: Record<string, string> = { todo: '🟡 待派工', assigned: `🔵 ${incident.assignee} 已接單`, in_progress: '🟠 處理中', waiting_review: '🟠 待人工覆核', resolved: '✅ 已完成', done: '✅ 已完成' };
+    const actions = [{ type: 'uri', label: '查看案件', uri: link() }];
+    if (['todo', 'assigned'].includes(incident.status)) actions.push(
+      { type: 'uri', label: '指派給自己', uri: link('assign_self') },
+      { type: 'uri', label: '指定人員派工', uri: link('assign') }
+    );
+    if (incident.status === 'assigned') actions.push({ type: 'uri', label: '開始處理', uri: link('start') });
+    let abnormalPhotos = 0;
+    if (submission) {
+      abnormalPhotos = this.repo.getUploadedPhotosBySubmission(submission.submission_id).filter(photo => photo.damage_detected === 1 || photo.dirty_detected === 1).length;
+    }
+    const text = (value: string, extra: Record<string, unknown> = {}) => ({ type: 'text', text: value.slice(0, 2000) || '-', wrap: true, size: 'sm', ...extra });
+    let reasons: Array<{ type: string; count: number; subtotal: number }> = [];
+    try { reasons = JSON.parse(incident.urgency_breakdown_json || '[]'); } catch { /* legacy */ }
+    return [{
+      type: 'flex', altText: `${urgency >= 8 ? '⚠️ High Priority · ' : ''}${incident.plate} · ${statuses[incident.status] || incident.status} · 緊急 ${urgency}/10`.slice(0, 1500),
+      contents: {
+        type: 'bubble', header: { type: 'box', layout: 'vertical', backgroundColor: color, contents: [text(`${urgency >= 8 ? '⚠️ High Priority · ' : ''}緊急 ${urgency}/10`, { color: '#FFFFFF', weight: 'bold' })] },
+        body: { type: 'box', layout: 'vertical', spacing: 'sm', contents: [
+          text(incident.plate, { size: 'xl', weight: 'bold' }), text(incident.id), text(statuses[incident.status] || incident.status, { weight: 'bold' }),
+          text(incident.label), text(`異常 ${incident.issue_count || 0} 項 · 異常照片 ${abnormalPhotos} 張`),
+          text(reasons.map(item => `${item.type} ×${item.count} (+${item.subtotal})`).join(' · ') || '既有案件依嚴重度換算'),
+          text(`站點：${incident.station}`), text(`負責人：${incident.assignee}`),
+          text(`提交：${submission?.phase === 'return' ? '還車' : submission?.phase === 'pickup' ? '取車' : '-'} · ${submission?.created_at || incident.created_at}`),
+          text(item.message)
+        ] },
+        footer: { type: 'box', layout: 'vertical', spacing: 'sm', contents: actions.map(action => ({ type: 'button', height: 'sm', action })) }
       }
-    });
-    return messages;
+    }];
   }
 
   private async deliver(item: QueuedLineNotification) {
@@ -158,29 +213,49 @@ export class NotificationService {
     }
 
     let lastError = '';
+    item.messages ||= this.buildLineMessages(item);
+    item.retryKey ||= crypto.randomUUID();
+    this.repo.saveNotificationPayload(item.id, JSON.stringify(item.messages), item.retryKey);
+    const traceId = item.incidentId ? this.repo.getIncidentById(item.incidentId)?.source_submission_id || item.incidentId : null;
+    const queuedAt = Number.isFinite(item.queuedAt) ? item.queuedAt! : Date.now();
+    this.repo.recordStageMetric('line_queue_wait', traceId, queuedAt, Date.now() - queuedAt);
     for (let attempt = 1; attempt <= 2; attempt++) {
+      const attemptStartedAt = Date.now();
+      const attemptStarted = process.hrtime.bigint();
       this.repo.updateNotification(item.id, 'sending', attempt);
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), 4000);
       try {
         const response = await fetch('https://api.line.me/v2/bot/message/push', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ to: item.targetId, messages: this.buildLineMessages(item) }),
+          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Line-Retry-Key': item.retryKey },
+          body: JSON.stringify({ to: item.targetId, messages: item.messages }),
           signal: controller.signal
         });
         const responseText = await response.text();
-        if (response.ok) {
+        if (response.ok || (response.status === 409 && response.headers?.get('x-line-accepted-request-id'))) {
+          this.repo.recordStageMetric('line_api', traceId, attemptStartedAt, Number(process.hrtime.bigint() - attemptStarted) / 1e6);
           this.repo.updateNotification(item.id, 'sent', attempt);
+          if (traceId && item.eventType === 'ai_detected') {
+            const start = this.repo.getMetricStart('submission_processing', traceId);
+            if (start !== null) this.repo.recordStageMetric('submission_to_line_accepted', traceId, start, Date.now() - start);
+          }
           if (item.incidentId) this.repo.addTimeline(item.incidentId, 'line_sent', 'LINE Sent', item.message);
           return;
         }
         lastError = `LINE API HTTP ${response.status}: ${responseText.slice(0, 300)}`;
+        if (response.status >= 400 && response.status < 500 && response.status !== 429) {
+          this.repo.recordStageMetric('line_api', traceId, attemptStartedAt, Number(process.hrtime.bigint() - attemptStarted) / 1e6, 'error');
+          this.repo.updateNotification(item.id, 'failed', attempt, lastError);
+          if (item.incidentId) this.repo.addTimeline(item.incidentId, 'line_failed', 'LINE Failed', lastError);
+          return;
+        }
       } catch (error: any) {
         lastError = error?.name === 'AbortError' ? 'LINE API timeout after 4 seconds' : (error?.message || String(error));
       } finally {
         clearTimeout(timer);
       }
+      this.repo.recordStageMetric('line_api', traceId, attemptStartedAt, Number(process.hrtime.bigint() - attemptStarted) / 1e6, 'error');
       if (attempt < 2) await new Promise(resolve => setTimeout(resolve, 250));
     }
     this.repo.updateNotification(item.id, 'failed', 2, lastError);

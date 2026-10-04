@@ -17,6 +17,8 @@ async function main() {
   const dbPath = process.env.DATABASE_PATH || path.resolve(__dirname, '../../../outputs/irent_ops.db');
   const username = option('--username').trim();
   const password = String(process.env.USER_INITIAL_PASSWORD || '');
+  const role = option('--role') || 'user';
+  if (!['user', 'operator'].includes(role)) throw new Error('--role must be user or operator');
   if (!username || !password) {
     throw new Error('Pass --username and set USER_INITIAL_PASSWORD for this one-time command.');
   }
@@ -25,7 +27,7 @@ async function main() {
   try {
     if (repo.getUserByUsername(username)) throw new Error('A user with this username already exists; no password was changed.');
     const auth = new AuthService(repo);
-    const user = await auth.createUser(username, password, 'user');
+    const user = await auth.createUser(username, password, role as 'user' | 'operator');
     repo.addAuditLog(user.id, 'CREATE_USER', 'user', String(user.id), { source: 'cli' });
     console.log(`Created user: ${user.username}. Unset USER_INITIAL_PASSWORD now.`);
   } finally {
