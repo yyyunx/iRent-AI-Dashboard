@@ -1,7 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Expand,
   HelpCircle,
   MessageSquareText,
@@ -41,10 +44,21 @@ const STATUS_TEXT: Record<string, string> = {
 
 const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
   const [toolsOpen, setToolsOpen] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
-  const matchingPhotos = useMemo(() => props.incident ? props.photos.filter(photo => photo.plate === props.incident?.plate && photo.filePath).slice(0, 4) : [], [props.incident, props.photos]);
+  const [preview, setPreview] = useState<number | null>(null);
+  const matchingPhotos = useMemo(() => props.incident ? props.photos.filter(photo => photo.plate === props.incident?.plate && photo.filePath) : [], [props.incident, props.photos]);
 
   useEffect(() => { setPreview(null); }, [props.incident?.id]);
+
+  useEffect(() => {
+    if (preview === null) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPreview(null);
+      if (event.key === 'ArrowLeft') setPreview(index => index === null ? null : Math.max(0, index - 1));
+      if (event.key === 'ArrowRight') setPreview(index => index === null ? null : Math.min(matchingPhotos.length - 1, index + 1));
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [preview, matchingPhotos.length]);
 
   if (!props.incident) {
     return <section className="surface-card incident-detail empty-state incident-detail--empty"><HelpCircle size={36} /><strong>尚未選取事件</strong><span>從左側 Incident 佇列選擇事件查看詳情。</span></section>;
@@ -56,6 +70,9 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
   const reviewConfidence = incident.aiReviewConfidence ?? latestReport?.ai_review_confidence;
   const status = incident.autoClosed ? 'Auto Closed' : STATUS_TEXT[incident.status] || incident.status;
   const completed = ['resolved', 'done'].includes(incident.status);
+  const thumbnailPhotos = matchingPhotos.slice(1, 3);
+  const hiddenPhotoCount = Math.max(0, matchingPhotos.length - 3);
+  const thumbnailCount = thumbnailPhotos.length + (hiddenPhotoCount > 0 ? 1 : 0);
 
   const metadata = [
     ['車號', incident.plate], ['站點', incident.station], ['事件類型', incident.label], ['AI 信心度', `${incident.confidence}%`],
@@ -66,17 +83,18 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
     <section className="surface-card incident-detail">
       <header className="incident-detail__header"><div><span className="eyebrow">INCIDENT COMMAND</span><h2>事件處理面板</h2></div><span className="live-badge"><span />即時更新</span></header>
 
-      <div className="incident-detail__identity"><div><strong>{incident.id}</strong><span>{incident.station} · {incident.time}</span><small>{incident.label}</small></div><span className={`incident-badge incident-badge--${completed ? 'success' : incident.severity === 'high' ? 'danger' : 'warning'}`}>INCIDENT · {completed ? 'PASS' : incident.severity === 'high' ? 'FAIL' : 'REVIEW'}</span></div>
+      <div className="incident-detail__identity"><div><strong title={incident.id}>{incident.id}</strong><span>{incident.station} · {incident.time}</span><small>{incident.label}</small></div><span className={`incident-badge incident-badge--${completed ? 'success' : incident.severity === 'high' ? 'danger' : 'warning'}`}>INCIDENT · {completed ? 'PASS' : incident.severity === 'high' ? 'FAIL' : 'REVIEW'}</span></div>
 
-      <div className="incident-gallery">
-        <button type="button" className="incident-gallery__main" onClick={() => matchingPhotos[0]?.filePath && setPreview(`/${matchingPhotos[0].filePath}`)}>
+      <div className={`incident-gallery${thumbnailCount ? '' : ' incident-gallery--single'}`}>
+        <button type="button" className="incident-gallery__main" aria-label={matchingPhotos[0]?.filePath ? '開啟主要照片預覽' : '目前沒有事件照片'} onClick={() => matchingPhotos[0]?.filePath && setPreview(0)}>
           {matchingPhotos[0]?.filePath ? <img src={`/${matchingPhotos[0].filePath}`} alt={`${incident.plate} AI 偵測`} /> : <div className={`vehicle-placeholder vehicle-placeholder--${incident.type}`}><span>iRent AI</span><b>{incident.type === 'damage' ? '車損影像' : incident.type === 'cleaning' ? '清潔影像' : '驗車影像'}</b></div>}
           <span className="ai-detected"><Sparkles size={12} />AI 偵測</span>
           {matchingPhotos[0]?.filePath && <Expand className="gallery-expand" size={16} />}
         </button>
-        <div className="incident-gallery__thumbs">
-          {[1, 2, 3].map(index => <button type="button" key={index} onClick={() => matchingPhotos[index]?.filePath && setPreview(`/${matchingPhotos[index].filePath}`)}>{matchingPhotos[index]?.filePath ? <img src={`/${matchingPhotos[index].filePath}`} alt={`${incident.plate} 照片 ${index + 1}`} /> : <div className="gallery-empty">{index === 3 ? `+${Math.max(0, matchingPhotos.length - 3)}` : 'AI'}</div>}</button>)}
-        </div>
+        {thumbnailCount > 0 && <div className={`incident-gallery__thumbs incident-gallery__thumbs--${thumbnailCount}`}>
+          {thumbnailPhotos.map((photo, index) => <button type="button" key={photo.photoId} aria-label={`開啟照片 ${index + 2} 預覽`} onClick={() => setPreview(index + 1)}><img src={`/${photo.filePath}`} alt={`${incident.plate} 照片 ${index + 2}`} /></button>)}
+          {hiddenPhotoCount > 0 && <button type="button" className="incident-gallery__more" aria-label={`查看其餘 ${hiddenPhotoCount} 張照片`} onClick={() => setPreview(3)}><img src={`/${matchingPhotos[3].filePath}`} alt="" /><span>+{hiddenPhotoCount}</span></button>}
+        </div>}
       </div>
 
       <dl className="metadata-list">{metadata.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
@@ -113,7 +131,15 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
 
       {completed && <div className="closed-notice"><CheckCircle2 size={16} />{props.canManage ? '此 Incident 已完成處理，可透過完整處理工具重新開案。' : '此 Incident 已完成處理。'}</div>}
 
-      {preview && <div className="image-preview" role="dialog" aria-modal="true" onClick={() => setPreview(null)}><button type="button" aria-label="關閉圖片預覽"><X size={20} /></button><img src={preview} alt={`${incident.plate} 大圖預覽`} onClick={event => event.stopPropagation()} /></div>}
+      {preview !== null && matchingPhotos[preview]?.filePath && createPortal(<div className="image-preview" role="dialog" aria-modal="true" aria-label="事件照片預覽" onClick={() => setPreview(null)}>
+        <button type="button" aria-label="關閉圖片預覽" autoFocus onClick={() => setPreview(null)}><X size={20} /></button>
+        <img src={`/${matchingPhotos[preview].filePath}`} alt={`${incident.plate} 照片 ${preview + 1} 大圖預覽`} onClick={event => event.stopPropagation()} />
+        {matchingPhotos.length > 1 && <>
+          <button type="button" className="image-preview__previous" aria-label="上一張照片" disabled={preview === 0} onClick={event => { event.stopPropagation(); setPreview(preview - 1); }}><ChevronLeft size={24} /></button>
+          <button type="button" className="image-preview__next" aria-label="下一張照片" disabled={preview === matchingPhotos.length - 1} onClick={event => { event.stopPropagation(); setPreview(preview + 1); }}><ChevronRight size={24} /></button>
+          <span className="image-preview__count">{preview + 1} / {matchingPhotos.length}</span>
+        </>}
+      </div>, document.body)}
     </section>
   );
 };
