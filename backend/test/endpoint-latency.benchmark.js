@@ -90,15 +90,16 @@ async function main() {
     await measure('POST /api/incidents', () => post('/api/incidents', { plate: 'NEW-1234', station: '台北站', type: 'cleaning', label: '清潔', severity: 'low', confidence: 90, x: 50, y: 50 }));
     const freshIncident = () => {
       const id = `INC-${crypto.randomBytes(12).toString('base64url')}`;
-      repo.insertIncident({ id, plate: 'BEN-1234', station: '台北站', type: 'damage', label: '刮傷', severity: 'low', confidence: 91, status: 'todo' });
+      repo.insertIncident({ id, plate: 'BEN-1234', station: '台北站', type: 'damage', label: '刮傷', severity: 'low', confidence: 91, status: 'pending_assignment' });
       return id;
     };
     for (const action of ['dispatch', 'assign_self', 'comment', 'in_progress', 'maintenance_report', 'resolve', 'reopen']) {
       await measure(`POST /api/action (${action})`, incidentId => post('/api/action', { action, incidentId, body: 'benchmark comment', note: 'completed' }), 200, 'LINE disabled; maintenance report has no completion photo', () => {
         const id = freshIncident();
         if (action === 'reopen') repo.updateIncidentStatusAndAssignee(id, 'resolved', 'closed');
-        if (['in_progress', 'maintenance_report'].includes(action)) repo.updateIncidentStatusAndAssignee(id, 'assigned', '北區小隊');
-        if (action === 'resolve') repo.updateIncidentStatusAndAssignee(id, 'waiting_review', '北區小隊');
+        if (action === 'in_progress') repo.updateIncidentStatusAndAssignee(id, 'assigned', '北區小隊');
+        if (action === 'maintenance_report') repo.updateIncidentStatusAndAssignee(id, 'in_progress', '北區小隊');
+        if (action === 'resolve') repo.updateIncidentStatusAndAssignee(id, 'in_progress', '北區小隊');
         return id;
       });
     }

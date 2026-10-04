@@ -3,7 +3,7 @@ import { CarFront, ChevronRight, Search, SlidersHorizontal } from 'lucide-react'
 import { Incident, UploadedPhoto } from '../../context/AppContext';
 import UrgencyBadge from './UrgencyBadge';
 
-export type QueueTab = 'all' | 'todo' | 'processing' | 'done';
+export type QueueTab = 'all' | 'pending_assignment' | 'processing' | 'resolved';
 
 interface IncidentQueueProps {
   incidents: Incident[];
@@ -23,26 +23,26 @@ interface IncidentQueueProps {
   canManage: boolean;
 }
 
-const isDone = (incident: Incident) => ['resolved', 'done'].includes(incident.status);
-const isTodo = (incident: Incident) => incident.status === 'todo';
+const isDone = (incident: Incident) => ['resolved', 'false_positive'].includes(incident.status);
+const isTodo = (incident: Incident) => ['pending_assignment', 'reopened'].includes(incident.status);
 const isProcessing = (incident: Incident) => !isDone(incident) && !isTodo(incident);
 
 const TYPE_TEXT: Record<string, string> = { damage: '車損', cleaning: '清潔', normal: '正常' };
 const STATUS_TEXT: Record<string, string> = {
-  todo: '待派工', assigned: '已派工', in_progress: '處理中', waiting_review: '待複檢', resolved: '已完成', done: '已完成'
+  pending_assignment: '待派工', assigned: '已派工', in_progress: '處理中', resolved: '已完成', false_positive: '誤報', reopened: '重新開案・待派工'
 };
 
 const IncidentQueue: React.FC<IncidentQueueProps> = props => {
   const counts = {
     all: props.incidents.length,
-    todo: props.incidents.filter(isTodo).length,
+    pending_assignment: props.incidents.filter(isTodo).length,
     processing: props.incidents.filter(isProcessing).length,
-    done: props.incidents.filter(isDone).length
+    resolved: props.incidents.filter(isDone).length
   };
 
   const normalized = props.searchQuery.trim().toLowerCase();
   const filtered = props.incidents.filter(item => {
-    const tabMatch = props.tab === 'all' || (props.tab === 'todo' && isTodo(item)) || (props.tab === 'processing' && isProcessing(item)) || (props.tab === 'done' && isDone(item));
+    const tabMatch = props.tab === 'all' || (props.tab === 'pending_assignment' && isTodo(item)) || (props.tab === 'processing' && isProcessing(item)) || (props.tab === 'resolved' && isDone(item));
     const severityMatch = props.severity === 'all' || item.severity === props.severity;
     const typeMatch = props.type === 'all' || item.type === props.type;
     const searchMatch = !normalized || [item.id, item.plate, item.station, item.label, item.assignee].some(value => String(value || '').toLowerCase().includes(normalized));
@@ -50,7 +50,7 @@ const IncidentQueue: React.FC<IncidentQueueProps> = props => {
   });
 
   const tabs: { key: QueueTab; label: string }[] = [
-    { key: 'all', label: '全部' }, { key: 'todo', label: '待派工' }, { key: 'processing', label: '處理中' }, { key: 'done', label: '已完成' }
+    { key: 'all', label: '全部' }, { key: 'pending_assignment', label: '待派工' }, { key: 'processing', label: '處理中' }, { key: 'resolved', label: '已完成' }
   ];
 
   return (

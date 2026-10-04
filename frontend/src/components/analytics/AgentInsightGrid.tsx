@@ -6,7 +6,7 @@ interface Props { state: AppState | null; onPrompt: (prompt: string) => void; on
 
 const AgentInsightGrid: React.FC<Props> = ({ state, onPrompt, onOpenTasks }) => {
   const incidents = state?.incidents || [];
-  const active = incidents.filter(item => !['resolved', 'done'].includes(item.status));
+  const active = incidents.filter(item => !['resolved', 'false_positive'].includes(item.status));
   const high = active.filter(item => item.severity === 'high');
   const hotspot = state?.damageHotspots?.[0];
   const cards = [

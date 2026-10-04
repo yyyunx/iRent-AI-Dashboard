@@ -61,7 +61,7 @@ export class DashboardController {
         label: payload.label, severity: payload.severity, confidence: Number(payload.confidence),
         detected_time: payload.time, next_booking: Number(payload.nextBooking ?? payload.next_booking ?? 24),
         hot_station: payload.hotStation ? 1 : 0, map_x: Number(payload.x ?? payload.map_x),
-        map_y: Number(payload.y ?? payload.map_y), status: payload.status || 'todo', score: Number(payload.score || 0)
+        map_y: Number(payload.y ?? payload.map_y), status: payload.status || 'pending_assignment', score: Number(payload.score || 0)
       };
       this.repo.insertIncident(dbItem);
       this.repo.addAuditLog(req.authUser!.id, 'CREATE_INCIDENT', 'incident', String(dbItem.id), {});
@@ -91,7 +91,7 @@ export class DashboardController {
         minimalSummary: { action: payload.action, incidentId: payload.incidentId }
       });
     } catch (e: any) {
-      const status = ['Invalid image payload', 'Image exceeds 10 MB limit', 'Image MIME type does not match file signature', 'Image dimensions exceed limit', 'Image decode failed'].includes(e.message) ? 400 : 500;
+      const status = e.status || (['Invalid image payload', 'Image exceeds 10 MB limit', 'Image MIME type does not match file signature', 'Image dimensions exceed limit', 'Image decode failed'].includes(e.message) ? 400 : 500);
       res.status(status).json({ ok: false, error: e.message || 'Failed to handle action' });
     }
   };
@@ -163,7 +163,7 @@ export class DashboardController {
 
   public handlePhotoSubmission = async (req: Request, res: Response) => {
     try {
-      const result = await this.service.handlePhotoSubmissionAction(req.body, req.authUser!.id);
+      const result = await this.service.handlePhotoSubmissionAction({ ...req.body, idempotencyKey: req.header('Idempotency-Key') || req.body?.idempotencyKey }, req.authUser!.id);
       res.json({
         ok: true,
         submissionId: result.submissionId,

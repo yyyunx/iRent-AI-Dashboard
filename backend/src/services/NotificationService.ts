@@ -174,9 +174,9 @@ export class NotificationService {
     const submission = incident.source_submission_id ? this.repo.getPhotoSubmissionDetail(incident.source_submission_id) : null;
     const urgency = incident.urgency_score ?? (incident.severity === 'high' ? 8 : incident.severity === 'medium' ? 5 : 1);
     const color = ['#16803A', '#42851D', '#698900', '#8B8A00', '#AD8500', '#CE7700', '#E76200', '#EE4400', '#E82912', '#DC2626'][Math.min(9, Math.max(0, urgency - 1))];
-    const statuses: Record<string, string> = { todo: '🟡 待派工', assigned: `🔵 ${incident.assignee} 已接單`, in_progress: '🟠 處理中', waiting_review: '🟠 待人工覆核', resolved: '✅ 已完成', done: '✅ 已完成' };
+    const statuses: Record<string, string> = { pending_assignment: '🟡 待派工', assigned: `🔵 ${incident.assignee} 已接單`, in_progress: `🟠 ${incident.assignee} 開始處理`, resolved: '✅ 已完成', false_positive: '✅ 人工判定誤報', reopened: '🟡 重新開案・待派工' };
     const actions = [{ type: 'uri', label: '查看案件', uri: link() }];
-    if (['todo', 'assigned'].includes(incident.status)) actions.push(
+    if (['pending_assignment', 'assigned', 'reopened'].includes(incident.status)) actions.push(
       { type: 'uri', label: '指派給自己', uri: link('assign_self') },
       { type: 'uri', label: '指定人員派工', uri: link('assign') }
     );

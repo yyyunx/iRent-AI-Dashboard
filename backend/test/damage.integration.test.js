@@ -84,11 +84,18 @@ test('DamageNet production persistence and submission data flow', async t => {
       assert.equal(result.createdIncidents.length, 1);
       assert.equal(result.incidents[0].issueCount, 3);
       assert.equal(result.incidents[0].urgencyScore, 7);
-      assert.equal(result.incidents[0].status, 'todo');
+      assert.equal(result.incidents[0].status, 'pending_assignment');
       assert.equal(result.incidents[0].sourceSubmissionId, result.submissionId);
       assert.equal(repo.getTimelines()[result.createdIncidents[0]].filter(row => row.event_type === 'photo_ai_analysis').length, 2);
       assert.equal(repo.getNotifications().filter(row => row.incident_id === result.createdIncidents[0]).length, 1);
-      await assert.rejects(() => service.handlePhotoSubmissionAction({ rentalId: 'R-DAMAGE', plate: 'AAA-0001', phase: 'pickup', photos }, 101), error => error.status === 422);
+      const replay = await service.handlePhotoSubmissionAction({ rentalId: 'R-DAMAGE', plate: 'AAA-0001', phase: 'pickup', photos: [...photos].reverse() }, 101);
+      assert.equal(replay.submissionId, result.submissionId);
+      assert.equal(replay.idempotentReplay, true);
+      assert.deepEqual(replay.createdIncidents, result.createdIncidents);
+      assert.equal(repo.getNotifications().filter(row => row.incident_id === result.createdIncidents[0]).length, 1);
+      const keyed = { rentalId: 'R-DAMAGE', plate: 'AAA-0001', phase: 'pickup', photos, idempotencyKey: 'retry-key-123' };
+      // A distinct key cannot reuse already submitted photos.
+      await assert.rejects(() => service.handlePhotoSubmissionAction(keyed, 101), error => error.status === 422);
       const savedSubmission = repo.getPhotoSubmissionDetail(result.submissionId);
       assert.deepEqual(JSON.parse(savedSubmission.damage_summary_json), result.damageSummary);
       const savedPhoto = JSON.parse(repo.getUploadedPhotoById(uploaded[0].photoId).ai_result_json);

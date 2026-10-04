@@ -15,7 +15,9 @@ import {
   AuthSessionRecord,
   UserAccount,
   UserRole
+  , SafeUser
 } from '../models/types';
+import { IncidentConflictError, INCIDENT_STATES } from '../services/IncidentLifecycle';
 
 const SEED_INCIDENTS = [
   { id: "INC-302", plate: "ABC-1234", station: "台北101站", type: "damage", label: "新增右後門刮傷", severity: "high", confidence: 96, time: "08:32", nextBooking: 28, hotStation: true, x: 69, y: 24, assignee: "待客服確認", status: "todo", score: 0 },
@@ -343,6 +345,15 @@ export class DatabaseRepository {
   }
 
   private migrateDb() {
+    this.db.exec(`CREATE TABLE IF NOT EXISTS SubmissionRequest (
+      user_id INTEGER NOT NULL, request_key TEXT NOT NULL, request_hash TEXT NOT NULL,
+      submission_id TEXT NOT NULL UNIQUE, response_json TEXT NOT NULL,
+      PRIMARY KEY(user_id, request_key)
+    ); CREATE TABLE IF NOT EXISTS IncidentMergeArchive (
+      legacy_id TEXT PRIMARY KEY, canonical_id TEXT NOT NULL, snapshot_json TEXT NOT NULL, merged_at TEXT NOT NULL
+    ); CREATE TABLE IF NOT EXISTS IncidentAlias (
+      legacy_id TEXT PRIMARY KEY, incident_id TEXT NOT NULL REFERENCES Incident(id)
+    );`);
     this.db.exec(`CREATE TABLE IF NOT EXISTS StageMetric (
       id INTEGER PRIMARY KEY AUTOINCREMENT, stage TEXT NOT NULL, trace_id TEXT,
       started_at_ms REAL NOT NULL, duration_ms REAL NOT NULL, outcome TEXT NOT NULL,
@@ -365,6 +376,7 @@ export class DatabaseRepository {
       issue_count: "INTEGER NOT NULL DEFAULT 0",
       urgency_score: "INTEGER",
       urgency_breakdown_json: "TEXT",
+      version: "INTEGER NOT NULL DEFAULT 0",
       auto_closed: "INTEGER NOT NULL DEFAULT 0",
       ai_review_confidence: "INTEGER",
       ai_review_result: "TEXT",
@@ -382,6 +394,21 @@ export class DatabaseRepository {
       if (!existingIncidentCols.has(col)) {
         this.db.exec(`ALTER TABLE Incident ADD COLUMN ${col} ${def}`);
       }
+    }
+    this.addColumnIfMissing('IncidentTimeline', 'actor_user_id', 'INTEGER');
+    this.addColumnIfMissing('IncidentTimeline', 'old_status', 'TEXT');
+    this.addColumnIfMissing('IncidentTimeline', 'new_status', 'TEXT');
+    this.addColumnIfMissing('IncidentTimeline', 'timestamp', 'TEXT');
+    const legacyStates = this.db.prepare("SELECT id, status FROM Incident WHERE status IN ('todo', 'waiting_review', 'done', 'ai_review_pending')").all() as Array<{ id: string; status: string }>;
+    this.db.exec(`UPDATE Incident SET manual_review_required = 1 WHERE status = 'waiting_review';
+      UPDATE Incident SET status = CASE status WHEN 'todo' THEN 'pending_assignment'
+        WHEN 'waiting_review' THEN 'in_progress' WHEN 'done' THEN 'resolved'
+        WHEN 'ai_review_pending' THEN 'in_progress' ELSE status END;
+      UPDATE DispatchTask SET status = CASE status WHEN 'todo' THEN 'pending_assignment'
+        WHEN 'waiting_review' THEN 'in_progress' WHEN 'ai_review_pending' THEN 'in_progress' WHEN 'done' THEN 'resolved' ELSE status END;`);
+    for (const legacy of legacyStates) {
+      const status = { todo: 'pending_assignment', waiting_review: 'in_progress', done: 'resolved', ai_review_pending: 'in_progress' }[legacy.status as 'todo'];
+      this.addTimeline(legacy.id, 'status_changed', 'Status Migration', `system: ${legacy.status} → ${status}`, { oldStatus: legacy.status, newStatus: status });
     }
 
     const reportColumns = this.db.prepare("PRAGMA table_info(MaintenanceReport)").all() as any[];
@@ -403,6 +430,8 @@ export class DatabaseRepository {
       orientation_angle: 'INTEGER', orientation_label: 'TEXT', orientation_confidence: 'REAL', orientation_passed: 'INTEGER', orientation_checked_at: 'TEXT',
       damage_detected: 'INTEGER', damage_type: 'TEXT', damage_confidence: 'REAL', dirty_detected: 'INTEGER', dirty_confidence: 'REAL', condition_checked_at: 'TEXT'
     })) this.addColumnIfMissing('UploadedPhoto', column, definition);
+    this.mergeLegacySubmissionIncidents();
+    this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_incident_submission_unique ON Incident(source_submission_id) WHERE source_submission_id IS NOT NULL');
     this.migrateUsernames();
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_submission_user ON PhotoSubmission(user_id, id DESC)');
     this.db.exec('CREATE INDEX IF NOT EXISTS idx_photo_user ON UploadedPhoto(user_id, id DESC)');
@@ -507,11 +536,11 @@ export class DatabaseRepository {
   private insertIncidentSeed(item: any) {
     const ts = this.nowText();
     const [team, region] = this.assignTeam(item.station);
-    const status = item.type !== 'normal' ? 'assigned' : (item.status || 'done');
+    const status = item.type !== 'normal' ? 'assigned' : 'resolved';
     const assignee = item.type !== 'normal' ? team : '無需處理';
 
     this.db.prepare(`
-      INSERT OR REPLACE INTO Incident(
+      INSERT INTO Incident(
         id, plate, station, type, label, severity, confidence, detected_time,
         next_booking, hot_station, map_x, map_y, assignee, status, score,
         region, assigned_team, created_at, updated_at
@@ -555,7 +584,7 @@ export class DatabaseRepository {
   }
 
   public getIncidentById(id: string): Incident | null {
-    const row = this.db.prepare("SELECT * FROM Incident WHERE id = ?").get(id);
+    const row = this.db.prepare("SELECT * FROM Incident WHERE id = ? OR id = (SELECT incident_id FROM IncidentAlias WHERE legacy_id = ?)").get(id, id);
     return row ? (row as Incident) : null;
   }
 
@@ -647,21 +676,22 @@ export class DatabaseRepository {
   }
 
   // --- Write Operations ---
-  public addTimeline(incidentId: string, eventType: string, title: string, body = '') {
+  public addTimeline(incidentId: string, eventType: string, title: string, body = '', transition?: { actor?: SafeUser; oldStatus: string | null; newStatus: string }) {
     this.db.prepare(`
-      INSERT INTO IncidentTimeline(incident_id, event_type, title, body, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(incidentId, eventType, title, body, this.nowText());
+      INSERT INTO IncidentTimeline(incident_id, event_type, title, body, created_at, actor_user_id, old_status, new_status, timestamp)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(incidentId, eventType, title, body, this.nowText(), transition?.actor?.id ?? null, transition?.oldStatus ?? null, transition?.newStatus ?? null, new Date().toISOString());
   }
 
   public insertIncident(item: Partial<Incident>) {
     const ts = this.nowText();
     const [team, region] = this.assignTeam(item.station || '');
-    const status = item.status || (item.type !== 'normal' ? 'assigned' : 'done');
-    const assignee = status === 'todo' ? '待派工' : item.type !== 'normal' ? team : '無需處理';
+    const status = item.status || (item.type !== 'normal' ? 'assigned' : 'resolved');
+    if (!(INCIDENT_STATES as readonly string[]).includes(status)) throw new Error(`Invalid Incident state: ${status}`);
+    const assignee = ['pending_assignment', 'reopened'].includes(status) ? '待派工' : item.type !== 'normal' ? team : '無需處理';
 
     this.db.prepare(`
-      INSERT OR REPLACE INTO Incident(
+      INSERT INTO Incident(
         id, plate, station, type, label, severity, confidence, detected_time,
         next_booking, hot_station, map_x, map_y, assignee, status, score,
         region, assigned_team, manual_review_required, owner_user_id, source_submission_id,
@@ -678,7 +708,7 @@ export class DatabaseRepository {
       item.operational_urgency ?? null, item.sla_minutes ?? null, item.vehicle_unavailable ?? 0, ts, ts
     );
 
-    this.addTimeline(item.id!, "ai_detected", "AI Detected", `${item.label} | Confidence ${item.confidence}%`);
+    this.addTimeline(item.id!, "ai_detected", "AI Detected", `${item.label} | Confidence ${item.confidence}%`, { oldStatus: null, newStatus: status });
     if (item.type !== 'normal' && status === 'assigned') {
       this.addTimeline(item.id!, "assigned", "Auto Assigned", `${region} | ${team}`);
     }
@@ -690,9 +720,11 @@ export class DatabaseRepository {
     `).run(item.id, taskType, assignee, status, ts, ts);
   }
 
-  public updateIncidentStatusAndAssignee(incidentId: string, status: string, assignee: string, extraFields: Record<string, any> = {}) {
+  public updateIncidentStatusAndAssignee(incidentId: string, status: string, assignee: string, extraFields: Record<string, any> = {}, expectedVersion?: number, actor?: SafeUser) {
+    if (!(INCIDENT_STATES as readonly string[]).includes(status)) throw new Error(`Invalid Incident state: ${status}`);
+    const previous = this.getIncidentById(incidentId);
     const ts = this.nowText();
-    const setClause = ['status = ?', 'assignee = ?', 'updated_at = ?'];
+    const setClause = ['status = ?', 'assignee = ?', 'updated_at = ?', 'version = version + 1'];
     const params = [status, assignee, ts];
 
     const allowedFields = new Set([
@@ -706,10 +738,10 @@ export class DatabaseRepository {
       params.push(val);
     }
     params.push(incidentId);
-
-    this.db.prepare(`
-      UPDATE Incident SET ${setClause.join(', ')} WHERE id = ?
-    `).run(...params);
+    if (expectedVersion !== undefined) params.push(expectedVersion as any);
+    const result = this.db.prepare(`UPDATE Incident SET ${setClause.join(', ')} WHERE id = ?${expectedVersion !== undefined ? ' AND version = ?' : ''}`).run(...params);
+    if (result.changes !== 1) throw new IncidentConflictError();
+    if (previous?.status !== status || previous?.assigned_user_id !== extraFields.assigned_user_id && extraFields.assigned_user_id !== undefined) this.addTimeline(incidentId, 'status_changed', 'Status Changed', `${actor?.username || 'system'}: ${previous?.status || '-'} → ${status}`, { actor, oldStatus: previous?.status || null, newStatus: status });
   }
 
   public updateDispatchTaskStatus(incidentId: string, status: string, assignee?: string) {
@@ -980,34 +1012,71 @@ export class DatabaseRepository {
   }
 
   public getUnassignedUrgentIncidents(ageMinutes: number): Incident[] {
-    const cutoff = new Date(Date.now() - ageMinutes * 60_000).toISOString().replace('T', ' ').slice(0, 19);
-    return this.db.prepare(`SELECT * FROM Incident WHERE status = 'todo'
+    return this.db.prepare(`SELECT * FROM Incident WHERE status IN ('pending_assignment', 'reopened')
       AND COALESCE(urgency_score, CASE severity WHEN 'high' THEN 8 WHEN 'medium' THEN 5 ELSE 1 END) >= 8
-      AND created_at <= ? AND id NOT IN (SELECT incident_id FROM IncidentEscalation)`)
-      .all(cutoff) as Incident[];
+      AND created_at <= datetime('now', 'localtime', ?) AND id NOT IN (SELECT incident_id FROM IncidentEscalation)`)
+      .all(`-${ageMinutes} minutes`) as Incident[];
   }
 
   public claimAssignmentEscalation(incidentId: string): boolean {
     return this.db.prepare(`INSERT OR IGNORE INTO IncidentEscalation(incident_id, created_at)
-      SELECT id, ? FROM Incident WHERE id = ? AND status = 'todo'`)
+      SELECT id, ? FROM Incident WHERE id = ? AND status IN ('pending_assignment', 'reopened')`)
       .run(new Date().toISOString(), incidentId).changes === 1;
   }
 
   public isOpen(): boolean { return this.db.open; }
 
-  /** Keep the claim and its task update atomic, including across SQLite connections. */
-  public assignIncidentToUser(incidentId: string, user: UserAccount, selfOnly: boolean): boolean {
+  public withTransaction<T>(operation: () => T): T { return this.db.transaction(operation).immediate(); }
+
+  public getSubmissionRequest(userId: number, requestKey: string) {
+    return this.db.prepare('SELECT request_hash, response_json FROM SubmissionRequest WHERE user_id = ? AND request_key = ?').get(userId, requestKey) as { request_hash: string; response_json: string } | undefined;
+  }
+
+  public saveSubmissionRequest(userId: number, requestKey: string, hash: string, submissionId: string, response: unknown) {
+    this.db.prepare('INSERT INTO SubmissionRequest VALUES (?, ?, ?, ?, ?)').run(userId, requestKey, hash, submissionId, JSON.stringify(response));
+  }
+
+  private mergeLegacySubmissionIncidents() {
+    const duplicates = this.db.prepare('SELECT source_submission_id FROM Incident WHERE source_submission_id IS NOT NULL GROUP BY source_submission_id HAVING COUNT(*) > 1').all() as Array<{ source_submission_id: string }>;
+    if (!duplicates.length) return;
+    this.db.transaction(() => {
+      const quote = (identifier: string) => `"${identifier.replace(/"/g, '""')}"`;
+      const tables = this.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>;
+      const relations = tables.flatMap(table => (this.db.pragma(`foreign_key_list(${quote(table.name)})`) as Array<{ table: string; from: string }>).filter(key => key.table === 'Incident').map(key => ({ table: table.name, column: key.from })));
+      for (const group of duplicates) {
+        const incidents = this.db.prepare('SELECT * FROM Incident WHERE source_submission_id = ? ORDER BY created_at, id').all(group.source_submission_id) as Incident[];
+        const canonical = incidents[0];
+        for (const legacy of incidents) {
+          const children = Object.fromEntries(relations.map(relation => [relation.table, this.db.prepare(`SELECT * FROM ${quote(relation.table)} WHERE ${quote(relation.column)} = ?`).all(legacy.id)]));
+          this.db.prepare('INSERT OR IGNORE INTO IncidentMergeArchive VALUES (?, ?, ?, ?)').run(legacy.id, canonical.id, JSON.stringify({ incident: legacy, children }), new Date().toISOString());
+          if (legacy.id === canonical.id) continue;
+          for (const relation of relations) this.db.prepare(`UPDATE OR IGNORE ${quote(relation.table)} SET ${quote(relation.column)} = ? WHERE ${quote(relation.column)} = ?`).run(canonical.id, legacy.id);
+          this.db.prepare('INSERT OR REPLACE INTO IncidentAlias VALUES (?, ?)').run(legacy.id, canonical.id);
+          this.db.prepare('DELETE FROM Incident WHERE id = ?').run(legacy.id);
+        }
+        this.db.prepare('UPDATE Incident SET label = ? WHERE id = ?').run([...new Set(incidents.map(row => row.label))].join('；'), canonical.id);
+        this.addTimeline(canonical.id, 'legacy_incidents_merged', 'Legacy Submission Incidents Merged', `${incidents.map(row => row.id).join(', ')}; originals preserved in IncidentMergeArchive`);
+      }
+    })();
+  }
+
+  public transitionIncident(incidentId: string, status: string, assignee: string, extra: Record<string, any>, version: number, actor?: SafeUser) {
     return this.db.transaction(() => {
-      const result = this.db.prepare(`
-        UPDATE Incident SET status = 'assigned', assignee = ?, assigned_user_id = ?, updated_at = ?
-        WHERE id = ? AND status IN ('todo', 'assigned')
-          AND (? = 0 OR assigned_user_id IS NULL OR assigned_user_id = ?)
-      `).run(user.username, user.id, this.nowText(), incidentId, selfOnly ? 1 : 0, user.id);
-      if (result.changes !== 1) return false;
+      this.updateIncidentStatusAndAssignee(incidentId, status, assignee, extra, version, actor);
+      this.updateDispatchTaskStatus(incidentId, status, assignee);
+    }).immediate();
+  }
+
+  /** Keep the claim and its task update atomic, including across SQLite connections. */
+  public assignIncidentToUser(incidentId: string, user: UserAccount, selfOnly: boolean, expectedVersion?: number, actor?: SafeUser): boolean {
+    return this.db.transaction(() => {
+      const incident = this.getIncidentById(incidentId);
+      if (!incident || !['pending_assignment', 'assigned', 'reopened'].includes(incident.status) || (selfOnly && incident.assigned_user_id && incident.assigned_user_id !== user.id)) return false;
+      this.updateIncidentStatusAndAssignee(incidentId, 'assigned', user.username, { assigned_user_id: user.id }, expectedVersion ?? incident.version, actor);
       this.updateDispatchTaskStatus(incidentId, 'assigned', user.username);
       this.addTimeline(incidentId, 'assigned', selfOnly ? 'Self Assigned' : 'Assigned to Operator', user.username);
       return true;
-    })();
+    }).immediate();
   }
 
   public countAdmins(): number {

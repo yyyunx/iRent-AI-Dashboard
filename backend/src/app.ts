@@ -33,7 +33,7 @@ export function createApp(dbPath: string, uploadDir: string) {
     },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'X-CSRF-Token']
+    allowedHeaders: ['Content-Type', 'X-CSRF-Token', 'Idempotency-Key']
   }));
   app.use((_req, res, next) => {
     res.set('X-Content-Type-Options', 'nosniff');

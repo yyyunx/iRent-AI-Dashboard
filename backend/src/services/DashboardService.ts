@@ -1,6 +1,6 @@
 import fs from 'fs';
 import path from 'path';
-import { randomBytes } from 'crypto';
+import { randomBytes, createHash } from 'crypto';
 import { DatabaseRepository, DEFAULT_DAMAGE_HOTSPOTS } from '../repositories/DatabaseRepository';
 import { NotificationService } from './NotificationService';
 import { AiAgentService } from './AiAgentService';
@@ -19,6 +19,7 @@ import { validateReturnLocation } from './ReturnLocation';
 import { calculateCoverage, normalizeGuidance, PersistedGuidance } from './Coverage';
 import { incidentUrgency } from './IncidentUrgency';
 import { StageMetrics } from './StageMetrics';
+import { ACTION_STATES } from './IncidentLifecycle';
 
 export class DashboardService {
   private repo: DatabaseRepository;
@@ -52,7 +53,7 @@ export class DashboardService {
   public getOpsMetrics(incidents = this.repo.getIncidents()) {
     const reportsCount = this.repo.getMaintenanceReportCount();
     const autoClosedCount = incidents.filter(i => i.auto_closed === 1).length;
-    const waitingCount = incidents.filter(i => i.status === 'waiting_review').length;
+    const waitingCount = incidents.filter(i => i.status === 'in_progress').length;
 
     const rate = reportsCount > 0 ? Math.round((autoClosedCount / reportsCount) * 100) : 0;
     const savedMinutes = autoClosedCount * 18 + Math.max(waitingCount, 0) * 6;
@@ -180,7 +181,7 @@ export class DashboardService {
 
   public getAgentOperations() {
     const rows = this.repo.getIncidents();
-    const active = rows.filter(item => !['resolved', 'done'].includes(item.status));
+    const active = rows.filter(item => !['resolved', 'false_positive'].includes(item.status));
     const notifications = this.repo.getNotificationStats();
     const lineWaiting = notifications
       .filter(item => item.provider === 'line' && ['queued', 'sending', 'failed'].includes(item.status))
@@ -188,7 +189,7 @@ export class DashboardService {
 
     const slaAlerts = active.map(item => {
       const ageMinutes = this.incidentAgeMinutes(item);
-      const threshold = item.status === 'todo' ? 60 : item.status === 'assigned' ? 120 : 240;
+      const threshold = item.status === 'pending_assignment' ? 60 : item.status === 'assigned' ? 120 : 240;
       const bookingRisk = item.next_booking <= 30;
       const overdue = ageMinutes >= threshold;
       if (!overdue && !bookingRisk) return null;
@@ -210,7 +211,7 @@ export class DashboardService {
     }).slice(0, 20);
 
     const dispatchDraft = active
-      .filter(item => ['todo', 'waiting_review', 'assigned'].includes(item.status))
+      .filter(item => ['pending_assignment', 'in_progress', 'assigned'].includes(item.status))
       .map(item => {
         const score = this.calculateScore(item);
         const [recommendedTeam, region] = this.repo.assignTeam(item.station);
@@ -257,7 +258,7 @@ export class DashboardService {
         highRiskIncidents: active.filter(item => item.severity === 'high').length,
         bookingRiskIncidents: active.filter(item => item.next_booking <= 30).length,
         overdueIncidents: slaAlerts.filter((item: any) => item.ageMinutes >= item.thresholdMinutes).length,
-        pendingMaintenance: active.filter(item => ['assigned', 'in_progress', 'waiting_review'].includes(item.status)).length,
+        pendingMaintenance: active.filter(item => ['assigned', 'in_progress', 'in_progress'].includes(item.status)).length,
         lineNotificationsNeedingAttention: lineWaiting
       },
       slaAlerts,
@@ -389,7 +390,7 @@ export class DashboardService {
   public createDispatchDraft(incidentId: string, userId: number) {
     const incident = this.repo.getIncidentById(incidentId);
     if (!incident) return { status: 404, ok: false, error: 'Incident not found' };
-    if (!['todo', 'waiting_review', 'assigned'].includes(incident.status)) {
+    if (!ACTION_STATES.dispatch.includes(incident.status as any)) {
       return { status: 409, ok: false, error: 'Incident is no longer eligible for dispatch' };
     }
     const [recommendedTeam, region] = this.repo.assignTeam(incident.station);
@@ -397,7 +398,7 @@ export class DashboardService {
       id: this.createOpaqueId('DRAFT'),
       draftType: 'dispatch',
       incidentId,
-      payload: { recommendedTeam, region, score: this.calculateScore(incident) },
+      payload: { recommendedTeam, region, score: this.calculateScore(incident), expectedVersion: incident.version },
       createdBy: userId,
       expiresAt: new Date(Date.now() + 10 * 60_000).toISOString()
     });
@@ -460,14 +461,16 @@ export class DashboardService {
     }
     const incident = this.repo.getIncidentById(draft.incident_id);
     if (!incident) return { status: 404, ok: false, error: 'Incident not found' };
-    if (draft.draft_type === 'dispatch' && !['todo', 'waiting_review', 'assigned'].includes(incident.status)) {
+    const draftPayload = JSON.parse(draft.payload_json);
+    if (draft.draft_type === 'dispatch' && (!ACTION_STATES.dispatch.includes(incident.status as any) || draftPayload.expectedVersion !== incident.version)) {
       return { status: 409, ok: false, error: 'Incident state changed; create a new draft' };
     }
     if (!this.repo.claimAgentActionDraft(draftId)) return { status: 409, ok: false, error: 'Draft has already been processed' };
 
     try {
       if (draft.draft_type === 'dispatch') {
-        const result = await this.handleAction({ action: 'dispatch', incidentId: draft.incident_id });
+        const creator = this.repo.getUserById(draft.created_by);
+        const result = await this.handleAction({ action: 'dispatch', incidentId: draft.incident_id, expectedVersion: draftPayload.expectedVersion }, creator ? { id: creator.id, username: creator.username, role: creator.role } : undefined);
         if (!result.ok) throw new Error(result.error || 'Dispatch failed');
         this.repo.finishAgentActionDraft(draftId, 'confirmed');
         return { ok: true, action: 'dispatch', incident: result.incident };
@@ -484,7 +487,7 @@ export class DashboardService {
 
   public runAiAgent(prompt: string) {
     const incidents = this.repo.getIncidents().map(row => ({ response: dbRowToIncidentResponse({ ...row, score: this.calculateScore(row) }), createdAt: row.created_at }));
-    const active = incidents.filter(item => !['resolved', 'done'].includes(item.response.status));
+    const active = incidents.filter(item => !['resolved', 'false_positive'].includes(item.response.status));
     const configuredLimit = Number(process.env.AGENT_CONTEXT_INCIDENT_LIMIT || 30);
     const incidentLimit = Math.min(Math.max(Number.isFinite(configuredLimit) ? Math.floor(configuredLimit) : 30, 10), 100);
     const severityRank: Record<string, number> = { high: 0, medium: 1, low: 2 };
@@ -730,7 +733,7 @@ export class DashboardService {
         hot_station: 1,
         map_x: 24 + Math.floor(Math.random() * 52),
         map_y: 24 + Math.floor(Math.random() * 52),
-        status: "todo",
+        status: "pending_assignment",
         score,
         owner_user_id: userId,
         source_submission_id: submissionId,
@@ -747,7 +750,7 @@ export class DashboardService {
       };
 
       this.repo.insertIncident(item);
-      this.repo.updateIncidentStatusAndAssignee(incidentId, 'todo', '待派工', {
+      this.repo.updateIncidentStatusAndAssignee(incidentId, 'pending_assignment', '待派工', {
         issue_count: urgency.issueCount, urgency_score: urgency.urgencyScore, urgency_breakdown_json: JSON.stringify(urgency.breakdown)
       });
 
@@ -762,8 +765,31 @@ export class DashboardService {
   }
 
   public async handlePhotoSubmissionAction(payload: any, userId: number) {
+    const result = this.repo.withTransaction(() => this.processPhotoSubmission(payload, userId));
+    if (!result.idempotentReplay && result.createdIncidents.length) {
+      const incident = dbRowToIncidentResponse(this.repo.getIncidentById(result.createdIncidents[0])!);
+      this.notifyLine(incident.id, 'ai_detected', this.getLineMessage(incident, 'ai_detected', `Submission: ${result.submissionId}; ${incident.issueCount} abnormalities`));
+    }
+    return result;
+  }
+
+  private processPhotoSubmission(payload: any, userId: number) {
     const processingStartedAt = Date.now();
     const processingStarted = process.hrtime.bigint();
+    const stable = (value: any): any => Array.isArray(value) ? value.map(stable) : value && typeof value === 'object'
+      ? Object.fromEntries(Object.keys(value).sort().filter(key => value[key] !== undefined).map(key => [key, stable(value[key])])) : value;
+    const normalized = { rentalId: payload.rentalId, plate: payload.plate, phase: payload.phase || 'return', station: payload.station, parkingLocation: payload.parkingLocation, returnLocation: payload.returnLocation,
+      photos: (Array.isArray(payload.photos) ? payload.photos : []).map((photo: any) => ({ photoId: photo?.photoId, slot: photo?.slot })).sort((a: any, b: any) => String(a.slot).localeCompare(String(b.slot))) };
+    const requestHash = createHash('sha256').update(JSON.stringify(stable(normalized))).digest('hex');
+    const requestKey = String(payload.idempotencyKey || requestHash);
+    if (!/^[A-Za-z0-9_-]{8,128}$/.test(requestKey)) {
+      const error: any = new Error('Invalid idempotency key'); error.status = 400; throw error;
+    }
+    const previous = this.repo.getSubmissionRequest(userId, requestKey);
+    if (previous) {
+      if (previous.request_hash !== requestHash) { const error: any = new Error('Idempotency key was already used for different submission data'); error.status = 409; throw error; }
+      return { ...JSON.parse(previous.response_json), idempotentReplay: true };
+    }
     const submissionId = this.createOpaqueId('SUB');
     const photos: any[] = Array.isArray(payload.photos) ? payload.photos : [];
     const phase = String(payload.phase || 'return');
@@ -894,12 +920,7 @@ export class DashboardService {
     this.repo.recordStageMetric('submission_db_write', submissionId, databaseStartedAt, Number(process.hrtime.bigint() - databaseStarted) / 1e6);
     this.repo.recordStageMetric('submission_processing', submissionId, processingStartedAt, Number(process.hrtime.bigint() - processingStarted) / 1e6);
 
-    if (createdIncidents.length > 0) {
-      const incident = dbRowToIncidentResponse(this.repo.getIncidentById(createdIncidents[0])!);
-      this.notifyLine(incident.id, 'ai_detected', this.getLineMessage(incident, 'ai_detected', `Submission: ${submissionId}; ${damageSummary.detected_photo_count} abnormal photo(s)`));
-    }
-
-    return {
+    const result = {
       submissionId,
       overallStatus,
       coverageSummary,
@@ -910,6 +931,8 @@ export class DashboardService {
       photos: this.repo.getUploadedPhotosBySubmission(submissionId).map(dbRowToPhotoResponse),
       incidents: createdIncidents.map(id => dbRowToIncidentResponse(this.repo.getIncidentById(id)!))
     };
+    this.repo.saveSubmissionRequest(userId, requestKey, requestHash, submissionId, result);
+    return { ...result, idempotentReplay: false };
   }
 
   // --- Operations Actions ---
@@ -962,7 +985,7 @@ export class DashboardService {
 
   public async handleAction(payload: any, actor?: SafeUser) {
     const action = payload.action;
-    const incidentId = payload.incidentId;
+    let incidentId = payload.incidentId;
 
     // Validate capability before reading the incident: forged assignment requests
     // receive 403 even when the supplied incident/person IDs do not exist.
@@ -979,18 +1002,15 @@ export class DashboardService {
     }
 
     const incidentRes = dbRowToIncidentResponse(incident);
+    incidentId = incident.id;
     if (actor?.role === 'operator' && action !== 'assign_self' && incident.assigned_user_id !== actor.id) {
       return { status: 403, ok: false, error: 'Forbidden: operator can only act on their own assigned incident' };
     }
-    const allowedStates: Record<string, string[]> = {
-      dispatch: ['todo', 'assigned'], assign_self: ['todo', 'assigned'],
-      in_progress: ['assigned', 'in_progress'], maintenance_report: ['assigned', 'in_progress'],
-      resolve: ['in_progress', 'waiting_review'], reopen: ['resolved', 'done'],
-      reject: ['todo', 'assigned', 'waiting_review'], false_positive: ['todo', 'assigned', 'waiting_review']
-    };
-    if (allowedStates[action] && !allowedStates[action].includes(incident.status)) {
+    const allowedStates = ACTION_STATES;
+    if (allowedStates[action] && !(allowedStates[action] as readonly string[]).includes(incident.status)) {
       return { status: 409, ok: false, error: `目前狀態 ${incident.status} 無法執行 ${action}` };
     }
+    if (payload.expectedVersion !== undefined && payload.expectedVersion !== incident.version) return { status: 409, ok: false, error: 'Incident version changed; refresh before retrying.' };
 
     if (action === 'assign_self' || (action === 'dispatch' && payload.assigneeUserId !== undefined)) {
       if (!actor || !['admin', 'operator'].includes(actor.role)) return { status: 403, ok: false, error: 'Staff login required' };
@@ -1001,22 +1021,22 @@ export class DashboardService {
       if (incident.status === 'assigned' && incident.assigned_user_id === assignee.id) {
         return { status: 200, ok: true, incident: incidentRes };
       }
-      if (!this.repo.assignIncidentToUser(incidentId, assignee, action === 'assign_self')) {
+      if (!this.repo.assignIncidentToUser(incidentId, assignee, action === 'assign_self', incident.version, actor)) {
         const current = this.repo.getIncidentById(incidentId);
         return { status: 409, ok: false, error: `此案件已由 ${current?.assignee || '其他人員'} 接手，或狀態已變更。` };
       }
       const updated = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!);
       this.notifyLine(incidentId, 'dispatch', this.getLineMessage(updated, 'dispatch', `Assigned by ${actor.username}`));
     } else if (action === "dispatch") {
-      if (!['todo', 'assigned'].includes(incident.status) || incident.assigned_user_id) {
+      if (!['pending_assignment', 'assigned', 'reopened'].includes(incident.status) || incident.assigned_user_id) {
         return { status: 409, ok: false, error: '案件已有指定人員或已開始處理，請使用指定人員派工。' };
       }
       const [team, region] = this.repo.assignTeam(incident.station);
-      this.repo.updateIncidentStatusAndAssignee(incidentId, "assigned", team, {
+      this.repo.transitionIncident(incidentId, "assigned", team, {
         assigned_team: team,
         region,
         manual_review_required: 0
-      });
+      }, incident.version, actor);
       this.repo.updateDispatchTaskStatus(incidentId, "assigned", team);
       this.repo.addTimeline(incidentId, "assigned", "Reassigned", `${region} / ${team}`);
 
@@ -1036,7 +1056,7 @@ export class DashboardService {
     } else if (action === "in_progress") {
       if (actor?.role === 'operator' && actor.id !== incident.assigned_user_id) return { status: 403, ok: false, error: '僅負責人可確認開始處理。' };
       if (incident.status === 'in_progress') return { status: 200, ok: true, incident: incidentRes };
-      this.repo.updateIncidentStatusAndAssignee(incidentId, "in_progress", incident.assignee);
+      this.repo.transitionIncident(incidentId, "in_progress", incident.assignee, {}, incident.version, actor);
       this.repo.updateDispatchTaskStatus(incidentId, "in_progress");
       this.repo.addTimeline(incidentId, "in_progress", "In Progress", "Task started");
 
@@ -1044,37 +1064,34 @@ export class DashboardService {
       this.notifyLine(incidentId, "in_progress", this.getLineMessage(updated, "in_progress"));
 
     } else if (action === 'reject' || action === 'false_positive') {
-      this.repo.updateIncidentStatusAndAssignee(incidentId, 'resolved', incident.assignee, { manual_review_required: 0, resolved_at: this.repo.nowText() });
-      this.repo.updateDispatchTaskStatus(incidentId, 'done');
+      this.repo.transitionIncident(incidentId, 'false_positive', incident.assignee, { manual_review_required: 0, resolved_at: this.repo.nowText() }, incident.version, actor);
       this.repo.addTimeline(incidentId, action, action === 'reject' ? 'Rejected' : 'False Positive', String(payload.reason || '人工判斷，不需處理'));
       const updated = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!);
       this.notifyLine(incidentId, action, this.getLineMessage(updated, action, String(payload.reason || '')));
     } else if (action === "resolve") {
-      this.repo.updateIncidentStatusAndAssignee(incidentId, "resolved", "人工確認結案", {
-        severity: "low",
+      this.repo.transitionIncident(incidentId, "resolved", incident.assignee, {
         manual_review_required: 0,
         resolved_at: this.repo.nowText()
-      });
-      this.repo.updateDispatchTaskStatus(incidentId, "done");
+      }, incident.version, actor);
+      this.repo.updateDispatchTaskStatus(incidentId, "resolved");
       this.repo.addTimeline(incidentId, "resolved", "Manual Close", "Manual confirmed");
 
       const updated = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!);
       this.notifyLine(incidentId, "resolved", this.getLineMessage(updated, "resolved"));
 
     } else if (action === "reopen") {
-      if (!['resolved', 'done'].includes(incident.status)) return { status: 409, ok: false, error: 'Only closed incidents can be reopened' };
+      if (!['resolved', 'false_positive'].includes(incident.status)) return { status: 409, ok: false, error: 'Only closed incidents can be reopened' };
       const [team, region] = this.repo.assignTeam(incident.station);
-      this.repo.updateIncidentStatusAndAssignee(incidentId, "assigned", team, {
-        severity: "high",
+      this.repo.transitionIncident(incidentId, "reopened", '待派工', {
         assigned_team: team,
         region,
         auto_closed: 0,
         manual_review_required: 0,
         resolved_at: null
         , assigned_user_id: null
-      });
+      }, incident.version, actor);
       // Re-open dispatch task status to assigned
-      this.repo.updateDispatchTaskStatus(incidentId, "assigned", team);
+      this.repo.updateDispatchTaskStatus(incidentId, "reopened", '待派工');
       this.repo.addTimeline(incidentId, "reopen", "Reassigned", `${region} / ${team}`);
 
       const updated = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!);
@@ -1092,6 +1109,11 @@ export class DashboardService {
 
       const review = await this.runAiReview(incident, note, savedPath);
 
+      // The AI call may take seconds: a concurrent close/reassignment must win a 409.
+      this.repo.transitionIncident(incidentId, 'in_progress', incident.assignee, {
+        ai_review_result: review.result, ai_review_confidence: review.confidence,
+        ai_review_summary: review.summary, manual_review_required: 1
+      }, incident.version, actor);
       // Insert maintenance report
       this.repo.insertMaintenanceReport({
         incident_id: incidentId,
@@ -1104,12 +1126,6 @@ export class DashboardService {
       });
 
       // Update incident details
-      this.repo.updateIncidentStatusAndAssignee(incidentId, "waiting_review", incident.assignee, {
-        ai_review_result: review.result,
-        ai_review_confidence: review.confidence,
-        ai_review_summary: review.summary,
-        manual_review_required: 1
-      });
 
       this.repo.addTimeline(incidentId, "maintenance_report", "Team Upload", note || "Completion photo uploaded");
 

@@ -28,7 +28,7 @@ const OperatorLayout: React.FC = () => {
   const isDashboard = location.pathname === '/operator/dashboard';
 
   const now = new Intl.DateTimeFormat('zh-TW', { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', weekday: 'short', hour12: false }).format(new Date());
-  const openCount = state?.incidents.filter(item => !['resolved', 'done'].includes(item.status)).length || 0;
+  const openCount = state?.incidents.filter(item => !['resolved', 'false_positive'].includes(item.status)).length || 0;
 
   const navItems = [
     { path: '/operator/dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -51,7 +51,7 @@ const OperatorLayout: React.FC = () => {
       type: isDamage ? 'damage' : 'cleaning',
       label: isDamage ? '新增左前保桿擦傷' : '車內地墊髒污',
       severity: 'high', confidence: 95, time: new Date().toLocaleTimeString('zh-TW', { hour12: false }).substring(0, 5),
-      nextBooking: 22, hotStation: true, x: 55, y: 51, assignee: 'pending', status: 'todo', score: 0
+      nextBooking: 22, hotStation: true, x: 55, y: 51, assignee: 'pending', status: 'pending_assignment', score: 0
     };
     try {
       await apiPost('/api/incidents', incident);

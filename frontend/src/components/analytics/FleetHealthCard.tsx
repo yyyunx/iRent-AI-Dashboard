@@ -3,8 +3,8 @@ import { Incident } from '../../context/AppContext';
 
 const FleetHealthCard: React.FC<{ incidents: Incident[] }> = ({ incidents }) => {
   const total = incidents.length;
-  const healthy = incidents.filter(item => item.type === 'normal' || ['resolved','done'].includes(item.status)).length;
-  const attention = incidents.filter(item => !['resolved','done'].includes(item.status) && item.severity !== 'high').length;
+  const healthy = incidents.filter(item => item.type === 'normal' || ['resolved','resolved'].includes(item.status)).length;
+  const attention = incidents.filter(item => !['resolved','resolved'].includes(item.status) && item.severity !== 'high').length;
   const maintenance = Math.max(0, total - healthy - attention);
   const score = total ? Math.round(healthy / total * 100) : 0;
   const segments = [{ label:'正常／已完成', count:healthy, tone:'green' }, { label:'需注意', count:attention, tone:'amber' }, { label:'待維修', count:maintenance, tone:'red' }];

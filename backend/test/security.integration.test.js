@@ -328,7 +328,7 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
   await t.test('dispatch and LINE drafts require admin confirmation and revalidate current state', async () => {
     const candidateRepo = new DatabaseRepository(dbPath);
     const candidates = candidateRepo.getIncidents();
-    const eligibleIds = candidates.filter(item => ['todo', 'waiting_review', 'assigned'].includes(item.status)).map(item => item.id);
+    const eligibleIds = candidates.filter(item => ['pending_assignment', 'in_progress', 'assigned'].includes(item.status)).map(item => item.id);
     const anyIncidentId = candidates[0].id;
     candidateRepo.close();
     assert.ok(eligibleIds.length >= 2, JSON.stringify(candidates.map(item => [item.id, item.status])));
@@ -491,10 +491,12 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
       assert.equal(capturedBodies[0].response_format.mime_type, 'application/json');
       assert.deepEqual(capturedBodies[0].response_format.schema.required, ['comparisonType', 'decision', 'confidence', 'summary', 'suspectedRegions', 'evidence']);
 
+      await agent.post('/api/action').set('X-CSRF-Token', response.body.csrfToken)
+        .send({ action: 'in_progress', incidentId: reviewIncident.id }).expect(200);
       const maintenance = await agent.post('/api/action').set('X-CSRF-Token', response.body.csrfToken)
         .send({ action: 'maintenance_report', incidentId: reviewIncident.id, note: '已完成修復', photo: { name: 'complete.png', data: VALID_PNG } })
         .expect(200);
-      assert.equal(maintenance.body.changedResource.data.status, 'waiting_review');
+      assert.equal(maintenance.body.changedResource.data.status, 'in_progress');
       assert.equal(maintenance.body.changedResource.data.manualReviewRequired, true);
       assert.equal(maintenance.body.changedResource.data.autoClosed, false);
       assert.equal(maintenance.body.changedResource.data.aiReviewResult, 'pass');

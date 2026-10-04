@@ -35,8 +35,8 @@ test('LINE retry keeps its key/payload, accepts acknowledged 409 and measures la
     assert.equal(repo.getNotifications()[0].status, 'sent');
     assert.ok(new StageMetrics(repo).snapshot().stages.some(row => row.stage === 'line_api' && row.errors === 1));
 
-    repo.insertIncident({ id: 'INC-urgent', plate: 'URG-123', station: '台北站', type: 'damage', label: '車損', severity: 'high', confidence: 91, status: 'todo' });
-    repo.updateIncidentStatusAndAssignee('INC-urgent', 'todo', '待派工', { urgency_score: 9 });
+    repo.insertIncident({ id: 'INC-urgent', plate: 'URG-123', station: '台北站', type: 'damage', label: '車損', severity: 'high', confidence: 91, status: 'pending_assignment' });
+    repo.updateIncidentStatusAndAssignee('INC-urgent', 'pending_assignment', '待派工', { urgency_score: 9 });
     const db = new Database(path.join(root, 'test.db'));
     db.prepare("UPDATE Incident SET created_at = '2000-01-01 00:00:00' WHERE id = 'INC-urgent'").run(); db.close();
     global.fetch = async () => ({ ok: true, status: 200, text: async () => '{}' });

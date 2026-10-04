@@ -41,7 +41,7 @@ interface IncidentDetailPanelProps {
 }
 
 const STATUS_TEXT: Record<string, string> = {
-  todo: '待派工', assigned: '已派工', in_progress: 'In Progress', waiting_review: 'Need Human Review', resolved: 'Closed', done: 'Closed'
+  pending_assignment: '待派工', assigned: '已派工', in_progress: '處理中', resolved: '已完成', false_positive: '誤報', reopened: '重新開案・待派工'
 };
 
 const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
@@ -74,7 +74,7 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
   const reviewResult = incident.aiReviewResult || latestReport?.ai_review_result || 'pending';
   const reviewConfidence = incident.aiReviewConfidence ?? latestReport?.ai_review_confidence;
   const status = incident.autoClosed ? 'Auto Closed' : STATUS_TEXT[incident.status] || incident.status;
-  const completed = ['resolved', 'done'].includes(incident.status);
+  const completed = ['resolved', 'false_positive'].includes(incident.status);
   const thumbnailPhotos = matchingPhotos.slice(1, 3);
   const hiddenPhotoCount = Math.max(0, matchingPhotos.length - 3);
   const thumbnailCount = thumbnailPhotos.length + (hiddenPhotoCount > 0 ? 1 : 0);
@@ -107,7 +107,7 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
       {incident.urgencyBreakdown?.length > 0 && <div className="urgency-reasons">{incident.urgencyBreakdown.map(reason => <span key={reason.type}>{reason.type} ×{reason.count} · {reason.weight} × {reason.count} = +{reason.subtotal}</span>)}</div>}
 
       {props.canManage && <div className="detail-actions">
-        <button type="button" className="btn btn-primary" disabled={!['todo', 'assigned'].includes(incident.status)} onClick={() => props.onAction('dispatch')}><RefreshCw size={16} />派發任務</button>
+        <button type="button" className="btn btn-primary" disabled={!['pending_assignment', 'assigned', 'reopened'].includes(incident.status)} onClick={() => props.onAction('dispatch')}><RefreshCw size={16} />派發任務</button>
         <button type="button" className="btn btn-secondary" disabled={!canWork} onClick={() => setToolsOpen(value => !value)}><MessageSquareText size={16} />完整處理工具<ChevronDown size={15} className={toolsOpen ? 'rotate-180' : ''} /></button>
       </div>}
 
@@ -117,16 +117,16 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
         <div className="detail-tools">
           <div className="tool-actions">
             <button type="button" disabled={incident.status !== 'assigned'} onClick={() => props.onAction('in_progress')}><Play size={15} />任務開始</button>
-            {['in_progress', 'waiting_review'].includes(incident.status) && <button type="button" onClick={() => props.onAction('resolve')}><UserCheck size={15} />確認結案</button>}
+            {['in_progress'].includes(incident.status) && <button type="button" onClick={() => props.onAction('resolve')}><UserCheck size={15} />確認結案</button>}
             {isAdmin && <button type="button" disabled={!completed} onClick={() => props.onAction('reopen')}><XOctagon size={15} />重新開案</button>}
-            {isAdmin && ['todo', 'assigned', 'waiting_review'].includes(incident.status) && <button type="button" onClick={() => props.onAction('false_positive')}><XOctagon size={15} />人工判定誤報</button>}
+            {isAdmin && ['pending_assignment', 'assigned', 'in_progress'].includes(incident.status) && <button type="button" onClick={() => props.onAction('false_positive')}><XOctagon size={15} />人工判定誤報</button>}
           </div>
 
           <form className="report-form" onSubmit={props.onReportSubmit}>
             <h3><Upload size={15} />小隊完工回報</h3>
             <div className="report-form__row"><input type="file" id="reportPhotoFile" accept="image/*" aria-label="上傳完工照片" /><select value={props.reportResult} onChange={event => props.onReportResultChange(event.target.value)} aria-label="回報結果"><option value="pass">處理完成</option><option value="fail">仍有異常</option></select></div>
             <textarea value={props.reportNote} onChange={event => props.onReportNoteChange(event.target.value)} placeholder="備註，例如：已完成清潔並補拍照片。" aria-label="回報備註" />
-            <button type="submit" className="btn btn-primary" disabled={props.reportSubmitting}>{props.reportSubmitting ? '提交中…' : '提交回報'}</button>
+            <button type="submit" className="btn btn-primary" disabled={props.reportSubmitting || incident.status !== 'in_progress'}>{props.reportSubmitting ? '提交中…' : '提交回報'}</button>
           </form>
 
           <div className="comment-panel">

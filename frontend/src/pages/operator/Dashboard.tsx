@@ -72,12 +72,13 @@ const Dashboard: React.FC = () => {
     if (!incident) return;
     setDispatchingId(incident.id);
     try {
-      await apiPost('/api/action', { action, incidentId: incident.id, ...extra });
+      await apiPost('/api/action', { action, incidentId: incident.id, expectedVersion: incident.version, ...extra });
       showToast('操作成功', ['dispatch', 'assign_self'].includes(action) ? `${incident.plate} 派工已儲存；LINE 發送狀態請至通知紀錄查看。` : `任務狀態已更新：${action}`);
       setDispatchOpen(false);
       if (intent) setParams({ incidentId: incident.id });
     } catch (error: any) {
       showToast('操作失敗', error.message);
+      await refreshState();
     } finally {
       setDispatchingId(null);
     }
@@ -113,7 +114,7 @@ const Dashboard: React.FC = () => {
     try {
       const photo = file ? await readPhoto(file) : null;
       const note = reportResult === 'fail' && !reportNote.includes('異常') ? `仍有異常：${reportNote.trim()}` : reportNote.trim();
-      await apiPost('/api/action', { action: 'maintenance_report', incidentId: selected.id, note, photo });
+      await apiPost('/api/action', { action: 'maintenance_report', incidentId: selected.id, expectedVersion: selected.version, note, photo });
       setReportNote('');
       if (input) input.value = '';
       showToast('報告已送出', '小隊回報已提交，AI Review 已執行。');
@@ -143,8 +144,8 @@ const Dashboard: React.FC = () => {
           {canManage && dispatchOpen && selected && <section className="surface-card dispatch-panel" aria-label="案件派工">
             <h3>派工 · {selected.plate}</h3>
             <p>目前負責人：{selected.assignee}。選擇人員後按下按鈕確認派工。</p>
-            {intent === 'start' && <button className="btn btn-primary" disabled={selected.status !== 'assigned' || Boolean(dispatchingId) || Boolean(selected.assignedUserId && selected.assignedUserId !== user?.id)} onClick={() => runAction('in_progress')}>確認開始處理</button>}
-            {!['todo', 'assigned'].includes(selected.status) ? <p role="alert">此案件已開始處理或結案，目前無法派工。</p> : <>
+            {intent === 'start' && <button className="btn btn-primary" disabled={selected.status !== 'assigned' || Boolean(dispatchingId) || Boolean(!canAssignOthers && selected.assignedUserId !== user?.id)} onClick={() => runAction('in_progress')}>確認開始處理</button>}
+            {!['pending_assignment', 'assigned', 'reopened'].includes(selected.status) ? <p role="alert">此案件已開始處理或結案，目前無法派工。</p> : <>
               <button className="btn btn-primary" disabled={Boolean(dispatchingId) || Boolean(selected.assignedUserId && selected.assignedUserId !== user?.id)} onClick={() => runAction('assign_self')}>指派給自己（{user?.username}）</button>
               {canAssignOthers && <>{operatorError && <p role="alert">{operatorError}</p>}
               <label className="dispatch-select">指定負責人<select aria-label="指定負責人" value={assigneeUserId} onChange={event => setAssigneeUserId(event.target.value)}><option value="">選擇營運人員</option>{operators.map(operator => <option key={operator.id} value={operator.id}>{operator.username}</option>)}</select></label>

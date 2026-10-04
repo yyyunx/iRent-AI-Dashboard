@@ -24,6 +24,7 @@ export interface Incident {
   issueCount: number;
   urgencyScore: number;
   urgencyBreakdown: Array<{ type: string; count: number; weight: number; subtotal: number }>;
+  version: number;
   autoClosed: boolean;
   aiReviewConfidence: number | null;
   aiReviewResult: string | null;
@@ -240,7 +241,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setState(data);
       setLoadError(null);
       if (data.incidents && data.incidents.length > 0) {
-        const active = data.incidents.find((i: Incident) => i.status !== 'resolved' && i.status !== 'done');
+        const active = data.incidents.find((i: Incident) => i.status !== 'resolved' && i.status !== 'resolved');
         setSelectedId(previous => previous || (active ? active.id : data.incidents[0].id));
       }
       return true;

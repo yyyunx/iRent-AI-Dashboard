@@ -23,10 +23,10 @@ interface DashboardHeaderProps {
 const DashboardHeader: React.FC<DashboardHeaderProps> = ({ state, onCreateIncident, creating, isAdmin }) => {
   const navigate = useNavigate();
   const incidents = state?.incidents || [];
-  const active = incidents.filter(item => !['resolved', 'done'].includes(item.status));
+  const active = incidents.filter(item => !['resolved', 'false_positive'].includes(item.status));
   const high = active.filter(item => item.severity === 'high').length;
   const medium = active.filter(item => item.severity === 'medium').length;
-  const normal = incidents.filter(item => item.type === 'normal' || ['resolved', 'done'].includes(item.status)).length;
+  const normal = incidents.filter(item => item.type === 'normal' || ['resolved', 'false_positive'].includes(item.status)).length;
   const lineConnected = Boolean(state?.lineConfig?.connected);
 
   return (

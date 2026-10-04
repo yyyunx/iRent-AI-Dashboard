@@ -20,6 +20,7 @@ export interface Incident {
   issue_count?: number;
   urgency_score?: number | null;
   urgency_breakdown_json?: string | null;
+  version: number;
   auto_closed: number; // 0 or 1
   ai_review_confidence?: number | null;
   ai_review_result?: string | null;
@@ -74,6 +75,7 @@ export interface IncidentResponse {
   issueCount: number;
   urgencyScore: number;
   urgencyBreakdown: Array<{ type: string; count: number; weight: number; subtotal: number }>;
+  version: number;
   autoClosed: boolean; // maps to auto_closed
   aiReviewConfidence: number | null;
   aiReviewResult: string | null;
@@ -318,6 +320,7 @@ export function dbRowToIncidentResponse(row: any): IncidentResponse {
     issueCount: row.issue_count ?? 0,
     urgencyScore: row.urgency_score ?? (row.severity === 'high' ? 8 : row.severity === 'medium' ? 5 : 1),
     urgencyBreakdown,
+    version: row.version ?? 0,
     autoClosed: Boolean(row.auto_closed),
     aiReviewConfidence: row.ai_review_confidence ?? null,
     aiReviewResult: row.ai_review_result ?? null,
