@@ -15,6 +15,7 @@ export function createApiRouter(controller: DashboardController, authController:
 
   router.get('/state', controller.getProjectState);
   router.get('/incidents/map', roleRequired('admin'), controller.getIncidentMapMarkers);
+  router.get('/operators', roleRequired('admin'), controller.getAssignableUsers);
   router.get('/submissions', controller.getPhotoSubmissions);
   router.get('/submissions/:submissionId', controller.getPhotoSubmissionDetail);
 

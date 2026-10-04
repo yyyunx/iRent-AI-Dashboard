@@ -41,6 +41,8 @@ export class NotificationService {
       tokenConfigured: Boolean(accessToken),
       connected: enabled && Boolean(accessToken) && Boolean(configuredTarget),
       webhookConfigured: Boolean(process.env.LINE_CHANNEL_SECRET),
+      dashboardUrl: this.dashboardUrl()?.origin || '',
+      dashboardConfigured: Boolean(this.dashboardUrl()),
       targetSource: process.env.LINE_TARGET_ID ? 'environment' : 'dashboard'
     };
   }
@@ -54,7 +56,8 @@ export class NotificationService {
   public queueLineMessage(incidentId: string | null, eventType: string, message: string) {
     // A client retry must never fan out the same incident event to the ops group.
     // Failed rows remain retryable; queued/sending/sent are already represented by one delivery.
-    if (incidentId && this.repo.hasSuccessfulNotification(incidentId, eventType)) return 'deduplicated';
+    if (incidentId && ['ai_detected', 'photo_submission'].includes(eventType)
+      && this.repo.hasSuccessfulNotification(incidentId, eventType)) return 'deduplicated';
     const config = this.getConfig();
     if (!config.enabled || !config.targetId || !config.tokenConfigured) {
       const reason = !config.enabled ? 'LINE notifications are disabled' : !config.tokenConfigured
@@ -115,6 +118,38 @@ export class NotificationService {
     }
   }
 
+  private dashboardUrl(): URL | null {
+    try {
+      const url = new URL(process.env.PUBLIC_DASHBOARD_URL || '');
+      return url.protocol === 'https:' && !url.username && !url.password ? url : null;
+    } catch { return null; }
+  }
+
+  /** URI buttons keep identity/authorization in our session + CSRF protected dashboard. */
+  public buildLineMessages(item: { incidentId: string | null; message: string }) {
+    const messages: any[] = [{ type: 'text', text: item.message.slice(0, 5000) }];
+    const base = this.dashboardUrl();
+    if (!item.incidentId || !base) return messages;
+    const link = (intent?: string) => {
+      const url = new URL('/operator/dashboard', base);
+      url.searchParams.set('incidentId', item.incidentId!);
+      if (intent) url.searchParams.set('intent', intent);
+      return url.toString();
+    };
+    messages.push({
+      type: 'template', altText: '開啟 iRent 案件，指派給自己或指定人員',
+      template: {
+        type: 'buttons', title: 'iRent 案件派工', text: '登入營運帳號後查看案件或確認派工。',
+        actions: [
+          { type: 'uri', label: '查看案件', uri: link() },
+          { type: 'uri', label: '指派給自己', uri: link('assign_self') },
+          { type: 'uri', label: '指定人員派工', uri: link('assign') }
+        ]
+      }
+    });
+    return messages;
+  }
+
   private async deliver(item: QueuedLineNotification) {
     const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
     if (!token) {
@@ -131,7 +166,7 @@ export class NotificationService {
         const response = await fetch('https://api.line.me/v2/bot/message/push', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ to: item.targetId, messages: [{ type: 'text', text: item.message.slice(0, 5000) }] }),
+          body: JSON.stringify({ to: item.targetId, messages: this.buildLineMessages(item) }),
           signal: controller.signal
         });
         const responseText = await response.text();

@@ -17,6 +17,7 @@ import { OPERATIONS_SOP } from '../knowledge/operationsSop';
 import { analyzeCaptureGuidance, analyzeOrientation, analyzeVehicleCondition, isFeatureEnabled, PersistedDamageResult } from './InspectionModels';
 import { validateReturnLocation } from './ReturnLocation';
 import { calculateCoverage, normalizeGuidance, PersistedGuidance } from './Coverage';
+import { incidentUrgency } from './IncidentUrgency';
 
 export class DashboardService {
   private repo: DatabaseRepository;
@@ -535,9 +536,11 @@ export class DashboardService {
     const lines = [
       `【${headlineMap[eventType] || 'iRent operations notification'}】`,
       `Vehicle: ${incident.plate}`,
+      `Incident ID: ${incident.id}`,
       `Incident: ${incident.label}`,
       `Station: ${incident.station}`,
       `AI confidence: ${incident.confidence}%`,
+      `Urgency: ${incident.urgencyScore}/10 (${incident.issueCount} findings)`,
       `Status: ${incident.status}`,
       `Assignee: ${incident.assignee}`
     ];
@@ -682,22 +685,26 @@ export class DashboardService {
     }
   }
 
-  public async createIncidentFromAiResult(submission: any, aiResults: any[], userId: number, submissionId: string): Promise<string[]> {
-    const created: string[] = [];
-    for (const result of aiResults) {
-      const shouldCreate = result.damageDetected || result.cleanliness === "dirty";
-      if (!shouldCreate) continue;
-
+  public createIncidentFromAiResult(submission: any, aiResults: any[], userId: number, submissionId: string): string[] {
+      // A submission is the unit of work: retain each finding in the timeline,
+      // but create one incident/task/notification for the complete set of photos.
+      const findings = aiResults.filter(result => result.damageDetected || result.cleanliness === 'dirty');
+      if (!findings.length) return [];
       const incidentId = this.createOpaqueId('INC-AI');
-      const isDirty = result.cleanliness === "dirty";
-      const label = isDirty ? "車內清潔異常" : `${result.damageLocation || result.slot} 新增車損`;
+      const isDirty = !findings.some(result => result.damageDetected);
+      const label = [...new Set(findings.flatMap(result => [
+        ...(result.damageDetected ? [`${result.damageLocation || result.slot} 車損`] : []),
+        ...(result.cleanliness === 'dirty' ? [`${result.slot} 清潔異常`] : [])
+      ]))].join('；');
+      const confidence = Math.round(Math.max(...findings.map(result => result.confidence || 0)) * 100);
+      const urgency = incidentUrgency(findings);
 
       const scoreInput = {
         type: isDirty ? "cleaning" : "damage",
         next_booking: 24,
         hot_station: 1,
-        confidence: Math.round(result.confidence * 100),
-        severity: isDirty ? "medium" : "high"
+        confidence,
+        severity: urgency.severity
       };
 
       const score = this.calculateScore(scoreInput);
@@ -708,34 +715,42 @@ export class DashboardService {
         station: submission.station || submission.parkingLocation || "租客回報位置",
         type: isDirty ? "cleaning" : "damage",
         label,
-        severity: isDirty ? "medium" : "high",
-        confidence: Math.round(result.confidence * 100),
+        severity: urgency.severity,
+        confidence,
         detected_time: new Date().toLocaleTimeString('zh-TW', { hour12: false }).substring(0, 5),
         next_booking: 24,
         hot_station: 1,
         map_x: 24 + Math.floor(Math.random() * 52),
         map_y: 24 + Math.floor(Math.random() * 52),
-        status: "assigned",
+        status: "todo",
         score,
         owner_user_id: userId,
-        source_submission_id: submissionId
+        source_submission_id: submissionId,
+        latitude: submission.returnLocation?.latitude,
+        longitude: submission.returnLocation?.longitude,
+        gps_accuracy: submission.returnLocation?.gpsAccuracy,
+        address: submission.returnLocation?.address,
+        parking_facility: submission.returnLocation?.parkingFacility,
+        floor: submission.returnLocation?.floor,
+        zone: submission.returnLocation?.zone,
+        pillar: submission.returnLocation?.pillar,
+        parking_slot: submission.returnLocation?.parkingSlot,
+        location_note: submission.returnLocation?.locationNote
       };
 
       this.repo.insertIncident(item);
+      this.repo.updateIncidentStatusAndAssignee(incidentId, 'todo', '待派工', {
+        issue_count: urgency.issueCount, urgency_score: urgency.urgencyScore
+      });
 
-      this.repo.addTimeline(
+      for (const result of findings) this.repo.addTimeline(
         incidentId,
         "photo_ai_analysis",
         "Photo AI Analysis",
-        `rentalId=${submission.rentalId} phase=${submission.phase} slot=${result.slot}`
+        `submissionId=${submissionId} rentalId=${submission.rental_id || submission.rentalId} phase=${submission.phase} slot=${result.slot} damage=${Boolean(result.damageDetected)} dirty=${result.cleanliness === 'dirty'}`
       );
 
-      const incidentRes = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId));
-      this.notifyLine(incidentId, "ai_detected", this.getLineMessage(incidentRes, "ai_detected"));
-
-      created.push(incidentId);
-    }
-    return created;
+      return [incidentId];
   }
 
   public async handlePhotoSubmissionAction(payload: any, userId: number) {
@@ -811,7 +826,7 @@ export class DashboardService {
       damageLocation: savedPhotos[index].slot,
       isNewDamage: damage.inference_status === 'success' && damage.damage_status === 'detected' && phase === 'return',
       confidence: damage.confidence || 0,
-      cleanliness: 'unknown',
+      cleanliness: savedPhotos[index].dirty_detected === 1 ? 'dirty' : 'unknown',
       damage
     }));
     const damageSummary = {
@@ -821,12 +836,12 @@ export class DashboardService {
       unavailable_photo_count: damageResults.filter(item => item.inference_status === 'failed').length,
       photos: damageResults
     };
-    const createdIncidents = await this.createIncidentFromAiResult(submissionObj, aiResults, userId, submissionId);
+    const createdIncidents = this.createIncidentFromAiResult(submissionObj, aiResults, userId, submissionId);
 
     const overallStatus = createdIncidents.length > 0 ? "warning" : "ok";
     const status = createdIncidents.length > 0 ? "incident_created" : "clear";
     const aiSummary = createdIncidents.length > 0
-      ? `AI found ${createdIncidents.length} issue(s) and created incident(s): ${createdIncidents.join(', ')}`
+      ? `AI found issues in ${damageSummary.detected_photo_count} photo(s); one incident created: ${createdIncidents[0]}`
       : "AI review found no new damage or cleanliness blocker.";
 
     // Insert photo submission row
@@ -863,15 +878,8 @@ export class DashboardService {
     }
 
     if (createdIncidents.length > 0) {
-      const lineMessage = [
-        `【Photo AI Incident】${payload.plate}`,
-        `Rental: ${payload.rentalId}`,
-        `Phase: ${payload.phase}`,
-        `Incidents: ${createdIncidents.join(', ')}`,
-        `Dashboard: /operator/dashboard`
-      ].join('\n');
-
-      this.notifyLine(createdIncidents[0], "photo_submission", lineMessage);
+      const incident = dbRowToIncidentResponse(this.repo.getIncidentById(createdIncidents[0])!);
+      this.notifyLine(incident.id, 'ai_detected', this.getLineMessage(incident, 'ai_detected', `Submission: ${submissionId}; ${damageSummary.detected_photo_count} abnormal photo(s)`));
     }
 
     return {
@@ -935,7 +943,7 @@ export class DashboardService {
     }
   }
 
-  public async handleAction(payload: any) {
+  public async handleAction(payload: any, actor?: SafeUser) {
     const action = payload.action;
     const incidentId = payload.incidentId;
 
@@ -946,7 +954,24 @@ export class DashboardService {
 
     const incidentRes = dbRowToIncidentResponse(incident);
 
-    if (action === "dispatch") {
+    if (action === 'assign_self' || (action === 'dispatch' && payload.assigneeUserId !== undefined)) {
+      if (!actor || actor.role !== 'admin') return { status: 403, ok: false, error: 'Admin login required' };
+      const userId = action === 'assign_self' ? actor.id : payload.assigneeUserId;
+      if (!Number.isInteger(userId)) return { status: 400, ok: false, error: 'Select a valid operator' };
+      const assignee = this.repo.getUserById(userId);
+      if (!assignee || !assignee.is_active || assignee.role !== 'admin') return { status: 400, ok: false, error: 'Assignee must be an active admin' };
+      if (incident.status === 'assigned' && incident.assigned_user_id === assignee.id) {
+        return { status: 200, ok: true, incident: incidentRes };
+      }
+      if (!this.repo.assignIncidentToUser(incidentId, assignee, action === 'assign_self')) {
+        return { status: 409, ok: false, error: '案件已被領取或狀態已變更，請重新整理後再操作。' };
+      }
+      const updated = dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!);
+      this.notifyLine(incidentId, 'dispatch', this.getLineMessage(updated, 'dispatch', `Assigned by ${actor.username}`));
+    } else if (action === "dispatch") {
+      if (!['todo', 'assigned'].includes(incident.status) || incident.assigned_user_id) {
+        return { status: 409, ok: false, error: '案件已有指定人員或已開始處理，請使用指定人員派工。' };
+      }
       const [team, region] = this.repo.assignTeam(incident.station);
       this.repo.updateIncidentStatusAndAssignee(incidentId, "assigned", team, {
         assigned_team: team,
@@ -990,6 +1015,7 @@ export class DashboardService {
       this.notifyLine(incidentId, "resolved", this.getLineMessage(updated, "resolved"));
 
     } else if (action === "reopen") {
+      if (!['resolved', 'done'].includes(incident.status)) return { status: 409, ok: false, error: 'Only closed incidents can be reopened' };
       const [team, region] = this.repo.assignTeam(incident.station);
       this.repo.updateIncidentStatusAndAssignee(incidentId, "assigned", team, {
         severity: "high",
@@ -998,6 +1024,7 @@ export class DashboardService {
         auto_closed: 0,
         manual_review_required: 0,
         resolved_at: null
+        , assigned_user_id: null
       });
       // Re-open dispatch task status to assigned
       this.repo.updateDispatchTaskStatus(incidentId, "assigned", team);

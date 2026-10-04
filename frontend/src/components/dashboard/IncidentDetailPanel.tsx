@@ -18,6 +18,7 @@ import {
   XOctagon
 } from 'lucide-react';
 import { CommentItem, Incident, MaintenanceReportItem, UploadedPhoto } from '../../context/AppContext';
+import UrgencyBadge from './UrgencyBadge';
 
 interface IncidentDetailPanelProps {
   incident?: Incident;
@@ -39,13 +40,13 @@ interface IncidentDetailPanelProps {
 }
 
 const STATUS_TEXT: Record<string, string> = {
-  todo: 'Need Dispatch', assigned: 'Auto Dispatch', in_progress: 'In Progress', waiting_review: 'Need Human Review', resolved: 'Closed', done: 'Closed'
+  todo: '待派工', assigned: '已派工', in_progress: 'In Progress', waiting_review: 'Need Human Review', resolved: 'Closed', done: 'Closed'
 };
 
 const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
   const [toolsOpen, setToolsOpen] = useState(false);
   const [preview, setPreview] = useState<number | null>(null);
-  const matchingPhotos = useMemo(() => props.incident ? props.photos.filter(photo => photo.plate === props.incident?.plate && photo.filePath) : [], [props.incident, props.photos]);
+  const matchingPhotos = useMemo(() => props.incident?.sourceSubmissionId ? props.photos.filter(photo => photo.submissionId === props.incident?.sourceSubmissionId && photo.filePath) : [], [props.incident, props.photos]);
 
   useEffect(() => { setPreview(null); }, [props.incident?.id]);
 
@@ -76,7 +77,7 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
 
   const metadata = [
     ['車號', incident.plate], ['站點', incident.station], ['事件類型', incident.label], ['AI 信心度', `${incident.confidence}%`],
-    ['Priority Score', String(incident.score)], ['狀態', status], ['建立時間', incident.time], ['資料來源', matchingPhotos.length ? 'User Upload (App)' : 'AI Operations']
+    ['Priority Score', String(incident.score)], ['狀態', status], ['負責人', incident.assignee], ['建立時間', incident.time], ['資料來源', matchingPhotos.length ? 'User Upload (App)' : 'AI Operations']
   ];
 
   return (
@@ -98,9 +99,10 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
       </div>
 
       <dl className="metadata-list">{metadata.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
+      <div className="urgency-summary"><UrgencyBadge score={incident.urgencyScore} issueCount={incident.issueCount} /><span>{incident.issueCount ? `${incident.issueCount} 個異常項目 · 每項加 1，最高 10` : '既有案件依嚴重度換算'}</span></div>
 
       {props.canManage && <div className="detail-actions">
-        <button type="button" className="btn btn-primary" onClick={() => props.onAction('dispatch')}><RefreshCw size={16} />派發任務</button>
+        <button type="button" className="btn btn-primary" disabled={!['todo', 'assigned'].includes(incident.status)} onClick={() => props.onAction('dispatch')}><RefreshCw size={16} />派發任務</button>
         <button type="button" className="btn btn-secondary" onClick={() => setToolsOpen(value => !value)}><MessageSquareText size={16} />完整處理工具<ChevronDown size={15} className={toolsOpen ? 'rotate-180' : ''} /></button>
       </div>}
 

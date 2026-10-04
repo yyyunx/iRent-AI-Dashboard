@@ -6,6 +6,7 @@ type Sample = { method: string; path: string; status: number; durationMs: number
 export function normalizedPath(path: string): string {
   return path
     .replace(/^\/uploads\/[^/]+$/, '/uploads/:filename')
+    .replace(/(\/agent\/action-drafts)\/[^/]+(?=\/|$)/, '$1/:draftId')
     .replace(/\/(?:SUB|INC|PHOTO)(?:-AI)?-[A-Za-z0-9_-]{16}(?=\/|$)/g, '/:id');
 }
 
@@ -15,11 +16,13 @@ export class PerformanceMonitor {
   private readonly limit = 200;
 
   public middleware = (req: Request, res: Response, next: NextFunction) => {
-    if (!req.path.startsWith('/api')) return next();
+    if (!req.path.startsWith('/api') && req.path !== '/healthz' && !req.path.startsWith('/uploads/')) return next();
+    // Capture before Express mounts the router and temporarily changes req.path.
+    const path = normalizedPath(req.path);
     const started = process.hrtime.bigint();
     res.on('finish', () => {
       const durationMs = Number(process.hrtime.bigint() - started) / 1_000_000;
-      this.samples.push({ method: req.method, path: normalizedPath(req.path), status: res.statusCode, durationMs, at: Date.now() });
+      this.samples.push({ method: req.method, path, status: res.statusCode, durationMs, at: Date.now() });
       if (this.samples.length > this.limit) this.samples.shift();
     });
     next();

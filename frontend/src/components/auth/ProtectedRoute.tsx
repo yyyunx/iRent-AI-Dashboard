@@ -8,14 +8,15 @@ export const ProtectedRoute: React.FC<{ children: React.ReactNode }> = ({ childr
   const auth = useAuth();
   const location = useLocation();
   if (auth.isLoading) return <AuthLoader />;
-  if (!auth.isAuthenticated) return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+  if (!auth.isAuthenticated) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   return <>{children}</>;
 };
 
 export const RequireRole: React.FC<{ roles: AuthRole[]; children: React.ReactNode }> = ({ roles, children }) => {
   const auth = useAuth();
+  const location = useLocation();
   if (auth.isLoading) return <AuthLoader />;
-  if (!auth.user) return <Navigate to="/login" replace />;
+  if (!auth.user) return <Navigate to="/login" replace state={{ from: location.pathname + location.search }} />;
   if (!roles.includes(auth.user.role)) return <Navigate to="/403" replace />;
   return <>{children}</>;
 };

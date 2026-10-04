@@ -349,6 +349,9 @@ export class DatabaseRepository {
     const migrations: Record<string, string> = {
       region: "TEXT DEFAULT ''",
       assigned_team: "TEXT DEFAULT ''",
+      assigned_user_id: "INTEGER",
+      issue_count: "INTEGER NOT NULL DEFAULT 0",
+      urgency_score: "INTEGER",
       auto_closed: "INTEGER NOT NULL DEFAULT 0",
       ai_review_confidence: "INTEGER",
       ai_review_result: "TEXT",
@@ -641,8 +644,8 @@ export class DatabaseRepository {
   public insertIncident(item: Partial<Incident>) {
     const ts = this.nowText();
     const [team, region] = this.assignTeam(item.station || '');
-    const status = item.type !== 'normal' ? 'assigned' : (item.status || 'done');
-    const assignee = item.type !== 'normal' ? team : '無需處理';
+    const status = item.status || (item.type !== 'normal' ? 'assigned' : 'done');
+    const assignee = status === 'todo' ? '待派工' : item.type !== 'normal' ? team : '無需處理';
 
     this.db.prepare(`
       INSERT OR REPLACE INTO Incident(
@@ -663,7 +666,7 @@ export class DatabaseRepository {
     );
 
     this.addTimeline(item.id!, "ai_detected", "AI Detected", `${item.label} | Confidence ${item.confidence}%`);
-    if (item.type !== 'normal') {
+    if (item.type !== 'normal' && status === 'assigned') {
       this.addTimeline(item.id!, "assigned", "Auto Assigned", `${region} | ${team}`);
     }
 
@@ -682,6 +685,7 @@ export class DatabaseRepository {
     const allowedFields = new Set([
       'assigned_team', 'region', 'manual_review_required', 'severity', 'resolved_at',
       'auto_closed', 'ai_review_result', 'ai_review_confidence', 'ai_review_summary'
+      , 'assigned_user_id', 'issue_count', 'urgency_score'
     ]);
     for (const [key, val] of Object.entries(extraFields)) {
       if (!allowedFields.has(key)) throw new Error(`Unsupported incident field: ${key}`);
@@ -913,6 +917,25 @@ export class DatabaseRepository {
       FROM User WHERE id = ?
     `).get(userId);
     return row ? row as UserAccount : null;
+  }
+
+  public getAssignableUsers() {
+    return this.db.prepare("SELECT id, username, role FROM User WHERE role = 'admin' AND is_active = 1 ORDER BY username").all() as Array<{ id: number; username: string; role: 'admin' }>;
+  }
+
+  /** Keep the claim and its task update atomic, including across SQLite connections. */
+  public assignIncidentToUser(incidentId: string, user: UserAccount, selfOnly: boolean): boolean {
+    return this.db.transaction(() => {
+      const result = this.db.prepare(`
+        UPDATE Incident SET status = 'assigned', assignee = ?, assigned_user_id = ?, updated_at = ?
+        WHERE id = ? AND status IN ('todo', 'assigned')
+          AND (? = 0 OR assigned_user_id IS NULL OR assigned_user_id = ?)
+      `).run(user.username, user.id, this.nowText(), incidentId, selfOnly ? 1 : 0, user.id);
+      if (result.changes !== 1) return false;
+      this.updateDispatchTaskStatus(incidentId, 'assigned', user.username);
+      this.addTimeline(incidentId, 'assigned', selfOnly ? 'Self Assigned' : 'Assigned to Operator', user.username);
+      return true;
+    })();
   }
 
   public countAdmins(): number {

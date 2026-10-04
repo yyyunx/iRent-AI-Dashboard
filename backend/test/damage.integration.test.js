@@ -69,13 +69,26 @@ test('DamageNet production persistence and submission data flow', async t => {
 
     global.fetch = async () => ({ ok: true, json: async () => ({ detections: [] }) });
     for (let index = 3; index < uploaded.length; index++) await service.handleConditionCheckAction({ photoId: uploaded[index].photoId }, 101);
+    // A second damaged photo must be folded into the same incident.
+    global.fetch = async () => ({ ok: true, json: async () => ({ detections: [
+      { label_id: 0, label: 'Scratched', confidence: 0.9, bbox_xyxy: [1, 2, 30, 40] },
+      { label_id: 1, label: 'Dented', confidence: 0.8, bbox_xyxy: [40, 40, 60, 60] }
+    ] }) });
+    await service.handleConditionCheckAction({ photoId: uploaded[3].photoId }, 101);
 
     await t.test('final summary comes from saved server results and scenario filenames are ignored', async () => {
       const photos = uploaded.map((item, index) => ({ slot: SLOTS[index], photoId: item.photoId, filename: index === 0 ? 'clean.png' : 'damage-client-claim.png', damageDetected: false }));
       const result = await service.handlePhotoSubmissionAction({ rentalId: 'R-DAMAGE', plate: 'AAA-0001', phase: 'pickup', photos, damageSummary: { detected_photo_count: 999 } }, 101);
-      assert.equal(result.damageSummary.detected_photo_count, 1);
+      assert.equal(result.damageSummary.detected_photo_count, 2);
       assert.equal(result.damageSummary.unavailable_photo_count, 1);
       assert.equal(result.createdIncidents.length, 1);
+      assert.equal(result.incidents[0].issueCount, 3);
+      assert.equal(result.incidents[0].urgencyScore, 3);
+      assert.equal(result.incidents[0].status, 'todo');
+      assert.equal(result.incidents[0].sourceSubmissionId, result.submissionId);
+      assert.equal(repo.getTimelines()[result.createdIncidents[0]].filter(row => row.event_type === 'photo_ai_analysis').length, 2);
+      assert.equal(repo.getNotifications().filter(row => row.incident_id === result.createdIncidents[0]).length, 1);
+      await assert.rejects(() => service.handlePhotoSubmissionAction({ rentalId: 'R-DAMAGE', plate: 'AAA-0001', phase: 'pickup', photos }, 101), error => error.status === 422);
       const savedSubmission = repo.getPhotoSubmissionDetail(result.submissionId);
       assert.deepEqual(JSON.parse(savedSubmission.damage_summary_json), result.damageSummary);
       const savedPhoto = JSON.parse(repo.getUploadedPhotoById(uploaded[0].photoId).ai_result_json);

@@ -16,6 +16,9 @@ export interface Incident {
   score: number;
   region: string;
   assigned_team: string;
+  assigned_user_id?: number | null;
+  issue_count?: number;
+  urgency_score?: number | null;
   auto_closed: number; // 0 or 1
   ai_review_confidence?: number | null;
   ai_review_result?: string | null;
@@ -65,6 +68,10 @@ export interface IncidentResponse {
   score: number;
   region: string;
   assignedTeam: string; // maps to assigned_team
+  assignedUserId: number | null;
+  sourceSubmissionId: string | null;
+  issueCount: number;
+  urgencyScore: number;
   autoClosed: boolean; // maps to auto_closed
   aiReviewConfidence: number | null;
   aiReviewResult: string | null;
@@ -302,6 +309,10 @@ export function dbRowToIncidentResponse(row: any): IncidentResponse {
     score: row.score,
     region: row.region || '',
     assignedTeam: row.assigned_team || '',
+    assignedUserId: row.assigned_user_id ?? null,
+    sourceSubmissionId: row.source_submission_id ?? null,
+    issueCount: row.issue_count ?? 0,
+    urgencyScore: row.urgency_score ?? (row.severity === 'high' ? 8 : row.severity === 'medium' ? 5 : 1),
     autoClosed: Boolean(row.auto_closed),
     aiReviewConfidence: row.ai_review_confidence ?? null,
     aiReviewResult: row.ai_review_result ?? null,

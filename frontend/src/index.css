@@ -1009,3 +1009,10 @@ button { -webkit-tap-highlight-color: transparent; }
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+ .dispatch-panel { padding: 20px; display: flex; flex-direction: column; gap: 12px; }
+ .dispatch-panel h3, .dispatch-panel p { margin: 0; }
+ .dispatch-select { display: flex; flex-direction: column; gap: 8px; }
+ .dispatch-select select { padding: 10px; border: 1px solid #dce1e7; border-radius: 8px; background: white; }
+ .urgency-badge { display: inline-flex; align-items: center; gap: 6px; white-space: nowrap; padding: 5px 9px; border: 1px solid; border-radius: 999px; font-size: 12px; font-weight: 700; background: white; }
+ .urgency-badge > span { width: 8px; height: 8px; border-radius: 50%; }
+ .urgency-summary { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin: 12px 0; font-size: 12px; }

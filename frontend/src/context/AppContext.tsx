@@ -19,6 +19,10 @@ export interface Incident {
   score: number;
   region: string;
   assignedTeam: string;
+  assignedUserId: number | null;
+  sourceSubmissionId: string | null;
+  issueCount: number;
+  urgencyScore: number;
   autoClosed: boolean;
   aiReviewConfidence: number | null;
   aiReviewResult: string | null;

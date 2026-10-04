@@ -78,13 +78,13 @@ export class DashboardController {
   public handleAction = async (req: Request, res: Response) => {
     const payload = req.body;
     try {
-      const result = await this.service.handleAction(payload);
+      const result = await this.service.handleAction(payload, req.authUser!);
       if (!result.ok) return res.status(result.status || 400).json({ ok: false, error: result.error });
       const actions: Record<string, string> = {
-        dispatch: 'DISPATCH_INCIDENT', resolve: 'RESOLVE_INCIDENT', reopen: 'REOPEN_INCIDENT',
+        dispatch: 'DISPATCH_INCIDENT', assign_self: 'SELF_ASSIGN_INCIDENT', resolve: 'RESOLVE_INCIDENT', reopen: 'REOPEN_INCIDENT',
         comment: 'COMMENT_INCIDENT', in_progress: 'START_INCIDENT', maintenance_report: 'MAINTENANCE_REPORT'
       };
-      this.repo.addAuditLog(req.authUser!.id, actions[payload.action] || 'INCIDENT_ACTION', 'incident', String(payload.incidentId), { action: payload.action });
+      this.repo.addAuditLog(req.authUser!.id, actions[payload.action] || 'INCIDENT_ACTION', 'incident', String(payload.incidentId), { action: payload.action, assigneeUserId: result.incident?.assignedUserId });
       res.json({
         ok: true,
         changedResource: { type: 'incident', data: result.incident },
@@ -94,6 +94,10 @@ export class DashboardController {
       const status = ['Invalid image payload', 'Image exceeds 10 MB limit', 'Image MIME type does not match file signature', 'Image dimensions exceed limit', 'Image decode failed'].includes(e.message) ? 400 : 500;
       res.status(status).json({ ok: false, error: e.message || 'Failed to handle action' });
     }
+  };
+
+  public getAssignableUsers = (_req: Request, res: Response) => {
+    res.json({ ok: true, users: this.repo.getAssignableUsers() });
   };
 
   public runQualityCheck = async (req: Request, res: Response) => {
