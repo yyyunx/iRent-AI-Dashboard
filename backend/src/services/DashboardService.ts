@@ -53,7 +53,7 @@ export class DashboardService {
   public getOpsMetrics(incidents = this.repo.getIncidents()) {
     const reportsCount = this.repo.getMaintenanceReportCount();
     const autoClosedCount = incidents.filter(i => i.auto_closed === 1).length;
-    const waitingCount = incidents.filter(i => i.status === 'in_progress').length;
+    const waitingCount = incidents.filter(i => i.status === 'in_progress' && i.manual_review_required === 1).length;
 
     const rate = reportsCount > 0 ? Math.round((autoClosedCount / reportsCount) * 100) : 0;
     const savedMinutes = autoClosedCount * 18 + Math.max(waitingCount, 0) * 6;
@@ -107,6 +107,7 @@ export class DashboardService {
 
     return {
       incidents,
+      incidentAliases: Object.fromEntries(Object.entries(this.repo.getIncidentAliases()).filter(([, id]) => allowedIncidentIds.has(id))),
       damageHotspots: hotspotsVal,
       lineGroup,
       lineConfig,
@@ -258,7 +259,7 @@ export class DashboardService {
         highRiskIncidents: active.filter(item => item.severity === 'high').length,
         bookingRiskIncidents: active.filter(item => item.next_booking <= 30).length,
         overdueIncidents: slaAlerts.filter((item: any) => item.ageMinutes >= item.thresholdMinutes).length,
-        pendingMaintenance: active.filter(item => ['assigned', 'in_progress', 'in_progress'].includes(item.status)).length,
+        pendingMaintenance: active.filter(item => ['assigned', 'in_progress'].includes(item.status)).length,
         lineNotificationsNeedingAttention: lineWaiting
       },
       slaAlerts,
@@ -530,8 +531,8 @@ export class DashboardService {
     return this.repo.getNotificationStats();
   }
 
-  public notifyLine(incidentId: string | null, eventType: string, message: string) {
-    return this.notifications.queueLineMessage(incidentId, eventType, message);
+  public notifyLine(incidentId: string | null, eventType: string, message: string, deferDelivery = false) {
+    return this.notifications.queueLineMessage(incidentId, eventType, message, deferDelivery);
   }
 
   public getLineMessage(incident: IncidentResponse, eventType: string, extra = ""): string {
@@ -766,10 +767,7 @@ export class DashboardService {
 
   public async handlePhotoSubmissionAction(payload: any, userId: number) {
     const result = this.repo.withTransaction(() => this.processPhotoSubmission(payload, userId));
-    if (!result.idempotentReplay && result.createdIncidents.length) {
-      const incident = dbRowToIncidentResponse(this.repo.getIncidentById(result.createdIncidents[0])!);
-      this.notifyLine(incident.id, 'ai_detected', this.getLineMessage(incident, 'ai_detected', `Submission: ${result.submissionId}; ${incident.issueCount} abnormalities`));
-    }
+    this.notifications.resumePending();
     return result;
   }
 
@@ -932,6 +930,10 @@ export class DashboardService {
       incidents: createdIncidents.map(id => dbRowToIncidentResponse(this.repo.getIncidentById(id)!))
     };
     this.repo.saveSubmissionRequest(userId, requestKey, requestHash, submissionId, result);
+    if (createdIncidents.length) {
+      const incident = result.incidents[0];
+      this.notifyLine(incident.id, 'ai_detected', this.getLineMessage(incident, 'ai_detected', `Submission: ${submissionId}; ${incident.issueCount} abnormalities`), true);
+    }
     return { ...result, idempotentReplay: false };
   }
 
@@ -1001,7 +1003,7 @@ export class DashboardService {
       return { status: 404, ok: false, error: "Incident not found" };
     }
 
-    const incidentRes = dbRowToIncidentResponse(incident);
+    const incidentRes = dbRowToIncidentResponse({ ...incident, score: this.calculateScore(incident) });
     incidentId = incident.id;
     if (actor?.role === 'operator' && action !== 'assign_self' && incident.assigned_user_id !== actor.id) {
       return { status: 403, ok: false, error: 'Forbidden: operator can only act on their own assigned incident' };
@@ -1138,6 +1140,7 @@ export class DashboardService {
       return { status: 400, ok: false, error: "Unknown action" };
     }
 
-    return { status: 200, ok: true, incident: dbRowToIncidentResponse(this.repo.getIncidentById(incidentId)!) };
+    const latest = this.repo.getIncidentById(incidentId)!;
+    return { status: 200, ok: true, incident: dbRowToIncidentResponse({ ...latest, score: this.calculateScore(latest) }) };
   }
 }

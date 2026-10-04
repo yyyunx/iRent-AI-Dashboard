@@ -45,6 +45,43 @@ test('LINE retry keeps its key/payload, accepts acknowledged 409 and measures la
     await wait();
     assert.equal(repo.getNotifications().filter(row => row.event_type === 'assignment_escalation').length, 1);
     assert.ok(repo.getTimelines()['INC-urgent'].some(row => row.event_type === 'assignment_escalation'));
+
+    const nearCutoff = new Database(path.join(root, 'test.db'));
+    repo.insertIncident({ id: 'INC-recent-urgent', plate: 'URG-456', station: '台北站', type: 'damage', label: '車損', severity: 'high', confidence: 91, status: 'pending_assignment' });
+    nearCutoff.prepare("UPDATE Incident SET created_at = datetime('now', 'localtime', '-11 minutes') WHERE id = 'INC-recent-urgent'").run();
+    nearCutoff.close();
+    assert.equal(notifications.scanAssignmentEscalations(), 1);
+    await wait();
+
+    const ordered = [];
+    let release;
+    const gate = new Promise(resolve => { release = resolve; });
+    global.fetch = async (_url, options) => {
+      ordered.push(JSON.parse(options.body));
+      if (ordered.length === 1) await gate;
+      return { ok: true, status: 200, text: async () => '{}' };
+    };
+    // Rollback cannot leak an external notification or an in-memory queue item.
+    const previousCount = repo.getNotifications().length;
+    assert.throws(() => repo.withTransaction(() => {
+      notifications.queueLineMessage('INC-302', 'rollback-test', 'rolled back', true);
+      throw new Error('rollback');
+    }), /rollback/);
+    assert.equal(repo.getNotifications().length, previousCount);
+    assert.equal(ordered.length, 0);
+    notifications.queueLineMessage('INC-302', 'dispatch', 'assigned');
+    repo.updateIncidentStatusAndAssignee('INC-302', 'in_progress', 'assigned-person');
+    notifications.queueLineMessage('INC-302', 'in_progress', 'started');
+    repo.updateIncidentStatusAndAssignee('INC-302', 'resolved', 'assigned-person');
+    notifications.queueLineMessage('INC-302', 'resolved', 'resolved');
+    assert.equal(ordered.length, 1);
+    release();
+    await wait();
+    assert.equal(ordered.length, 3);
+    const statusText = ordered.map(body => body.messages[0].contents.body.contents[2].text);
+    assert.ok(statusText[0].includes('已接單'));
+    assert.ok(statusText[1].includes('開始處理'));
+    assert.ok(statusText[2].includes('已完成'));
   } finally {
     notifications.close(); repo.close(); global.fetch = originalFetch;
     for (const [name, value] of Object.entries(savedEnv)) { if (value === undefined) delete process.env[name]; else process.env[name] = value; }

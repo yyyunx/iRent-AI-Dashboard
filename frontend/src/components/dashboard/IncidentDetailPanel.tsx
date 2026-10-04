@@ -137,7 +137,7 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
         </div>
       )}
 
-      {completed && <div className="closed-notice"><CheckCircle2 size={16} />{props.canManage ? '此 Incident 已完成處理，可透過完整處理工具重新開案。' : '此 Incident 已完成處理。'}</div>}
+      {completed && <div className="closed-notice"><CheckCircle2 size={16} />{isAdmin ? '此 Incident 已完成處理，可透過完整處理工具重新開案。' : '此 Incident 已完成處理。'}</div>}
 
       {preview !== null && matchingPhotos[preview]?.filePath && createPortal(<div className="image-preview" role="dialog" aria-modal="true" aria-label="事件照片預覽" onClick={() => setPreview(null)}>
         <button type="button" aria-label="關閉圖片預覽" autoFocus onClick={() => setPreview(null)}><X size={20} /></button>

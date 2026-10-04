@@ -5,6 +5,7 @@ import { useApp, Incident } from '../../context/AppContext';
 import IncidentQueue, { QueueTab } from '../../components/dashboard/IncidentQueue';
 import IncidentDetailPanel from '../../components/dashboard/IncidentDetailPanel';
 import ActivityTimeline from '../../components/dashboard/ActivityTimeline';
+import LatencyPanel from '../../components/dashboard/LatencyPanel';
 import { useAuth } from '../../context/AuthContext';
 
 const Dashboard: React.FC = () => {
@@ -30,7 +31,8 @@ const Dashboard: React.FC = () => {
   const [dispatchingId, setDispatchingId] = useState<string | null>(null);
 
   const incidents = state?.incidents || [];
-  const selected = linkedId ? incidents.find(item => item.id === linkedId) : incidents.find(item => item.id === selectedId) || incidents[0];
+  const canonicalLinkedId = linkedId ? state?.incidentAliases?.[linkedId] || linkedId : null;
+  const selected = canonicalLinkedId ? incidents.find(item => item.id === canonicalLinkedId) : incidents.find(item => item.id === selectedId) || incidents[0];
   const timeline = selected ? state?.timelines[selected.id] || [] : [];
   const comments = selected ? state?.comments[selected.id] || [] : [];
   const reports = selected ? state?.maintenanceReports[selected.id] || [] : [];
@@ -155,6 +157,7 @@ const Dashboard: React.FC = () => {
             <button className="btn btn-secondary" onClick={() => { setDispatchOpen(false); setParams({ incidentId: selected.id }); }}>取消</button>
           </section>}
           <ActivityTimeline incidentId={selected?.id} events={timeline} />
+          {canAssignOthers && <LatencyPanel />}
         </aside>
       </div>
     </div>

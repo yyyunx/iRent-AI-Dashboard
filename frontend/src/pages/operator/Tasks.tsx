@@ -15,15 +15,15 @@ const Tasks: React.FC = () => {
 
   const getTaskStatusText = (status: string) => {
     return status === 'assigned' ? '已派工'
-      : status === 'in_progress' ? 'Need Human Review'
-      : status === 'resolved' || status === 'resolved' ? 'Closed'
+      : status === 'in_progress' ? '處理中'
+      : status === 'resolved' || status === 'false_positive' ? 'Closed'
       : 'AI Detect';
   };
 
   // Group columns
   const todoTasks = incidents.filter(i => i.type !== 'normal' && (i.status === 'pending_assignment' || i.status === 'reopened'));
-  const assignedTasks = incidents.filter(i => i.type !== 'normal' && (i.status === 'assigned' || i.status === 'in_progress' || i.status === 'in_progress'));
-  const doneTasks = incidents.filter(i => i.type !== 'normal' && (i.status === 'resolved' || i.status === 'resolved'));
+  const assignedTasks = incidents.filter(i => i.type !== 'normal' && (i.status === 'assigned' || i.status === 'in_progress'));
+  const doneTasks = incidents.filter(i => i.type !== 'normal' && (i.status === 'resolved' || i.status === 'false_positive'));
 
   const renderColumn = (title: string, list: typeof incidents) => {
     return (

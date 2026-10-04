@@ -167,6 +167,7 @@ export class DashboardController {
       res.json({
         ok: true,
         submissionId: result.submissionId,
+        idempotentReplay: result.idempotentReplay,
         overallStatus: result.overallStatus,
         coverageSummary: result.coverageSummary,
         damageSummary: result.damageSummary,

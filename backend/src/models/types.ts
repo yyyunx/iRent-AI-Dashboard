@@ -98,6 +98,10 @@ export interface IncidentResponse {
 }
 
 export interface IncidentTimeline {
+  actor_user_id?: number | null;
+  old_status?: string | null;
+  new_status?: string | null;
+  timestamp?: string | null;
   id?: number;
   incident_id: string;
   event_type: string;

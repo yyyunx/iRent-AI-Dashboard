@@ -92,6 +92,7 @@ test('legacy per-photo incidents merge with history, aliases and archived origin
     const canonical = repo.getIncidentById('INC-303');
     assert.ok(canonical);
     assert.equal(repo.getIncidents().filter(row => row.source_submission_id === 'legacy-one-submission').length, 1);
+    assert.equal(repo.getIncidentById(repo.getIncidentAliases()['INC-303']).id, canonical.id);
     assert.equal(check.prepare('SELECT COUNT(*) AS count FROM IncidentMergeArchive').get().count, 2);
     assert.ok(repo.getComments()[canonical.id].some(row => row.body === 'preserve comment'));
     assert.deepEqual(check.prepare('PRAGMA foreign_key_check').all(), []);

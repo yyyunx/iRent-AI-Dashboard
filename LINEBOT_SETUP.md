@@ -1,5 +1,7 @@
 # 串接 iRent LINE Bot
 
+功能、派工權限、狀態機、重送保護及 API 流程請看 [LINE_README.md](LINE_README.md)；端點實測請看 [API_LATENCY.md](API_LATENCY.md)。
+
 本專案使用 **LINE Official Account 的 Messaging API**。請勿使用已停止服務的 LINE Notify。
 
 ## 1. 在 LINE 建立 Channel
@@ -16,6 +18,8 @@
 ```env
 LINE_CHANNEL_ACCESS_TOKEN=你的長效ChannelAccessToken
 LINE_CHANNEL_SECRET=你的ChannelSecret
+PUBLIC_DASHBOARD_URL=https://你的Dashboard網域
+LINE_ESCALATION_MINUTES=10
 # 可選。若未設定，可透過 webhook 自動取得第一個來源的 ID，或由管理頁填入。
 LINE_TARGET_ID=
 ```

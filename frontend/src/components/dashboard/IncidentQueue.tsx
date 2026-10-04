@@ -76,6 +76,7 @@ const IncidentQueue: React.FC<IncidentQueueProps> = props => {
         {filtered.map(item => {
           const active = item.id === props.selectedId;
           const done = isDone(item);
+          const canDispatch = ['pending_assignment', 'assigned', 'reopened'].includes(item.status);
           const tone = item.severity === 'high' ? 'danger' : item.severity === 'medium' ? 'warning' : 'success';
           const primaryAction = !done && item.severity === 'high';
           const photo = item.sourceSubmissionId ? props.photos.find(candidate => candidate.submissionId === item.sourceSubmissionId && candidate.filePath) : undefined;
@@ -91,8 +92,8 @@ const IncidentQueue: React.FC<IncidentQueueProps> = props => {
               </div>
               <div className="incident-row__time">{item.nextBooking <= 30 ? `${item.nextBooking} 分鐘內` : STATUS_TEXT[item.status]}</div>
               <UrgencyBadge score={item.urgencyScore} issueCount={item.issueCount} />
-              {props.canManage && <button type="button" className={primaryAction ? 'row-action' : 'row-action row-action--secondary'} disabled={props.dispatchingId === item.id} onClick={event => { event.stopPropagation(); done ? props.onSelect(item.id) : props.onDispatch(item); }}>
-                {props.dispatchingId === item.id ? '處理中…' : done ? '查看詳情' : '派發任務'} <ChevronRight size={15} />
+              {props.canManage && <button type="button" className={primaryAction && canDispatch ? 'row-action' : 'row-action row-action--secondary'} disabled={props.dispatchingId === item.id} onClick={event => { event.stopPropagation(); canDispatch ? props.onDispatch(item) : props.onSelect(item.id); }}>
+                {props.dispatchingId === item.id ? '處理中…' : canDispatch ? '派發任務' : '查看詳情'} <ChevronRight size={15} />
               </button>}
             </article>
           );

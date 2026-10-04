@@ -13,8 +13,10 @@ const Login: React.FC = () => {
   const [selectedRole, setSelectedRole] = useState<'user' | 'admin'>('user');
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const requested = (location.state as { from?: string } | null)?.from;
+  const safeRequested = requested && /^\/(?!\/)/.test(requested) && !requested.includes('\\');
 
-  if (!auth.isLoading && auth.user) return <Navigate to={auth.user.role === 'user' ? '/customer' : '/operator/dashboard'} replace />;
+  if (!auth.isLoading && auth.user) return <Navigate to={safeRequested ? requested : auth.user.role === 'user' ? '/customer' : '/operator/dashboard'} replace />;
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -22,8 +24,6 @@ const Login: React.FC = () => {
     setError('');
     try {
       const authenticatedUser = await auth.login(username.trim(), password);
-      const requested = (location.state as { from?: string } | null)?.from;
-      const safeRequested = requested && /^\/(?!\/)/.test(requested) && !requested.includes('\\');
       const roleHome = authenticatedUser.role === 'user' ? '/customer' : '/operator/dashboard';
       navigate(safeRequested ? requested : roleHome, { replace: true });
     } catch (reason) {
@@ -45,8 +45,8 @@ const Login: React.FC = () => {
               <span className="block mt-1 text-xs leading-5 text-irent-muted">上傳取車／還車照片，通過 Laplacian 檢查後提交。</span>
             </button>
             <button type="button" aria-pressed={selectedRole === 'admin'} onClick={() => setSelectedRole('admin')} className={`text-left rounded-2xl border p-3 transition-colors ${selectedRole === 'admin' ? 'border-irent-red bg-irent-soft-red' : 'border-irent-line hover:border-irent-red/50'}`}>
-              <span className="flex items-center gap-2 text-sm font-extrabold text-irent-ink"><ShieldCheck size={17} className="text-irent-red" />管理者</span>
-              <span className="block mt-1 text-xs leading-5 text-irent-muted">查看 Dashboard、處理 Incident、派工並 Comment／Resolve。</span>
+              <span className="flex items-center gap-2 text-sm font-extrabold text-irent-ink"><ShieldCheck size={17} className="text-irent-red" />營運人員</span>
+              <span className="block mt-1 text-xs leading-5 text-irent-muted">Operator 自領與處理案件；Admin 可指定人員並管理系統。</span>
             </button>
           </div>
           <p className="m-0 mt-2 text-xs text-irent-muted flex items-center gap-1"><ClipboardCheck size={14} />實際可用功能依登入帳號的後端角色判定。</p>

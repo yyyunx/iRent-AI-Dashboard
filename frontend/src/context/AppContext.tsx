@@ -88,6 +88,10 @@ export interface UploadedPhoto {
 }
 
 export interface TimelineItem {
+  actor_user_id?: number | null;
+  old_status?: string | null;
+  new_status?: string | null;
+  timestamp?: string | null;
   id: number;
   incident_id: string;
   event_type: string;
@@ -148,6 +152,7 @@ export interface AppState {
   inspectionConfig: { orientationCheckEnabled: boolean; conditionCheckEnabled: boolean; };
   lineLogs: { title: string; time: string; group: string; message: string; status: string; error: string | null }[];
   timelines: Record<string, TimelineItem[]>;
+  incidentAliases?: Record<string, string>;
   comments: Record<string, CommentItem[]>;
   notificationStats: { provider: string; status: string; count: number }[];
   maintenanceReports: Record<string, MaintenanceReportItem[]>;
@@ -241,7 +246,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setState(data);
       setLoadError(null);
       if (data.incidents && data.incidents.length > 0) {
-        const active = data.incidents.find((i: Incident) => i.status !== 'resolved' && i.status !== 'resolved');
+        const active = data.incidents.find((i: Incident) => i.status !== 'resolved' && i.status !== 'false_positive');
         setSelectedId(previous => previous || (active ? active.id : data.incidents[0].id));
       }
       return true;

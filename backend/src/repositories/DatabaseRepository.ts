@@ -797,12 +797,11 @@ export class DatabaseRepository {
 
   public recoverStaleLineNotifications(staleAfterSeconds: number): number {
     const seconds = Math.min(Math.max(Math.floor(staleAfterSeconds), 30), 86_400);
-    const cutoff = new Date(Date.now() - seconds * 1000).toISOString();
     const result = this.db.prepare(`
       UPDATE NotificationLog
       SET status = 'queued', error = 'Recovered after process restart', updated_at = ?
-      WHERE provider = 'line' AND status = 'sending' AND updated_at <= ?
-    `).run(this.nowText(), cutoff);
+      WHERE provider = 'line' AND status = 'sending' AND updated_at <= datetime('now', 'localtime', ?)
+    `).run(this.nowText(), `-${seconds} seconds`);
     return result.changes;
   }
 
@@ -962,6 +961,11 @@ export class DatabaseRepository {
       FROM User WHERE id = ?
     `).get(userId);
     return row ? row as UserAccount : null;
+  }
+
+  public getIncidentAliases(): Record<string, string> {
+    const aliases = this.db.prepare('SELECT legacy_id, incident_id FROM IncidentAlias').all() as Array<{ legacy_id: string; incident_id: string }>;
+    return Object.fromEntries(aliases.map(row => [row.legacy_id, row.incident_id]));
   }
 
   /** SQLite CHECK constraints require a table rebuild. Preserve IDs, columns, indexes,

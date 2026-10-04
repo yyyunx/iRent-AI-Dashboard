@@ -2,6 +2,10 @@
 
 iRent AI 是一個 Hackathon 展示專案，將租車人的取車／還車照片轉換成可追蹤的營運案件。
 
+LINE 功能與派工規格：[LINE_README.md](LINE_README.md)。端點 latency 實測與觀測方式：[API_LATENCY.md](API_LATENCY.md)。
+
+一次 user Submission 最多建立一個 Incident，彙整該次所有照片異常；同一台車下次提交可再開新案。緊急程度依 dirty=1、scratch=2、dent=3、damage/broken=4 加總，上限 10，Dashboard 與 LINE 同時顯示計分原因。Incident 統一使用 `pending_assignment → assigned → in_progress → resolved`，另支援 `false_positive / reopened`。
+
 系統從使用者上傳照片開始，先執行照片品質檢查，再進入車況分析流程。若發現車損或髒污，可建立 Incident、進行事件分級、LINE Bot 通知與後續派工；還車流程同時保存 GPS 與停車詳細位置，讓營運人員可以透過 OpenStreetMap 快速定位車輛。
 
 整體目標是建立：
@@ -24,9 +28,10 @@ Photo Inspection
 
 ## Authentication 與權限
 
-系統採用單一登入入口，並區分兩種角色：
+系統採用單一登入入口，並區分三種角色：
 
 - `user`：一般租車使用者
+- `operator`：可自領，並開始、回報及結案自己的案件；不能指派其他人或管理設定
 - `admin`：營運管理人員
 
 實際權限由 Backend 與 SQLite `User` 資料決定，Frontend 的角色選擇只負責登入流程分流，不能用來取得額外權限。

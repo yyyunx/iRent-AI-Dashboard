@@ -77,7 +77,7 @@ const OperatorLayout: React.FC = () => {
           })}
         </nav>
         <div className="sidebar-spacer" />
-        <button type="button" className="sidebar-user" onClick={async () => { await auth.logout(); navigate('/login', { replace: true }); }}><span className="avatar">iR</span><span><strong>{auth.user?.username}</strong><small>{auth.user?.role === 'admin' ? '營運管理員' : '一般使用者'}</small></span><LogOut size={16} strokeWidth={1.75} aria-label="登出" /></button>
+        <button type="button" className="sidebar-user" onClick={async () => { await auth.logout(); navigate('/login', { replace: true }); }}><span className="avatar">iR</span><span><strong>{auth.user?.username}</strong><small>{auth.user?.role === 'admin' ? '營運管理員' : '營運人員'}</small></span><LogOut size={16} strokeWidth={1.75} aria-label="登出" /></button>
       </aside>
 
       <main className="ops-main">

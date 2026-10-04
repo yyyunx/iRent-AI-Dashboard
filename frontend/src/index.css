@@ -2,6 +2,16 @@
 @tailwind components;
 @tailwind utilities;
 
+.latency-panel { padding: 20px; min-width: 0; }
+.latency-panel h2 { font-size: 18px; margin: 4px 0 12px; }
+.latency-panel p { font-size: 12px; color: #64748b; line-height: 1.6; }
+.latency-table-wrap { overflow-x: auto; margin: 12px 0; }
+.latency-panel table { width: 100%; border-collapse: collapse; font-size: 12px; text-align: left; }
+.latency-panel caption { text-align: left; margin-bottom: 8px; font-weight: 700; }
+.latency-panel td, .latency-panel th { padding: 8px 6px; border-bottom: 1px solid #e2e8f0; }
+.latency-panel td:first-child { overflow-wrap: anywhere; min-width: 120px; }
+.latency-panel summary { cursor: pointer; font-size: 13px; font-weight: 700; }
+
 .irent-osm-marker { background: transparent; border: 0; }
 .irent-osm-marker span { display: block; width: 18px; height: 18px; border: 3px solid #fff; border-radius: 50% 50% 50% 0; box-shadow: 0 2px 7px rgba(15, 23, 42, .35); transform: rotate(-45deg); }
 

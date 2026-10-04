@@ -2,12 +2,14 @@ import React from 'react';
 import { BellRing, CircleAlert, Clock3, ExternalLink, Send } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useApp } from '../../context/AppContext';
+import { useAuth } from '../../context/AuthContext';
 
 const Notifications: React.FC = () => {
   const { state, apiPost, showToast } = useApp();
   const navigate = useNavigate();
   const logs = state?.lineLogs || [];
   const connected = state?.lineConfig?.connected;
+  const isAdmin = useAuth().user?.role === 'admin';
 
   const test = async () => {
     try {
@@ -26,8 +28,8 @@ const Notifications: React.FC = () => {
           <strong className={`block text-sm ${connected ? 'text-[#067b37]' : 'text-amber-800'}`}>{connected ? 'LINE Messaging API 已就緒' : 'LINE 尚未完成連線'}</strong>
           <span className="block text-xs text-irent-muted leading-relaxed mt-1">通知會先記錄為 queued，再由最多兩個背景工作者發送並重試一次。</span>
         </div>
-        <button onClick={test} disabled={!connected} className="min-h-[44px] rounded-xl bg-irent-red text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"><Send size={16} />發送測試通知</button>
-        <button onClick={() => navigate('/operator/settings')} className="min-h-[44px] rounded-xl border border-irent-line text-irent-muted font-bold text-sm flex items-center justify-center gap-2"><ExternalLink size={16} />管理 LINE 設定</button>
+        {isAdmin && <button onClick={test} disabled={!connected} className="min-h-[44px] rounded-xl bg-irent-red text-white font-bold text-sm disabled:opacity-50 flex items-center justify-center gap-2"><Send size={16} />發送測試通知</button>}
+        {isAdmin && <button onClick={() => navigate('/operator/settings')} className="min-h-[44px] rounded-xl border border-irent-line text-irent-muted font-bold text-sm flex items-center justify-center gap-2"><ExternalLink size={16} />管理 LINE 設定</button>}
         <p className="text-xs text-irent-muted leading-relaxed m-0">所有新案件事件皆由 LINE Bot 發送，狀態與錯誤會保留在通知紀錄。</p>
       </section>
 

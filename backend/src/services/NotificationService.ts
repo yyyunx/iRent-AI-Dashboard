@@ -19,13 +19,19 @@ type QueuedLineNotification = {
 export class NotificationService {
   private readonly queue: QueuedLineNotification[] = [];
   private activeWorkers = 0;
+  private readonly activeIncidents = new Set<string>();
   private readonly maxWorkers = 2;
   private escalationTimer?: NodeJS.Timeout;
 
   constructor(private readonly repo: DatabaseRepository) {
     const configured = Number(process.env.LINE_SENDING_STALE_SECONDS || 300);
     this.repo.recoverStaleLineNotifications(Number.isFinite(configured) ? configured : 300);
+    this.resumePending();
+  }
+
+  public resumePending() {
     for (const row of this.repo.getPendingNotifications()) {
+      if (this.queue.some(item => item.id === row.id)) continue;
       if (row.target_id) {
         this.queue.push({ id: row.id, incidentId: row.incident_id, eventType: row.event_type, targetId: row.target_id, message: row.message,
           messages: row.payload_json ? JSON.parse(row.payload_json) : undefined, retryKey: row.retry_key || undefined, queuedAt: Date.parse(row.created_at) });
@@ -58,7 +64,7 @@ export class NotificationService {
     if (input.enabled !== undefined) this.repo.setSetting('lineNotificationEnabled', String(input.enabled));
   }
 
-  public queueLineMessage(incidentId: string | null, eventType: string, message: string) {
+  public queueLineMessage(incidentId: string | null, eventType: string, message: string, deferDelivery = false) {
     // A client retry must never fan out the same incident event to the ops group.
     // Failed rows remain retryable; queued/sending/sent are already represented by one delivery.
     if (incidentId && ['ai_detected', 'photo_submission', 'assignment_escalation'].includes(eventType)
@@ -74,6 +80,7 @@ export class NotificationService {
     const messages = this.buildLineMessages({ incidentId, message });
     const retryKey = crypto.randomUUID();
     const id = this.repo.addNotification({ provider: 'line', incidentId, eventType, targetId: config.targetId, message, status: 'queued', payloadJson: JSON.stringify(messages), retryKey });
+    if (deferDelivery) return 'queued';
     this.queue.push({ id, incidentId, eventType, targetId: config.targetId, message, messages, retryKey, queuedAt: Date.now() });
     this.drain();
     return 'queued';
@@ -115,12 +122,16 @@ export class NotificationService {
 
   private drain() {
     while (this.activeWorkers < this.maxWorkers && this.queue.length > 0) {
-      const item = this.queue.shift();
+      const next = this.queue.findIndex(item => !item.incidentId || !this.activeIncidents.has(item.incidentId));
+      if (next === -1) return;
+      const [item] = this.queue.splice(next, 1);
       if (!item) return;
       this.activeWorkers++;
+      if (item.incidentId) this.activeIncidents.add(item.incidentId);
       void this.deliver(item).finally(() => {
         this.activeWorkers--;
-        this.drain();
+        if (item.incidentId) this.activeIncidents.delete(item.incidentId);
+        if (this.repo.isOpen()) this.resumePending();
       });
     }
   }
@@ -129,6 +140,9 @@ export class NotificationService {
     if (this.escalationTimer) return;
     this.escalationTimer = setInterval(() => {
       if (!this.repo.isOpen()) return this.close();
+      const stale = Number(process.env.LINE_SENDING_STALE_SECONDS || 300);
+      this.repo.recoverStaleLineNotifications(Number.isFinite(stale) ? stale : 300);
+      this.resumePending();
       this.scanAssignmentEscalations();
     }, 30_000);
     this.escalationTimer.unref();
