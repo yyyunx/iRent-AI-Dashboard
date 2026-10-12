@@ -12,6 +12,10 @@ const Submissions: React.FC = () => {
     return (state?.uploadedPhotos || []).filter(p => p.submissionId === submissionId);
   };
 
+  const hasVerifiedDamage = (photo: any) => photo.aiResult?.damage?.vlm?.status === 'success'
+    && Array.isArray(photo.aiResult?.damage?.events)
+    && photo.aiResult.damage.events.some((event: any) => event?.damage?.verification?.is_damage === true);
+
   return (
     <div className="bg-white border border-irent-line rounded-2xl shadow-premium p-4 sm:p-5 flex flex-col gap-4 min-w-0">
       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2 pb-3 border-b border-irent-line">
@@ -47,18 +51,19 @@ const Submissions: React.FC = () => {
                     <div key={photo.photoId} className="border border-irent-line rounded-2xl p-3 bg-[#fafafa] flex flex-col gap-1.5 text-xs">
                       {photo.filePath && (
                         <div 
-                          onClick={() => setPreviewImage(`/${photo.filePath}`)}
+                          onClick={() => setPreviewImage(hasVerifiedDamage(photo) ? `/api/photos/${encodeURIComponent(photo.photoId)}/annotated-damage` : `/${photo.filePath}`)}
                           className="relative group w-full h-28 rounded-xl overflow-hidden border border-irent-line bg-slate-100 mb-2 cursor-pointer hover:border-irent-red transition-all"
                           title="點擊放大預覽"
                         >
                           <img 
-                            src={`/${photo.filePath}`} 
+                            src={hasVerifiedDamage(photo) ? `/api/photos/${encodeURIComponent(photo.photoId)}/annotated-damage` : `/${photo.filePath}`}
                             alt={photo.slot} 
                             className="w-full h-full object-cover group-hover:scale-105 transition-all duration-200" 
                           />
                           <div className="absolute inset-0 bg-black/25 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-all text-white">
                             <Eye size={16} />
                           </div>
+                          {hasVerifiedDamage(photo) && <span className="absolute left-2 top-2 rounded bg-irent-red px-2 py-1 text-[10px] font-black text-white">Qwen 已確認車損</span>}
                         </div>
                       )}
                       <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-1 border-b border-slate-100 pb-1.5 mb-1.5">

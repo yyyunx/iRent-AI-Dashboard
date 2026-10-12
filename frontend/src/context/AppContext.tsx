@@ -38,6 +38,7 @@ export interface Incident {
   operationalUrgency: string | null;
   slaMinutes: number | null;
   vehicleUnavailable: boolean;
+  sourceSubmissionId: string | null;
 }
 
 export interface PhotoSubmission {

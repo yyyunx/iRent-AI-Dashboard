@@ -12,7 +12,15 @@ export interface PersistedGuidance {
   view_sector: ViewSector | null;
   covered_sectors: ViewSector[];
   inlier_count?: number;
+  inlier_ratio?: number;
   reprojection_error?: number | null;
+  success?: boolean;
+  failure_reason?: string | null;
+  intrinsics?: { focal_length_px?: number; principal_point_px?: [number, number] } | null;
+  pose_debug?: {
+    rotation_camera_to_object?: number[][];
+    camera_center_car_frame?: [number, number, number];
+  } | null;
 }
 
 export interface CoverageSummary {
@@ -33,7 +41,12 @@ export function normalizeGuidance(value: any): PersistedGuidance {
     view_sector: sector,
     covered_sectors: covered,
     inlier_count: Number.isFinite(value?.inlier_count) ? value.inlier_count : undefined,
+    inlier_ratio: Number.isFinite(value?.inlier_ratio) ? value.inlier_ratio : undefined,
     reprojection_error: Number.isFinite(value?.reprojection_error) ? value.reprojection_error : null,
+    success: value?.success === true,
+    failure_reason: typeof value?.failure_reason === 'string' ? value.failure_reason : null,
+    intrinsics: value?.intrinsics || null,
+    pose_debug: value?.pose_debug || null,
   };
 }
 

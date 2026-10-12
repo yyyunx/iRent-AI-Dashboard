@@ -15,12 +15,17 @@ const { NotificationService } = require('../src/services/NotificationService');
 
 process.env.NODE_ENV = 'test';
 process.env.CORS_ORIGIN = 'http://localhost:5173';
+process.env.ADDITIONAL_TRUSTED_ORIGINS = 'https://servers-billion-barbara-signatures.trycloudflare.com';
 process.env.GEMINI_API_KEY = '';
 // This suite verifies authorization and workflow gates. Laplacian score calibration has its
 // own unit tests, so keep this generated fixture above the quality threshold.
 process.env.BLUR_THRESHOLD = '0.01';
+const nativeFetch = global.fetch;
+global.fetch = async (url, options) => String(url).endsWith('/v1/vehicle-gate')
+  ? { ok: true, json: async () => ({ success: true, bbox_xyxy: [1, 1, 90, 90], confidence: 0.9, class_id: 0 }) }
+  : nativeFetch(url, options);
 const VALID_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAOUlEQVR4nO3WywkAMBBCwaj995wqAjkM7F1Y/LyT7ukdAvWicVEEbaoi2rQGJyazqGLAq9BxX9P1BYyfGAFvvlyBAAAAAElFTkSuQmCC';
-const REQUIRED_PHOTO_SLOTS = ['front', 'right_side', 'rear', 'left_side', 'front_interior', 'backseat_interior'];
+const REQUIRED_PHOTO_SLOTS = ['front', 'right_side', 'rear', 'left_side'];
 let clearImageDataPromise;
 let blurredImageDataPromise;
 
@@ -107,6 +112,38 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
   setupRepo.close();
 
   const app = createApp(dbPath, uploadDir);
+
+  await t.test('CSRF accepts exact configured tunnel origin and rejects untrusted origins', async () => {
+    const trustedAgent = request.agent(app);
+    const trustedToken = await csrf(trustedAgent);
+    await trustedAgent.post('/api/auth/login')
+      .set('Origin', 'https://servers-billion-barbara-signatures.trycloudflare.com')
+      .set('X-CSRF-Token', trustedToken)
+      .send({ username: 'USER-A', password })
+      .expect(200);
+
+    const untrustedAgent = request.agent(app);
+    const untrustedToken = await csrf(untrustedAgent);
+    await untrustedAgent.post('/api/auth/login')
+      .set('Origin', 'https://attacker.example')
+      .set('X-CSRF-Token', untrustedToken)
+      .send({ username: 'USER-A', password })
+      .expect(403);
+  });
+
+  await t.test('login still rejects missing and incorrect CSRF tokens', async () => {
+    const agent = request.agent(app);
+    await csrf(agent);
+    await agent.post('/api/auth/login')
+      .set('Origin', 'http://localhost:5173')
+      .send({ username: 'USER-A', password })
+      .expect(403);
+    await agent.post('/api/auth/login')
+      .set('Origin', 'http://localhost:5173')
+      .set('X-CSRF-Token', 'forged-token')
+      .send({ username: 'USER-A', password })
+      .expect(403);
+  });
 
   await t.test('legacy email schema receives an additive username migration without losing users', () => {
     const legacyPath = path.join(tempDir, 'legacy.db');
@@ -205,6 +242,17 @@ test('authentication, RBAC, ownership, CSRF, and session revocation', async t =>
       .send({ rentalId: 'R-BYPASS', plate: 'AAA-0001', phase: 'return', photos: [] })
       .expect(422);
     assert.equal(response.body.error.code, 'IMAGE_QUALITY_CHECK_FAILED');
+  });
+
+  await t.test('the four exterior slots are sufficient for a completed submission', async () => {
+    const photos = await uploadValidatedPhotos(userAAgent, userACsrf, {
+      rentalId: 'R-EXTERIOR-ONLY', plate: 'AAA-0001', phase: 'pickup'
+    });
+    assert.deepEqual(photos.map(photo => photo.slot), REQUIRED_PHOTO_SLOTS);
+    await userAAgent.post('/api/photo-submissions')
+      .set('X-CSRF-Token', userACsrf)
+      .send({ rentalId: 'R-EXTERIOR-ONLY', plate: 'AAA-0001', phase: 'pickup', photos })
+      .expect(200);
   });
 
   await t.test('non-image upload payload is rejected', async () => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   CheckCircle2,
   ChevronDown,
@@ -14,7 +14,8 @@ import {
   X,
   XOctagon
 } from 'lucide-react';
-import { CommentItem, Incident, MaintenanceReportItem, UploadedPhoto } from '../../context/AppContext';
+import { CommentItem, Incident, MaintenanceReportItem, UploadedPhoto, useApp } from '../../context/AppContext';
+import Vehicle3DViewer, { DamageEvent } from '../vehicle/Vehicle3DViewer';
 
 interface IncidentDetailPanelProps {
   incident?: Incident;
@@ -40,9 +41,27 @@ const STATUS_TEXT: Record<string, string> = {
 };
 
 const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
+  const { apiPost } = useApp();
   const [toolsOpen, setToolsOpen] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
-  const matchingPhotos = useMemo(() => props.incident ? props.photos.filter(photo => photo.plate === props.incident?.plate && photo.filePath).slice(0, 4) : [], [props.incident, props.photos]);
+  const matchingPhotos = useMemo(() => props.incident ? props.photos
+    .filter(photo => (props.incident?.sourceSubmissionId ? photo.submissionId === props.incident.sourceSubmissionId : photo.plate === props.incident?.plate) && photo.filePath)
+    .sort((a, b) => {
+      const score = (photo: UploadedPhoto) => Number(props.incident?.label.startsWith(`${photo.slot} `)) * 2 + Number(Boolean(photo.aiResult?.damage?.events?.length));
+      return score(b) - score(a);
+    })
+    .slice(0, 4) : [], [props.incident, props.photos]);
+  const primaryDamage = matchingPhotos[0]?.aiResult?.damage;
+  const damageEvents: DamageEvent[] = useMemo(() => Array.isArray(primaryDamage?.events) ? primaryDamage.events : [], [primaryDamage?.events]);
+  const persistedLocalization = useRef('');
+  const persistResolvedEvents = useCallback((events: DamageEvent[]) => {
+    const photoId = matchingPhotos[0]?.photoId;
+    if (!photoId || !damageEvents.some(event => event.localization.failureReason === 'RAY_INTERSECTION_PENDING')) return;
+    const signature = JSON.stringify(events.map(event => [event.id, event.localization.success, event.localization.position3D, event.localization.failureReason]));
+    if (signature === persistedLocalization.current) return;
+    persistedLocalization.current = signature;
+    void apiPost('/api/photos/damage-localization', { photoId, events }, { suppressErrorToast: true });
+  }, [apiPost, damageEvents, matchingPhotos]);
 
   useEffect(() => { setPreview(null); }, [props.incident?.id]);
 
@@ -78,6 +97,10 @@ const IncidentDetailPanel: React.FC<IncidentDetailPanelProps> = props => {
           {[1, 2, 3].map(index => <button type="button" key={index} onClick={() => matchingPhotos[index]?.filePath && setPreview(`/${matchingPhotos[index].filePath}`)}>{matchingPhotos[index]?.filePath ? <img src={`/${matchingPhotos[index].filePath}`} alt={`${incident.plate} 照片 ${index + 1}`} /> : <div className="gallery-empty">{index === 3 ? `+${Math.max(0, matchingPhotos.length - 3)}` : 'AI'}</div>}</button>)}
         </div>
       </div>
+
+      {damageEvents.length > 0 && matchingPhotos[0]?.filePath && <figure className="relative my-4 overflow-hidden rounded-xl border border-irent-line bg-black"><img className="block h-auto w-full" src={`/${matchingPhotos[0].filePath}`} alt={`${incident.plate} DamageNet 原圖與偵測框`} />{damageEvents.map(event => event.image.width > 0 && event.image.height > 0 ? <span key={event.id} aria-label={`${event.damage.type} bounding box`} style={{ position: 'absolute', left: `${event.damage.bbox[0] / event.image.width * 100}%`, top: `${event.damage.bbox[1] / event.image.height * 100}%`, width: `${(event.damage.bbox[2] - event.damage.bbox[0]) / event.image.width * 100}%`, height: `${(event.damage.bbox[3] - event.damage.bbox[1]) / event.image.height * 100}%`, border: '2px solid #d71920', borderRadius: 6, pointerEvents: 'none' }}><small className="absolute -top-6 left-0 whitespace-nowrap rounded bg-irent-red px-1.5 py-0.5 text-[10px] font-bold text-white">{event.damage.type} {(event.damage.confidence * 100).toFixed(0)}%</small></span> : null)}</figure>}
+      {damageEvents.length > 0 && <div className="my-3 grid gap-2">{damageEvents.map(event => <div key={`${event.id}-verification`} className="rounded-xl border border-irent-line bg-white p-3 text-xs"><strong>Qwen verified · {event.damage.type} · {(event.damage.verification.confidence * 100).toFixed(0)}%</strong><p className="mb-0 mt-1 text-irent-muted">{event.damage.verification.reason || 'Visible damage verified.'}</p><small className="text-irent-muted">DamageNet confidence {(event.damage.confidence * 100).toFixed(0)}%</small></div>)}</div>}
+      {damageEvents.length > 0 && <div className="my-4"><Vehicle3DViewer damageEvents={damageEvents} guidanceStatus="idle" onDamageEventsResolved={persistResolvedEvents} /></div>}
 
       <dl className="metadata-list">{metadata.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
 

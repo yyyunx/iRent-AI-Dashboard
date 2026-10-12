@@ -84,6 +84,7 @@ export interface IncidentResponse {
   operationalUrgency: string | null;
   slaMinutes: number | null;
   vehicleUnavailable: boolean;
+  sourceSubmissionId: string | null;
 }
 
 export interface IncidentTimeline {
@@ -321,6 +322,7 @@ export function dbRowToIncidentResponse(row: any): IncidentResponse {
     operationalUrgency: row.operational_urgency ?? null,
     slaMinutes: row.sla_minutes ?? null,
     vehicleUnavailable: Boolean(row.vehicle_unavailable),
+    sourceSubmissionId: row.source_submission_id ?? null,
   };
 }
 

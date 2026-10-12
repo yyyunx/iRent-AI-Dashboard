@@ -57,6 +57,9 @@ export function createApp(dbPath: string, uploadDir: string) {
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
+  // LINE fetches signed, short-lived image URLs without a browser session.
+  app.get('/api/line-images/:photoId', controller.getSignedLineDamagePhoto);
+
   app.use(attachAuthentication(repo));
 
   // Health endpoint

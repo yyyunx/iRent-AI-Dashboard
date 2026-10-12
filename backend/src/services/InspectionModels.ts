@@ -11,10 +11,11 @@ export interface OrientationAnalysis {
 }
 
 export interface VehicleConditionAnalysis {
-  damage: { detected: boolean; confidence: number; type?: 'scratch' | 'dent' | 'crack' | 'broken' | 'paint_damage' | 'unknown' };
+  damage: { detected: boolean; confidence: number; type?: 'scratch' | 'dent' | 'crack' | 'broken' | 'other' | 'paint_damage' | 'unknown' };
   dirty: { detected: boolean; confidence: number };
   abnormal: boolean;
   detections: DamageDetection[];
+  vlm: VlmVerificationSummary;
 }
 
 export interface DamageDetection {
@@ -22,6 +23,40 @@ export interface DamageDetection {
   label: 'Scratched' | 'Dented' | 'Broken';
   confidence: number;
   bbox_xyxy: [number, number, number, number];
+  verification?: VlmCandidateVerification;
+}
+
+export interface DamageEvent {
+  id: string;
+  damage: { type: string; confidence: number; bbox: [number, number, number, number]; center2D: [number, number]; verification: VlmCandidateVerification };
+  localization: {
+    success: boolean;
+    position3D?: [number, number, number];
+    vehiclePart?: string;
+    method?: string;
+    confidence?: number;
+    failureReason?: string;
+    ray?: { coordinateFrame: 'Blender vehicle frame'; origin: [number, number, number]; direction: [number, number, number] };
+  };
+  image: { url?: string; width: number; height: number };
+  createdAt: string;
+}
+
+export interface VlmCandidateVerification {
+  candidate_id: number;
+  source_index: number;
+  is_damage: boolean;
+  damage_type: 'scratch' | 'dent' | 'crack' | 'broken' | 'other' | 'none';
+  confidence: number;
+  reason: string;
+}
+
+export interface VlmVerificationSummary {
+  status: 'success' | 'skipped_no_candidates' | 'disabled' | 'unavailable' | 'timeout' | 'failed';
+  model: string | null;
+  failure_reason: string | null;
+  verifications: VlmCandidateVerification[];
+  inference_seconds?: number;
 }
 
 export interface PersistedDamageResult {
@@ -33,6 +68,8 @@ export interface PersistedDamageResult {
   detections: DamageDetection[];
   inference_status: 'success' | 'failed';
   failure_reason: string | null;
+  vlm: VlmVerificationSummary;
+  events: DamageEvent[];
   checked_at: string;
 }
 
@@ -46,6 +83,15 @@ export interface KptNetAnalysis {
   correction_applied_count: number;
   pnp_eligible: boolean;
   [key: string]: unknown;
+}
+
+export interface VehicleGateAnalysis {
+  schema_version: 'vehicle-gate.v1';
+  success: boolean;
+  reason: 'NO_VEHICLE_DETECTED' | null;
+  bbox_xyxy: [number, number, number, number] | null;
+  confidence: number | null;
+  class_id: number | null;
 }
 
 export interface CaptureGuidanceAnalysis {
@@ -105,7 +151,7 @@ export interface CaptureGuidanceAnalysis {
 }
 
 export class InspectionModelError extends Error {
-  constructor(public readonly code: 'ORIENTATION_MODEL_UNAVAILABLE' | 'DAMAGE_MODEL_UNAVAILABLE' | 'KPT_MODEL_UNAVAILABLE' | 'AI_SERVICE_TIMEOUT' | 'AI_SERVICE_ERROR', message: string) {
+  constructor(public readonly code: 'ORIENTATION_MODEL_UNAVAILABLE' | 'DAMAGE_MODEL_UNAVAILABLE' | 'KPT_MODEL_UNAVAILABLE' | 'AI_SERVICE_TIMEOUT' | 'AI_SERVICE_ERROR' | 'NO_VEHICLE_DETECTED', message: string) {
     super(message);
     this.name = 'InspectionModelError';
   }
@@ -157,19 +203,36 @@ export async function analyzeOrientation(imageData: string): Promise<Orientation
   throw new InspectionModelError('ORIENTATION_MODEL_UNAVAILABLE', 'Orientation model is not configured.');
 }
 
+export async function analyzeVehicleInput(imageData: string): Promise<VehicleGateAnalysis> {
+  const result = await callAiService<VehicleGateAnalysis>('/v1/vehicle-gate', imageData);
+  if (!result.success || !result.bbox_xyxy) {
+    throw new InspectionModelError('NO_VEHICLE_DETECTED', '未偵測到足夠清晰的車輛，請重新拍攝，確保車輛完整入鏡且光線充足。');
+  }
+  return result;
+}
+
 /** Same contract-first boundary for the future damage/cleanliness model. */
 export async function analyzeVehicleCondition(imageData: string): Promise<VehicleConditionAnalysis> {
-  const raw = await callAiService<{ detections: DamageDetection[] }>('/v1/damage', imageData);
+  const raw = await callAiService<{ detections: DamageDetection[]; vlm?: VlmVerificationSummary }>('/v1/damage', imageData);
   const detections = Array.isArray(raw.detections) ? raw.detections : [];
-  const strongest = detections.reduce<DamageDetection | undefined>((best, item) => !best || item.confidence > best.confidence ? item : best, undefined);
+  const fallbackVlm: VlmVerificationSummary = { status: detections.length ? 'unavailable' : 'skipped_no_candidates', model: null, failure_reason: detections.length ? 'QWEN_RESULT_MISSING' : null, verifications: [] };
+  const vlm = raw.vlm && Array.isArray(raw.vlm.verifications) ? raw.vlm : fallbackVlm;
+  const verificationByIndex = new Map(vlm.verifications.map(item => [item.source_index, item]));
+  const verifiedDetections = detections.map((item, index) => ({ ...item, verification: verificationByIndex.get(index) }));
+  const actionable = vlm.status === 'success'
+    ? verifiedDetections.filter(item => item.verification?.is_damage === true)
+    : [];
+  const strongest = actionable.reduce<DamageDetection | undefined>((best, item) => !best || item.confidence > best.confidence ? item : best, undefined);
   const types: Record<DamageDetection['label'], NonNullable<VehicleConditionAnalysis['damage']['type']>> = {
     Scratched: 'scratch', Dented: 'dent', Broken: 'broken'
   };
+  const verifiedType = strongest?.verification?.damage_type === 'none' ? undefined : strongest?.verification?.damage_type;
   return {
-    damage: { detected: Boolean(strongest), confidence: strongest?.confidence || 0, type: strongest ? types[strongest.label] : undefined },
+    damage: { detected: Boolean(strongest), confidence: strongest?.confidence || 0, type: verifiedType || (strongest ? types[strongest.label] : undefined) },
     dirty: { detected: false, confidence: 0 },
     abnormal: Boolean(strongest),
-    detections
+    detections: verifiedDetections,
+    vlm
   };
 }
 

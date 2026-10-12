@@ -33,3 +33,25 @@ flowchart LR
 - `GET /api/performance` 回傳最近 200 個 API request 的平均、P50、P95 與錯誤率。
 - AI Agent 只透過後端呼叫 Google Gemini API，瀏覽器不會取得 API Key；去敏後的任務摘要仍依既有 Agent history 規則保存。
 - `/api/state` 保持既有回應欄位相容；管理端在頁面可見時每 15 秒輪詢，使用者頁面不抓取完整管理端 state。Submission 清單與事件地圖另有 `/api/submissions`、`/api/incidents/map` 專用端點。資料量顯著增加時，應先以實際量測評估相容的摘要或分頁方案。
+
+## DamageNet → Qwen VLM
+
+```text
+Vehicle Gate → DamageNet high-recall candidates → original image + candidate crops
+→ pretrained Qwen verification → persisted structured result
+→ Submission / Incident → Frontend / LINE
+```
+
+Qwen 不做 primary detection，也不取代 DamageNet。原始 YOLO candidates 會保存在
+API/persistence 供稽核，但只有 Qwen 明確回傳 `is_damage=true` 的候選會成為最終
+DamageEvent 並進入 3D/UI。timeout、未部署、dependency 缺失或格式錯誤會標記為
+`unavailable`，不會把未驗證 bbox 當成車損，也不會誤宣告「無車損」。
+
+## Canonical DamageEvent 與 3D 定位
+
+後端把每個未被 Qwen 明確排除的 DamageNet bbox 建成 `DamageEvent`，並使用同一張
+原圖上既有 KptNetV1/PnP 的 camera-to-vehicle pose 與 pseudo-intrinsics 產生車體座標
+camera ray。Admin 的既有 `Vehicle3DViewer` 等 Altis GLB 載入後，以 Three.js
+recursive mesh raycast 取得最近的有效車體交點、顯示 scene marker，並把成功或 ray
+miss 結果寫回同一個事件。未來 LINE 只需讀取已保存的 `damage.events`，不重新執行
+DamageNet、KptNet 或 PnP。PnP/bbox/ray 失敗時事件保留 2D detection，且不建立假 3D 點。

@@ -118,7 +118,7 @@ export class DashboardController {
         minimalSummary: { action: 'quality_checked', photoId: result.photoId }
       });
     } catch (e: any) {
-      const status = e.status || 500;
+      const status = e.status || (e.code === 'NO_VEHICLE_DETECTED' ? 422 : 500);
       const code = e.code || 'QUALITY_CHECK_FAILED';
       res.status(status).json({ ok: false, error: { code, message: e.message || '目前無法完成照片品質檢查，請重新嘗試。' } });
     }
@@ -154,6 +154,15 @@ export class DashboardController {
     } catch (e: any) {
       const unavailable = ['DAMAGE_MODEL_UNAVAILABLE', 'AI_SERVICE_TIMEOUT', 'AI_SERVICE_ERROR'].includes(e.code);
       res.status(e.status || (unavailable ? 503 : 500)).json({ ok: false, error: { code: e.code || 'CONDITION_ANALYSIS_FAILED', message: e.message || 'Condition analysis failed.' } });
+    }
+  };
+
+  public persistDamageLocalizations = (req: Request, res: Response) => {
+    try {
+      const result = this.service.persistDamageLocalizations(String(req.body?.photoId || ''), req.body?.events);
+      res.json({ ok: true, events: result.events, changedResource: { type: 'photo', data: result.photo } });
+    } catch (e: any) {
+      res.status(e.status || 422).json({ ok: false, error: { code: 'DAMAGE_LOCALIZATION_INVALID', message: e.message || 'Invalid damage localization.' } });
     }
   };
 
@@ -336,5 +345,30 @@ export class DashboardController {
     res.sendFile(path.resolve(this.uploadDir, filename), error => {
       if (error && !res.headersSent) res.status(404).json({ ok: false, error: 'File not found' });
     });
+  };
+
+  public getAnnotatedDamagePhoto = async (req: Request, res: Response) => {
+    try {
+      const image = await this.service.getAnnotatedDamagePhoto(String(req.params.photoId || ''));
+      res.set('Content-Type', 'image/jpeg');
+      res.set('Cache-Control', 'private, no-store');
+      res.send(image);
+    } catch (e: any) {
+      res.status(e.status || 500).json({ ok: false, error: e.message || 'Failed to render annotated photo' });
+    }
+  };
+
+  public getSignedLineDamagePhoto = async (req: Request, res: Response) => {
+    const { verifySignedLineImage } = await import('../services/DamageAnnotations');
+    const photoId = String(req.params.photoId || '');
+    if (!verifySignedLineImage(photoId, req.query.expires, req.query.signature)) return res.status(404).end();
+    try {
+      const image = await this.service.getAnnotatedDamagePhoto(photoId);
+      res.set('Content-Type', 'image/jpeg');
+      res.set('Cache-Control', 'private, max-age=60');
+      res.send(image);
+    } catch {
+      res.status(404).end();
+    }
   };
 }

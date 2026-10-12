@@ -7,8 +7,14 @@ import { AuthService } from './AuthService';
 
 export function configuredOrigins(): string[] {
   const configured = String(process.env.CORS_ORIGIN || '').split(',').map(item => item.trim()).filter(Boolean);
-  if (configured.length) return configured;
-  return process.env.NODE_ENV === 'production' ? [] : ['http://localhost:5173', 'http://127.0.0.1:5173'];
+  const defaults = configured.length
+    ? configured
+    : process.env.NODE_ENV === 'production' ? [] : ['http://localhost:5173', 'http://127.0.0.1:5173'];
+  const additional = String(process.env.ADDITIONAL_TRUSTED_ORIGINS || '')
+    .split(',')
+    .map(item => item.trim())
+    .filter(Boolean);
+  return [...new Set([...defaults, ...additional].map(origin => origin.replace(/\/$/, '')))];
 }
 
 export function isAllowedOrigin(req: Request, origin: string): boolean {

@@ -38,7 +38,6 @@ async function decodeValidatedImage(dataUrl: string, includeBlurQuality: boolean
   const match = /^data:image\/(jpeg|png|webp);base64,([A-Za-z0-9+/=\r\n]+)$/i.exec(dataUrl);
   if (!match) throw imageError('UNSUPPORTED_IMAGE_TYPE', 'Unsupported image type', 415);
 
-  const declaredFormat = match[1].toLowerCase() as ImageFormat;
   const base64 = match[2].replace(/[\r\n]/g, '');
   if (Math.floor(base64.length * 0.75) > MAX_FILE_BYTES) throw imageError('IMAGE_TOO_LARGE', 'Image exceeds 10 MB limit', 413);
 
@@ -46,7 +45,7 @@ async function decodeValidatedImage(dataUrl: string, includeBlurQuality: boolean
   if (!buffer.length) throw imageError('INVALID_IMAGE', 'Invalid image payload', 400);
   if (buffer.length > MAX_FILE_BYTES) throw imageError('IMAGE_TOO_LARGE', 'Image exceeds 10 MB limit', 413);
   const magicFormat = detectedFormat(buffer);
-  if (!magicFormat || magicFormat !== declaredFormat) throw imageError('INVALID_IMAGE', 'Image MIME type does not match file signature', 400);
+  if (!magicFormat) throw imageError('INVALID_IMAGE', 'Invalid image payload', 400);
 
   try {
     const decoder = sharp(buffer, { failOn: 'error', limitInputPixels: MAX_IMAGE_PIXELS, animated: false });
@@ -55,15 +54,21 @@ async function decodeValidatedImage(dataUrl: string, includeBlurQuality: boolean
     if (metadata.width > MAX_IMAGE_SIDE || metadata.height > MAX_IMAGE_SIDE || metadata.width * metadata.height > MAX_IMAGE_PIXELS) {
       throw imageError('IMAGE_TOO_LARGE', 'Image dimensions exceed limit', 413);
     }
-    // Decode once. The quality path reuses these decoded grayscale pixels rather than decoding the
-    // upload a second time; it is intentionally bounded to keep uploads responsive on large phones.
-    const decoded = await decoder
+    // Normalize EXIF orientation at the first trusted decode boundary. Sharp strips metadata by
+    // default, so every downstream consumer sees the same upright pixels without an Orientation
+    // tag that could be applied a second time by a browser or messaging client.
+    const oriented = decoder.clone().autoOrient();
+    const normalizedBufferPromise = oriented.clone().toFormat(magicFormat).toBuffer();
+
+    // The quality path uses the same oriented pixel coordinate system as the saved image and AI.
+    const decoded = await oriented
       .resize({ width: 720, height: 720, fit: 'inside', withoutEnlargement: true })
       .grayscale()
       .raw()
       .toBuffer({ resolveWithObject: true });
+    const normalizedBuffer = await normalizedBufferPromise;
 
-    if (!includeBlurQuality) return { buffer, extension: magicFormat === 'jpeg' ? '.jpg' : `.${magicFormat}` };
+    if (!includeBlurQuality) return { buffer: normalizedBuffer, extension: magicFormat === 'jpeg' ? '.jpg' : `.${magicFormat}` };
 
     const { data, info } = decoded;
     if (info.width < 3 || info.height < 3 || !data.length) {
@@ -75,7 +80,7 @@ async function decodeValidatedImage(dataUrl: string, includeBlurQuality: boolean
     const score = varianceOfLaplacian(data, info.width, info.height);
     const threshold = getBlurThreshold();
     return {
-      buffer,
+      buffer: normalizedBuffer,
       extension: magicFormat === 'jpeg' ? '.jpg' : `.${magicFormat}`,
       blur: { score: Number(score.toFixed(2)), threshold, passed: score >= threshold }
     };

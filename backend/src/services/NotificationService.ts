@@ -7,6 +7,7 @@ type QueuedLineNotification = {
   eventType: string;
   targetId: string;
   message: string;
+  imageUrls?: string[];
 };
 
 /**
@@ -51,7 +52,7 @@ export class NotificationService {
     if (input.enabled !== undefined) this.repo.setSetting('lineNotificationEnabled', String(input.enabled));
   }
 
-  public queueLineMessage(incidentId: string | null, eventType: string, message: string) {
+  public queueLineMessage(incidentId: string | null, eventType: string, message: string, imageUrls: string[] = []) {
     // A client retry must never fan out the same incident event to the ops group.
     // Failed rows remain retryable; queued/sending/sent are already represented by one delivery.
     if (incidentId && this.repo.hasSuccessfulNotification(incidentId, eventType)) return 'deduplicated';
@@ -64,7 +65,7 @@ export class NotificationService {
     }
 
     const id = this.repo.addNotification({ provider: 'line', incidentId, eventType, targetId: config.targetId, message, status: 'queued' });
-    this.queue.push({ id, incidentId, eventType, targetId: config.targetId, message });
+    this.queue.push({ id, incidentId, eventType, targetId: config.targetId, message, imageUrls: imageUrls.filter(url => /^https:\/\//i.test(url)).slice(0, 4) });
     this.drain();
     return 'queued';
   }
@@ -131,7 +132,13 @@ export class NotificationService {
         const response = await fetch('https://api.line.me/v2/bot/message/push', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ to: item.targetId, messages: [{ type: 'text', text: item.message.slice(0, 5000) }] }),
+          body: JSON.stringify({
+            to: item.targetId,
+            messages: [
+              { type: 'text', text: item.message.slice(0, 5000) },
+              ...(item.imageUrls || []).map(url => ({ type: 'image', originalContentUrl: url, previewImageUrl: url }))
+            ].slice(0, 5)
+          }),
           signal: controller.signal
         });
         const responseText = await response.text();

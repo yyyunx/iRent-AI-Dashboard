@@ -12,9 +12,7 @@ const PHOTO_SLOTS = [
   { key: 'front', label: '車頭' },
   { key: 'right_side', label: '右側' },
   { key: 'rear', label: '車尾' },
-  { key: 'left_side', label: '左側' },
-  { key: 'front_interior', label: '前座內裝' },
-  { key: 'backseat_interior', label: '後座內裝' }
+  { key: 'left_side', label: '左側' }
 ];
 
 interface CheckedPhoto {
@@ -42,7 +40,8 @@ interface DamageResult {
   damage_status: 'detected' | 'none' | 'unavailable';
   detection_count: number;
   confidence: number | null;
-  detections: Array<{ label: 'Scratched' | 'Dented' | 'Broken'; confidence: number; bbox_xyxy: [number, number, number, number] }>;
+  detections: Array<{ label: 'Scratched' | 'Dented' | 'Broken'; confidence: number; bbox_xyxy: [number, number, number, number]; verification?: { is_damage: boolean; damage_type: string; confidence: number; reason: string } }>;
+  vlm?: { status: 'success' | 'skipped_no_candidates' | 'disabled' | 'unavailable' | 'timeout' | 'failed'; model: string | null; failure_reason: string | null };
   inference_status: 'success' | 'failed';
   failure_reason: string | null;
 }
@@ -371,13 +370,30 @@ const CustomerFlow: React.FC = () => {
           status: 'passed',
           photoId: response.photoId,
           filename: basePayload.filename,
-          previewUrl: fileData.data,
+          previewUrl: response.photo?.filePath ? `/${response.photo.filePath}` : fileData.data,
           feSharpness: blurMetrics.variance,
           feWallTime: blurMetrics.wallTime,
           precheck,
           quality: response.quality
         }
       }));
+
+      // Damage verification must start immediately after the persisted quality-check
+      // response. Do not serialize it behind return-phase guidance: CPU Qwen inference
+      // can be slow and the quality badge is not evidence that damage review completed.
+      const conditionCheck = apiPost('/api/photos/condition-check', { photoId: response.photoId }, {
+        suppressErrorToast: true,
+        timeoutMs: 120_000
+      }).then(damageResponse => {
+        if (!isCurrent()) return;
+        setCheckedPhotos(prev => ({ ...prev, [slot]: { ...prev[slot], damage: damageResponse.damage as DamageResult } }));
+      }).catch(() => {
+        if (!isCurrent()) return;
+        setCheckedPhotos(prev => ({ ...prev, [slot]: { ...prev[slot], damage: {
+          damage_status: 'unavailable', detection_count: 0, confidence: null, detections: [],
+          inference_status: 'failed', failure_reason: 'CONDITION_CHECK_UNAVAILABLE'
+        } } }));
+      });
 
       if (phase === 'return') {
         try {
@@ -394,38 +410,32 @@ const CustomerFlow: React.FC = () => {
         }
       }
 
-      try {
-        const damageResponse = await apiPost('/api/photos/condition-check', { photoId: response.photoId }, { suppressErrorToast: true, timeoutMs: 60_000 });
-        if (!isCurrent()) return;
-        setCheckedPhotos(prev => ({ ...prev, [slot]: { ...prev[slot], damage: damageResponse.damage as DamageResult } }));
-      } catch {
-        if (!isCurrent()) return;
-        setCheckedPhotos(prev => ({ ...prev, [slot]: { ...prev[slot], damage: {
-          damage_status: 'unavailable', detection_count: 0, confidence: null, detections: [],
-          inference_status: 'failed', failure_reason: 'CONDITION_CHECK_UNAVAILABLE'
-        } } }));
-      }
+      await conditionCheck;
 
       showToast("照片品質檢查完成", `${slot}: ${response.quality.message}`, CUSTOMER_SUBMISSION_TOAST_SCOPE);
     } catch (error: any) {
       if (!isCurrent()) return;
       const quality = error.payload?.quality;
       const isBlurFailure = error.code === 'IMAGE_TOO_BLURRY';
+      const isVehicleFailure = error.code === 'NO_VEHICLE_DETECTED';
+      const errorMessage = isBlurFailure
+        ? '照片過於模糊，請重新拍攝後再上傳。'
+        : isVehicleFailure ? '未偵測到足夠清晰的車輛，請重新拍攝，確保車輛完整入鏡且光線充足。' : '目前無法完成照片品質檢查，請重新嘗試。';
       if (phase === 'return') setGuidanceStatus('unavailable');
       setCheckedPhotos(prev => ({
         ...prev,
         [slot]: {
-          status: isBlurFailure ? 'failed' : 'error',
+          status: isBlurFailure || isVehicleFailure ? 'failed' : 'error',
           filename: file.name,
           previewUrl: prev[slot]?.previewUrl,
           feSharpness: prev[slot]?.feSharpness,
           feWallTime: prev[slot]?.feWallTime,
           precheck: prev[slot]?.precheck,
           quality,
-          errorMessage: isBlurFailure ? '照片過於模糊，請重新拍攝後再上傳。' : '目前無法完成照片品質檢查，請重新嘗試。'
+          errorMessage
         }
       }));
-      showToast(isBlurFailure ? '照片模糊' : '品質檢查失敗', isBlurFailure ? '照片過於模糊，請重新拍攝後再上傳。' : '目前無法完成照片品質檢查，請重新嘗試。', CUSTOMER_SUBMISSION_TOAST_SCOPE);
+      showToast(isBlurFailure ? '照片模糊' : isVehicleFailure ? '未偵測到車輛' : '品質檢查失敗', errorMessage, CUSTOMER_SUBMISSION_TOAST_SCOPE);
     }
   };
 
@@ -709,7 +719,7 @@ const CustomerFlow: React.FC = () => {
                 : checked?.status === 'checking' ? 'bg-blue-50 text-blue-700'
                 : 'bg-irent-bg text-irent-muted';
               const chipText = checked?.status === 'passed' ? '✓ 通過'
-                : checked?.status === 'failed' ? '✕ 照片模糊，請重新拍攝'
+                : checked?.status === 'failed' ? '✕ 照片未通過，請重新拍攝'
                 : checked?.status === 'error' ? '⚠ 無法完成檢查，請重試'
                 : checked?.status === 'checking' ? '○ 檢測中...'
                 : '待檢查';
@@ -748,7 +758,6 @@ const CustomerFlow: React.FC = () => {
                         type="file" 
                         id={`customer-file-${slot.key}`}
                         accept="image/*"
-                        capture="environment"
                         disabled={submissionLocked}
                         onClick={event => { event.currentTarget.value = ''; }}
                         onChange={e => handleQualityCheck(slot.key, e)}
@@ -767,7 +776,7 @@ const CustomerFlow: React.FC = () => {
                   {checked?.errorMessage && <p className={`m-0 text-xs font-bold ${checked.status === 'failed' ? 'text-irent-red' : 'text-[#8a5b00]'}`}>{checked.errorMessage}</p>}
                   {checked?.guidance && <p className="m-0 text-xs font-bold text-irent-muted">拍攝方向：{checked.guidance.view_sector ? SECTOR_LABELS[checked.guidance.view_sector] : '無法判定'}{checked.guidance.guidance_status === 'DEGRADED' ? '（粗略）' : ''}</p>}
                   {checked?.damage && <p className={`m-0 text-xs font-bold ${checked.damage.damage_status === 'detected' ? 'text-irent-red' : 'text-irent-muted'}`}>
-                    車損辨識：{checked.damage.inference_status === 'failed' ? '目前無法辨識（不影響提交）' : checked.damage.damage_status === 'detected' ? `偵測到 ${checked.damage.detection_count} 處` : '未偵測到明顯車損'}
+                    車損辨識：{checked.damage.inference_status === 'failed' ? 'Qwen 覆核暫時不可用（不顯示未驗證候選）' : checked.damage.damage_status === 'detected' ? `Qwen 驗證通過 ${checked.damage.detections.filter(item => item.verification?.is_damage).length} 處` : '未偵測到經驗證的車損'}
                   </p>}
 
                   {/* Inline developer stats when Developer Mode is active */}
