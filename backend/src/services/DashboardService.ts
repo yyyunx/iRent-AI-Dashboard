@@ -1,6 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { randomBytes, createHash } from 'crypto';
+import sharp from 'sharp';
 import { DatabaseRepository, DEFAULT_DAMAGE_HOTSPOTS } from '../repositories/DatabaseRepository';
 import { NotificationService } from './NotificationService';
 import { AiAgentService } from './AiAgentService';
@@ -14,12 +15,13 @@ import {
 } from '../models/types';
 import { analyzeImageQuality, validateImageDataUrl } from './ImageValidation';
 import { OPERATIONS_SOP } from '../knowledge/operationsSop';
-import { analyzeCaptureGuidance, analyzeOrientation, analyzeVehicleCondition, isFeatureEnabled, PersistedDamageResult } from './InspectionModels';
+import { analyzeCaptureGuidance, analyzeOrientation, analyzeVehicleCondition, analyzeVehicleInput, DamageDetection, DamageEvent, isFeatureEnabled, PersistedDamageResult } from './InspectionModels';
 import { validateReturnLocation } from './ReturnLocation';
 import { calculateCoverage, normalizeGuidance, PersistedGuidance } from './Coverage';
 import { incidentUrgency } from './IncidentUrgency';
 import { StageMetrics } from './StageMetrics';
 import { ACTION_STATES } from './IncidentLifecycle';
+import { createSignedLineImageUrl, renderDamageAnnotations, verifiedDamageEvents } from './DamageAnnotations';
 
 export class DashboardService {
   private repo: DatabaseRepository;
@@ -531,8 +533,17 @@ export class DashboardService {
     return this.repo.getNotificationStats();
   }
 
-  public notifyLine(incidentId: string | null, eventType: string, message: string, deferDelivery = false) {
-    return this.notifications.queueLineMessage(incidentId, eventType, message, deferDelivery);
+  public notifyLine(incidentId: string | null, eventType: string, message: string, deferDelivery = false, imageUrls: string[] = []) {
+    return this.notifications.queueLineMessage(incidentId, eventType, message, deferDelivery, imageUrls);
+  }
+
+  public async getAnnotatedDamagePhoto(photoId: string): Promise<Buffer> {
+    const photo = this.repo.getUploadedPhotoById(photoId);
+    if (!photo?.file_path) { const error: any = new Error('Photo not found'); error.status = 404; throw error; }
+    const events = verifiedDamageEvents(photo.ai_result_json);
+    if (!events.length) { const error: any = new Error('Verified damage not found'); error.status = 404; throw error; }
+    const source = await fs.promises.readFile(path.join(this.uploadDir, path.basename(photo.file_path)));
+    return renderDamageAnnotations(source, events);
   }
 
   public getLineMessage(incident: IncidentResponse, eventType: string, extra = ""): string {
@@ -593,10 +604,9 @@ export class DashboardService {
     const qualityStarted = process.hrtime.bigint();
     const photoId = this.createOpaqueId('PHOTO');
     const image = await analyzeImageQuality(payload.imageData || payload.data || "");
-    const relativePath = await this.savePhotoFile(photoId, image);
 
     // Client-side scores are deliberately ignored. This validation result is based only on
-    // server-decoded bytes and is persisted before the photo can be attached to a submission.
+    // server-decoded bytes. Vehicle detection runs before persistence and all downstream models.
     const supplemental = this.runQualityCheck(payload.filename || '', payload.slot || '', String(payload.note || ''));
     const passed = image.blur.passed && supplemental.passed;
     const quality = {
@@ -607,6 +617,11 @@ export class DashboardService {
       distanceValid: supplemental.distanceValid,
       message: passed ? '照片品質通過' : image.blur.passed ? '照片品質不足，請重新拍攝' : '照片過於模糊，請重新拍攝'
     };
+
+    if (passed) {
+      await analyzeVehicleInput(String(payload.imageData || payload.data || ''));
+    }
+    const relativePath = await this.savePhotoFile(photoId, image);
 
     this.repo.insertUploadedPhoto({
       photo_id: photoId,
@@ -674,27 +689,100 @@ export class DashboardService {
     const mime = extension === '.png' ? 'png' : extension === '.webp' ? 'webp' : 'jpeg';
     const imageData = `data:image/${mime};base64,${(await fs.promises.readFile(absolutePath)).toString('base64')}`;
     const checkedAt = new Date().toISOString();
+    console.log(`[Damage] condition-check photoId=${photoId}`);
     try {
       const condition = await new StageMetrics(this.repo).measure('ai_damage', photoId, () => analyzeVehicleCondition(imageData));
+      let savedGuidance: any = null;
+      try { savedGuidance = JSON.parse(photo.ai_result_json || '{}').guidance; } catch { savedGuidance = null; }
+      const imageMetadata = await sharp(absolutePath).metadata();
+      const events = condition.detections
+        .filter(item => item.verification?.is_damage === true)
+        .map((item, index) => this.buildDamageEvent(photoId, item, index, checkedAt, imageMetadata.width || 0, imageMetadata.height || 0, savedGuidance));
       const persistedDamage: PersistedDamageResult = {
         schema_version: 'irent.damage.v1', photoId,
-        damage_status: condition.damage.detected ? 'detected' : 'none',
+        damage_status: condition.damage.detected ? 'detected' : condition.detections.length > 0 && condition.vlm.status !== 'success' ? 'unavailable' : 'none',
         detection_count: condition.detections.length,
         confidence: condition.damage.detected ? condition.damage.confidence : null,
         detections: condition.detections,
-        inference_status: 'success', failure_reason: null, checked_at: checkedAt
+        events,
+        vlm: condition.vlm,
+        inference_status: condition.detections.length > 0 && condition.vlm.status !== 'success' ? 'failed' : 'success',
+        failure_reason: condition.detections.length > 0 && condition.vlm.status !== 'success' ? condition.vlm.failure_reason || 'QWEN_VERIFICATION_UNAVAILABLE' : null,
+        checked_at: checkedAt
       };
+      console.log(`[Damage] final events=${events.length} candidates=${condition.detections.length} qwen=${condition.vlm.status}`);
       this.repo.updatePhotoCondition(photoId, { ...condition, persistedDamage }, userId);
       return { condition, damage: persistedDamage, photoId };
     } catch (error: any) {
+      console.error(`[Damage] unavailable photoId=${photoId} reason=${error?.code || error?.message || 'DAMAGE_INFERENCE_FAILED'}`);
       const persistedDamage: PersistedDamageResult = {
         schema_version: 'irent.damage.v1', photoId, damage_status: 'unavailable',
         detection_count: 0, confidence: null, detections: [], inference_status: 'failed',
+        events: [],
+        vlm: { status: 'unavailable', model: null, failure_reason: error?.code || 'DAMAGE_INFERENCE_FAILED', verifications: [] },
         failure_reason: error?.code || 'DAMAGE_INFERENCE_FAILED', checked_at: checkedAt
       };
       this.repo.updatePhotoCondition(photoId, { damage: { detected: false, confidence: 0 }, dirty: { detected: false, confidence: 0 }, persistedDamage }, userId);
       return { condition: null, damage: persistedDamage, photoId };
     }
+  }
+
+  private buildDamageEvent(photoId: string, detection: DamageDetection, index: number, createdAt: string, width: number, height: number, guidance: any): DamageEvent {
+    const bbox = detection.bbox_xyxy;
+    const center: [number, number] = [(bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2];
+    const base: DamageEvent = {
+      id: `${photoId}:damage:${index}`,
+      damage: { type: detection.verification!.damage_type, confidence: detection.confidence, bbox, center2D: center, verification: detection.verification! },
+      localization: { success: false, failureReason: 'POSE_UNAVAILABLE' },
+      image: { url: undefined, width, height }, createdAt
+    };
+    if (!width || !height || !bbox.every(Number.isFinite) || bbox[2] <= bbox[0] || bbox[3] <= bbox[1]) {
+      base.localization.failureReason = 'INVALID_DAMAGE_BBOX'; return base;
+    }
+    const rotation = guidance?.pose_debug?.rotation_camera_to_object;
+    const origin = guidance?.pose_debug?.camera_center_car_frame;
+    const focal = Number(guidance?.intrinsics?.focal_length_px);
+    const principal = guidance?.intrinsics?.principal_point_px;
+    if (guidance?.success !== true || !Array.isArray(rotation) || !Array.isArray(origin) || !Number.isFinite(focal) || focal <= 0 || !Array.isArray(principal)) {
+      base.localization.failureReason = guidance?.failure_reason || 'POSE_UNAVAILABLE'; return base;
+    }
+    const cameraRay = [(center[0] - Number(principal[0])) / focal, (center[1] - Number(principal[1])) / focal, 1];
+    const direction = rotation.map((row: number[]) => row.reduce((sum, value, column) => sum + value * cameraRay[column], 0));
+    const length = Math.hypot(...direction);
+    if (direction.length !== 3 || !direction.every(Number.isFinite) || !Number.isFinite(length) || length <= 0 || origin.length !== 3 || !origin.every(Number.isFinite)) {
+      base.localization.failureReason = 'INVALID_CAMERA_RAY'; return base;
+    }
+    base.localization = {
+      success: false,
+      failureReason: 'RAY_INTERSECTION_PENDING',
+      method: 'pnp_camera_ray_then_threejs_mesh_intersection',
+      confidence: Math.min(detection.confidence, Number(guidance?.inlier_ratio) || 1),
+      ray: { coordinateFrame: 'Blender vehicle frame', origin: [origin[0], origin[1], origin[2]], direction: [direction[0] / length, direction[1] / length, direction[2] / length] }
+    };
+    return base;
+  }
+
+  public persistDamageLocalizations(photoId: string, resolvedEvents: any[]) {
+    const photo = this.repo.getUploadedPhotoById(photoId);
+    let stored: any;
+    try { stored = JSON.parse(photo?.ai_result_json || '{}').damage; } catch { stored = null; }
+    if (!photo || !Array.isArray(stored?.events)) { const error: any = new Error('Damage events not found'); error.status = 404; throw error; }
+    const updates = new Map((Array.isArray(resolvedEvents) ? resolvedEvents : []).map(event => [String(event?.id || ''), event?.localization]));
+    const allowedParts = new Set(['front_bumper', 'rear_bumper', 'hood', 'trunk', 'roof', 'front_left', 'front_right', 'rear_left', 'rear_right', 'left_side', 'right_side', 'unknown']);
+    const events = stored.events.map((event: DamageEvent) => {
+      const localization: any = updates.get(event.id);
+      if (!localization) return event;
+      if (localization.success === true) {
+        const point = localization.position3D;
+        const inBounds = Array.isArray(point) && point.length === 3 && point.every(Number.isFinite)
+          && point[0] >= -4.6 && point[0] <= 4.6 && point[1] >= 0.2 && point[1] <= 6.2 && point[2] >= -12.5 && point[2] <= 8;
+        if (!inBounds || !allowedParts.has(localization.vehiclePart)) return { ...event, localization: { ...event.localization, success: false, position3D: undefined, vehiclePart: undefined, failureReason: 'INVALID_RAYCAST_RESULT' } };
+        return { ...event, localization: { ...event.localization, success: true, position3D: point, vehiclePart: localization.vehiclePart, method: 'threejs_recursive_mesh_raycast', failureReason: undefined } };
+      }
+      return { ...event, localization: { ...event.localization, success: false, position3D: undefined, vehiclePart: undefined, failureReason: localization.failureReason === 'RAY_MISSED_VEHICLE' ? 'RAY_MISSED_VEHICLE' : event.localization.failureReason } };
+    });
+    this.repo.updatePhotoDamageEvents(photoId, events);
+    return { photo: dbRowToPhotoResponse(this.repo.getUploadedPhotoById(photoId)!), events };
   }
 
   public createIncidentFromAiResult(submission: any, aiResults: any[], userId: number, submissionId: string): string[] {
@@ -760,6 +848,8 @@ export class DashboardService {
         "photo_ai_analysis",
         "Photo AI Analysis",
         `submissionId=${submissionId} rentalId=${submission.rental_id || submission.rentalId} phase=${submission.phase} slot=${result.slot} damage=${Boolean(result.damageDetected)} dirty=${result.cleanliness === 'dirty'}`
+          + (result.vlmVerdict ? ` qwen=${result.vlmVerdict}` : '')
+          + (result.damageDescription ? ` description=${result.damageDescription}` : '')
       );
 
       return [incidentId];
@@ -791,12 +881,15 @@ export class DashboardService {
     const submissionId = this.createOpaqueId('SUB');
     const photos: any[] = Array.isArray(payload.photos) ? payload.photos : [];
     const phase = String(payload.phase || 'return');
-    const requiredSlots = ['front', 'right_side', 'rear', 'left_side', 'front_interior', 'backseat_interior'];
+    const requiredSlots = ['front', 'right_side', 'rear', 'left_side'];
+    const optionalSlots = ['front_interior', 'backseat_interior'];
+    const allowedSlots = new Set([...requiredSlots, ...optionalSlots]);
     const receivedSlots = photos.map(photo => String(photo?.slot || ''));
-    const hasExactlyRequiredSlots = photos.length === requiredSlots.length
-      && new Set(receivedSlots).size === requiredSlots.length
-      && requiredSlots.every(slot => receivedSlots.includes(slot));
-    if (!hasExactlyRequiredSlots) {
+    const receivedSlotSet = new Set(receivedSlots);
+    const hasRequiredSlots = requiredSlots.every(slot => receivedSlotSet.has(slot));
+    const hasOnlyAllowedUniqueSlots = receivedSlotSet.size === photos.length
+      && receivedSlots.every(slot => allowedSlots.has(slot));
+    if (!hasRequiredSlots || !hasOnlyAllowedUniqueSlots) {
       const error: any = new Error('所有必填照片都必須完成品質檢查');
       error.code = 'IMAGE_QUALITY_CHECK_FAILED';
       error.status = 422;
@@ -845,29 +938,40 @@ export class DashboardService {
     const damageResults: PersistedDamageResult[] = savedPhotos.map(photo => {
       try {
         const saved = JSON.parse(photo.ai_result_json || '{}').damage;
-        if (saved?.schema_version === 'irent.damage.v1' && saved.photoId === photo.photo_id) return saved;
+        if (saved?.schema_version === 'irent.damage.v1' && saved.photoId === photo.photo_id) {
+          return { ...saved, vlm: saved.vlm || { status: saved.detections?.length ? 'unavailable' : 'skipped_no_candidates', model: null, failure_reason: saved.detections?.length ? 'LEGACY_RESULT_WITHOUT_QWEN' : null, verifications: [] } };
+        }
       } catch { /* represented as unavailable below */ }
       return {
         schema_version: 'irent.damage.v1', photoId: photo.photo_id, damage_status: 'unavailable',
         detection_count: 0, confidence: null, detections: [], inference_status: 'failed',
+        events: [],
+        vlm: { status: 'unavailable', model: null, failure_reason: 'INFERENCE_NOT_RUN', verifications: [] },
         failure_reason: 'INFERENCE_NOT_RUN', checked_at: new Date().toISOString()
       } as PersistedDamageResult;
     });
-    const aiResults = damageResults.map((damage, index) => ({
-      slot: savedPhotos[index].slot,
-      damageDetected: damage.inference_status === 'success' && damage.damage_status === 'detected',
-      damageType: damage.detections[0]?.label || null,
-      damageLocation: savedPhotos[index].slot,
-      isNewDamage: damage.inference_status === 'success' && damage.damage_status === 'detected' && phase === 'return',
-      confidence: damage.confidence || 0,
-      cleanliness: savedPhotos[index].dirty_detected === 1 ? 'dirty' : 'unknown',
-      damage
-    }));
+    const aiResults = damageResults.map((damage, index) => {
+      const candidate = damage.detections.find(item => item.verification?.is_damage === true);
+      return {
+        slot: savedPhotos[index].slot,
+        damageDetected: damage.inference_status === 'success' && damage.damage_status === 'detected',
+        damageType: candidate?.verification?.damage_type || candidate?.label || null,
+        damageLocation: savedPhotos[index].slot,
+        isNewDamage: damage.inference_status === 'success' && damage.damage_status === 'detected' && phase === 'return',
+        confidence: damage.confidence || 0,
+        cleanliness: savedPhotos[index].dirty_detected === 1 ? 'dirty' : 'unknown',
+        vlmVerdict: candidate ? 'damage' : (damage.detection_count ? 'unavailable' : null),
+        damageDescription: candidate?.verification?.reason || null,
+        damage
+      };
+    });
     const damageSummary = {
       schema_version: 'irent.damage-summary.v1',
       detected_photo_count: damageResults.filter(item => item.damage_status === 'detected').length,
       total_detection_count: damageResults.reduce((sum, item) => sum + item.detection_count, 0),
       unavailable_photo_count: damageResults.filter(item => item.inference_status === 'failed').length,
+      qwen_reviewed_photo_count: damageResults.filter(item => item.vlm.status === 'success').length,
+      qwen_fallback_photo_count: damageResults.filter(item => ['disabled', 'unavailable', 'timeout', 'failed'].includes(item.vlm.status)).length,
       photos: damageResults
     };
     const incidentStartedAt = Date.now();
@@ -932,7 +1036,11 @@ export class DashboardService {
     this.repo.saveSubmissionRequest(userId, requestKey, requestHash, submissionId, result);
     if (createdIncidents.length) {
       const incident = result.incidents[0];
-      this.notifyLine(incident.id, 'ai_detected', this.getLineMessage(incident, 'ai_detected', `Submission: ${submissionId}; ${incident.issueCount} abnormalities`), true);
+      const imageUrls = savedPhotos
+        .filter(photo => verifiedDamageEvents(photo.ai_result_json).length > 0)
+        .map(photo => createSignedLineImageUrl(photo.photo_id))
+        .filter((url): url is string => Boolean(url));
+      this.notifyLine(incident.id, 'ai_detected', this.getLineMessage(incident, 'ai_detected', `Submission: ${submissionId}; ${incident.issueCount} abnormalities`), true, imageUrls);
     }
     return { ...result, idempotentReplay: false };
   }

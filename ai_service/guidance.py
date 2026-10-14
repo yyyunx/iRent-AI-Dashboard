@@ -112,7 +112,8 @@ def yaw_to_view_sector(yaw: float) -> str:
     -22.5 belongs to FRONT_RIGHT.
     """
     normalized = ((float(yaw) + 180.0) % 360.0) - 180.0
-    index = int(math.floor((normalized + 22.5) / 45.0)) % 8
+    direction = -1 if normalized < 0 else 1
+    index = direction * int(math.floor((abs(normalized) + 22.5) / 45.0)) % 8
     return VIEW_SECTORS[index]
 
 

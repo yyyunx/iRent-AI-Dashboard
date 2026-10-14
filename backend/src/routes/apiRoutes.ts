@@ -18,11 +18,13 @@ export function createApiRouter(controller: DashboardController, authController:
   router.get('/operators', roleRequired('admin'), controller.getAssignableUsers);
   router.get('/submissions', controller.getPhotoSubmissions);
   router.get('/submissions/:submissionId', controller.getPhotoSubmissionDetail);
+  router.get('/photos/:photoId/annotated-damage', roleRequired('admin'), controller.getAnnotatedDamagePhoto);
 
   router.post('/photos/quality-check', csrfProtection, controller.runQualityCheck);
   router.post('/photos/orientation-check', csrfProtection, controller.runOrientationCheck);
   router.post('/photos/capture-guidance', csrfProtection, controller.runCaptureGuidance);
   router.post('/photos/condition-check', csrfProtection, controller.runConditionCheck);
+  router.post('/photos/damage-localization', roleRequired('admin'), csrfProtection, controller.persistDamageLocalizations);
   router.post('/photo-submissions', csrfProtection, controller.handlePhotoSubmission);
 
   router.post('/incidents', roleRequired('admin'), csrfProtection, controller.insertIncident);

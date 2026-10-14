@@ -64,7 +64,7 @@ export class NotificationService {
     if (input.enabled !== undefined) this.repo.setSetting('lineNotificationEnabled', String(input.enabled));
   }
 
-  public queueLineMessage(incidentId: string | null, eventType: string, message: string, deferDelivery = false) {
+  public queueLineMessage(incidentId: string | null, eventType: string, message: string, deferDelivery = false, imageUrls: string[] = []) {
     // A client retry must never fan out the same incident event to the ops group.
     // Failed rows remain retryable; queued/sending/sent are already represented by one delivery.
     if (incidentId && ['ai_detected', 'photo_submission', 'assignment_escalation'].includes(eventType)
@@ -77,7 +77,10 @@ export class NotificationService {
       return 'not_configured';
     }
 
-    const messages = this.buildLineMessages({ incidentId, message });
+    const messages = [
+      ...this.buildLineMessages({ incidentId, message }),
+      ...imageUrls.filter(url => /^https:\/\//i.test(url)).slice(0, 4).map(url => ({ type: 'image', originalContentUrl: url, previewImageUrl: url }))
+    ].slice(0, 5);
     const retryKey = crypto.randomUUID();
     const id = this.repo.addNotification({ provider: 'line', incidentId, eventType, targetId: config.targetId, message, status: 'queued', payloadJson: JSON.stringify(messages), retryKey });
     if (deferDelivery) return 'queued';

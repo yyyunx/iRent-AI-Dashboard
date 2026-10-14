@@ -42,6 +42,8 @@ outputs/irent_ops.db
 outputs/uploads/
 outputs/secrets/
 backend/outputs/secrets/
+backend/outputs/irent_ops.db
+backend/outputs/uploads/
 .tmp-ui-smoke/
 
 
@@ -55,5 +57,6 @@ irent-models/
 __pycache__/
 .pytest_cache/
 .venv/
+.venv-qwen/
 venv/
 *.py[cod]

@@ -1159,6 +1159,7 @@ Resolution
 - `LINEBOT_SETUP.md`：LINE Bot 設定
 - `SECURITY-REVIEW.md`：安全設計與驗證
 - `SECURITY-CAVEATS.md`：目前安全限制
+- [iRent AI 實驗附錄 v2](docs/iRent_AI_appendix_v2.pdf)：比賽提交使用的最新版附錄
 
 ---
 

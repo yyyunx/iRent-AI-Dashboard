@@ -918,6 +918,16 @@ export class DatabaseRepository {
       .run(JSON.stringify({ ...existing, damage }), photoId, userId);
   }
 
+  public updatePhotoDamageEvents(photoId: string, events: unknown[]) {
+    const current = this.getUploadedPhotoById(photoId);
+    let existing: any = {};
+    try { existing = current?.ai_result_json ? JSON.parse(current.ai_result_json) : {}; } catch { existing = {}; }
+    if (!current || !existing.damage) return false;
+    existing.damage.events = events;
+    this.db.prepare('UPDATE UploadedPhoto SET ai_result_json = ? WHERE photo_id = ?').run(JSON.stringify(existing), photoId);
+    return true;
+  }
+
   public setVehicleAvailability(plate: string, unavailable: boolean, incidentId: string | null) {
     this.db.prepare(`INSERT INTO VehicleAvailability(plate, status, reason_incident_id, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(plate) DO UPDATE SET status = excluded.status, reason_incident_id = excluded.reason_incident_id, updated_at = excluded.updated_at`)
       .run(plate, unavailable ? 'UNAVAILABLE' : 'AVAILABLE', incidentId, this.nowText());
