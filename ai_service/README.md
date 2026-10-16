@@ -2,14 +2,23 @@
 
 This adapter loads the frozen KptNetV1 and DamageNetV1 packages once at process startup and serves them on localhost. It does not alter either model's checkpoints, thresholds, or inference behavior.
 
-From the project root in PowerShell:
+Prerequisites: Python 3.11 and the external frozen KptNetV1/DamageNetV1 packages.
+The packages and their weights are not included in this public repository. Use
+your own absolute paths below; Node dependencies do not install these models.
+
+From the project root in a separate PowerShell terminal (for a new checkout):
 
 ```powershell
-$env:KPTNET_ROOT = 'C:\Users\CSIE\Desktop\irent\kptnetv1'
-$env:DAMAGENET_ROOT = 'C:\Users\CSIE\Desktop\irent\damagenetv1'
-& 'D:\GPT_workspace\pythondev.venv\Scripts\python.exe' -m pip install -r .\ai_service\requirements.txt
-& 'D:\GPT_workspace\pythondev.venv\Scripts\python.exe' -m uvicorn app:app --app-dir .\ai_service --host 127.0.0.1 --port 8000
+python -m venv .venv
+$env:KPTNET_ROOT = 'C:\models\kptnetv1'
+$env:DAMAGENET_ROOT = 'C:\models\damagenetv1'
+.\.venv\Scripts\python.exe -m pip install -r .\ai_service\requirements.txt
+.\.venv\Scripts\python.exe -m uvicorn app:app --app-dir .\ai_service --host 127.0.0.1 --port 8000
 ```
+
+Reuse an existing virtual environment if you already have one. For CUDA/Qwen,
+install the PyTorch build appropriate to your GPU environment before starting
+the service. The supplied AI Dockerfile installs CPU PyTorch.
 
 The Node backend is the only intended caller. Endpoints accept JSON containing an image data URL:
 
@@ -51,8 +60,11 @@ Set `QWEN_STRUCTURED_JSON_VERSION=legacy` to roll back to the previous Structure
 JSON prompt/parser. Raw high-recall DamageNet
 candidates remain available for audit, but only `is_damage=true` candidates become
 final damage events. Timeout, malformed output, missing dependencies, disabled Qwen,
-or load/inference failure yields an explicit unavailable result and no final bbox;
-the system does not misreport that case as a clean vehicle.
+or load/inference failure yields an explicit unavailable per-photo result and no
+final damage event. Submission's top-level `clear`/`ok` currently reflects the
+absence of an incident and may still appear when inference is unavailable; inspect
+`damageSummary` and the individual persisted `damage` results before interpreting
+a submission as having completed AI review.
 
 GPU deployment is recommended. The current Node-only Render/Docker service does not
 launch this Python service and its free CPU plan is unsuitable for a 3B VLM. Deploy
@@ -60,20 +72,28 @@ launch this Python service and its free CPU plan is unsuitable for a 3B VLM. Dep
 download, set `AI_SERVICE_URL`, and keep `AI_SERVICE_TIMEOUT_MS` above
 `QWEN_TIMEOUT_SECONDS`.
 
-For a local end-to-end check, set `CONDITION_CHECK_ENABLED=true` for the Node backend
-and set `QWEN_VLM_ENABLED=true`, `QWEN_DEVICE=cuda`, `QWEN_QUANTIZATION=4bit`, and
+For a local end-to-end check, set `QWEN_VLM_ENABLED=true`, `QWEN_DEVICE=cuda`, `QWEN_QUANTIZATION=4bit`, and
 `QWEN_BATCH_SIZE=1` (or use `QWEN_DEVICE=cpu` for a slow fallback smoke test),
-and the other `QWEN_*` values on the Python service. Start the Python service first,
-then run `pnpm dev` from the project root. Upload one vehicle photo in the customer
+and the other `QWEN_*` values on the Python service. Set them before starting
+uvicorn; this adapter does not automatically load a `.env` file.
+`CONDITION_CHECK_ENABLED` in Node is currently UI state and does not enable or
+disable the condition endpoint. Start Python first, then follow the Web
+environment/account setup in the [root README](../README.md) and run `pnpm dev`
+from the project root. Upload one vehicle photo in the customer
 flow; the saved `/api/photos/condition-check` result contains raw `detections`, the
 top-level `vlm` status, and only Qwen-approved `events`. The first model start may
 download the public pretrained weights from Hugging Face; no token is hard-coded.
+
+`GET /health` reports `ok` for KptNet/DamageNet readiness independently of Qwen.
+Check `qwen_vlm.enabled`, `qwen_vlm.loaded`, and `qwen_vlm.error` separately. The
+default Compose AI container does not forward `QWEN_*` settings, so setting them
+only in Compose's root `.env` will not enable Qwen in that container.
 
 On a 4 GB GPU, keep `QWEN_MAX_PIXELS` at or below `401408`. Run a one-candidate
 GPU check from `ai_service` with:
 
 ```powershell
-..\.venv-qwen\Scripts\python.exe .\benchmark_qwen.py <image-path>
+..\.venv\Scripts\python.exe .\benchmark_qwen.py 'C:\path\to\vehicle.jpg'
 ```
 
 ## Guidance pose contract
