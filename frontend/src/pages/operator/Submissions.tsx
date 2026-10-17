@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useApp, type UploadedPhoto } from '../../context/AppContext';
 import { CheckCircle2, AlertTriangle, HelpCircle, Eye, X, XCircle, LoaderCircle, CircleMinus } from 'lucide-react';
+import { submissionInspectionStatus, INSPECTION_LABELS } from '../../utils/inspectionStatus';
 
 type DamageView = {
   schemaVersion: string | null;
@@ -170,7 +171,8 @@ const Submissions: React.FC = () => {
         {submissions.length > 0 ? (
           submissions.map(item => {
             const photos = getPhotosForSubmission(item.submissionId);
-            const statusClass = item.overallStatus === 'ok' ? 'bg-[#e9f4ea] text-irent-green' : 'bg-[#fff4d6] text-[#8a5b00]';
+            const inspectionStatus = submissionInspectionStatus(item.overallStatus, item.damageSummary?.unavailable_photo_count);
+            const statusClass = inspectionStatus === 'clear' ? 'bg-[#e9f4ea] text-irent-green' : inspectionStatus === 'processing' ? 'bg-blue-50 text-blue-700' : 'bg-[#fff4d6] text-[#8a5b00]';
 
             return (
               <article key={item.submissionId} className="pt-3.5 first:pt-0 flex flex-col gap-3.5">
@@ -180,12 +182,12 @@ const Submissions: React.FC = () => {
                     <p className="text-irent-muted text-xs my-0.5">{item.rentalId} · {item.plate} · {item.phase === 'pickup' ? '取車檢查' : '還車檢查'}</p>
                   </div>
                   <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-black ${statusClass}`}>
-                    {item.overallStatus === 'ok' ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
-                    {item.overallStatus}
+                    {inspectionStatus === 'clear' ? <CheckCircle2 size={12} /> : inspectionStatus === 'processing' ? <LoaderCircle size={12} className="animate-spin" /> : <AlertTriangle size={12} />}
+                    {INSPECTION_LABELS[inspectionStatus]}
                   </span>
                 </div>
 
-                <p className="text-irent-ink text-sm leading-relaxed m-0">{item.aiSummary}</p>
+                <p className="text-irent-ink text-sm leading-relaxed m-0">{inspectionStatus === 'review_required' ? '部分照片分析不可用，需由營運人員人工確認；已確認的異常仍會建立案件。' : item.aiSummary}</p>
                 {item.phase === 'return' && item.returnLocation && <div className="rounded-xl border border-blue-100 bg-blue-50/50 p-3 text-xs text-irent-muted"><strong className="text-irent-ink">還車停車位置</strong><p className="m-0 mt-1">{[item.returnLocation.address, item.returnLocation.parkingFacility, item.returnLocation.floor, item.returnLocation.zone, item.returnLocation.pillar, item.returnLocation.parkingSlot].filter(Boolean).join(' / ') || '未提供'}</p>{item.returnLocation.locationNote && <p className="m-0 mt-1">補充：{item.returnLocation.locationNote}</p>}</div>}
 
                 {/* Photo grid of this submission */}

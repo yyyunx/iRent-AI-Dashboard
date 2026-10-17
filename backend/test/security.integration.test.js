@@ -23,7 +23,9 @@ process.env.BLUR_THRESHOLD = '0.01';
 const nativeFetch = global.fetch;
 global.fetch = async (url, options) => String(url).endsWith('/v1/vehicle-gate')
   ? { ok: true, json: async () => ({ success: true, bbox_xyxy: [1, 1, 90, 90], confidence: 0.9, class_id: 0 }) }
-  : nativeFetch(url, options);
+  : String(url).endsWith('/v1/damage')
+    ? { ok: true, json: async () => ({ detections: [], vlm: { status: 'skipped_no_candidates', verifications: [] } }) }
+    : nativeFetch(url, options);
 const VALID_PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAACAAAAAgCAIAAAD8GO2jAAAACXBIWXMAAAPoAAAD6AG1e1JrAAAAOUlEQVR4nO3WywkAMBBCwaj995wqAjkM7F1Y/LyT7ukdAvWicVEEbaoi2rQGJyazqGLAq9BxX9P1BYyfGAFvvlyBAAAAAElFTkSuQmCC';
 const REQUIRED_PHOTO_SLOTS = ['front', 'right_side', 'rear', 'left_side'];
 let clearImageDataPromise;
@@ -91,6 +93,10 @@ async function uploadValidatedPhotos(agent, csrfToken, data) {
         filename: slot === 'right_side' ? 'scratch.png' : `${slot}.png`,
         imageData
       })
+      .expect(200);
+    await agent.post('/api/photos/condition-check')
+      .set('X-CSRF-Token', csrfToken)
+      .send({ photoId: response.body.photoId })
       .expect(200);
     photos.push({ slot, photoId: response.body.photoId, filename: slot === 'right_side' ? 'scratch.png' : `${slot}.png` });
   }

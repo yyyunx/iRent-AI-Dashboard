@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import Vehicle3DViewer from '../components/vehicle/Vehicle3DViewer';
 import type { AiViewerPose } from '../components/vehicle/Vehicle3DViewer';
 import { GUIDANCE_INTERVAL_MS, GUIDANCE_JPEG_QUALITY, GUIDANCE_MAX_FRAME_EDGE, canStartGuidanceRequest, isCurrentGuidanceResponse, isReliableGuidance, smoothViewerPose } from '../utils/continuousGuidance';
+import { canSubmitInspectedPhotos, photoInspectionStatus, submissionInspectionStatus, INSPECTION_LABELS, type InspectionStatus } from '../utils/inspectionStatus';
 
 const PHOTO_SLOTS = [
   { key: 'front', label: '車頭' },
@@ -49,6 +50,7 @@ interface DamageResult {
 interface LastSubmission {
   submissionId: string;
   overallStatus: string;
+  inspectionStatus: InspectionStatus;
   createdIncidents: string[];
   body: string;
   title: string;
@@ -386,6 +388,9 @@ const CustomerFlow: React.FC = () => {
         timeoutMs: 120_000
       }).then(damageResponse => {
         if (!isCurrent()) return;
+        if (!damageResponse.damage || !['success', 'failed'].includes(damageResponse.damage.inference_status)) {
+          throw new Error('Incomplete damage analysis response');
+        }
         setCheckedPhotos(prev => ({ ...prev, [slot]: { ...prev[slot], damage: damageResponse.damage as DamageResult } }));
       }).catch(() => {
         if (!isCurrent()) return;
@@ -411,6 +416,7 @@ const CustomerFlow: React.FC = () => {
       }
 
       await conditionCheck;
+      if (!isCurrent()) return;
 
       showToast("照片品質檢查完成", `${slot}: ${response.quality.message}`, CUSTOMER_SUBMISSION_TOAST_SCOPE);
     } catch (error: any) {
@@ -448,14 +454,13 @@ const CustomerFlow: React.FC = () => {
     setGuidanceStatus('idle');
   };
 
+  const canSubmitPhotos = canSubmitInspectedPhotos(PHOTO_SLOTS.map(slot => slot.key), checkedPhotos);
+  const hasPendingAnalysis = Object.values(checkedPhotos).some(photo => photo.status === 'passed' && photoInspectionStatus(photo.damage) === 'processing');
+
   const submitPhotoFlow = async () => {
     if (submitInFlightRef.current || submitStateRef.current === 'success') return;
-    const allPhotosPassed = PHOTO_SLOTS.every(slot => {
-      const checked = checkedPhotos[slot.key];
-      return checked?.status === 'passed' && Boolean(checked.photoId) && checked.quality?.blur.passed;
-    });
-    if (!allPhotosPassed) {
-      const message = '所有必填照片都必須先通過後端品質檢查。';
+    if (!canSubmitPhotos) {
+      const message = '所有必填照片都必須通過品質檢查，並等待車損分析結束後再送出。';
       setSubmitError(message);
       setSubmissionState('error');
       clearToasts(CUSTOMER_SUBMISSION_TOAST_SCOPE);
@@ -505,12 +510,14 @@ const CustomerFlow: React.FC = () => {
       invalidateQualityRequests();
       clearToasts(CUSTOMER_SUBMISSION_TOAST_SCOPE);
       setSubmitError(null);
+      const inspectionStatus = submissionInspectionStatus(response.overallStatus, response.damageSummary?.unavailable_photo_count);
       setLastSubmission({
         submissionId: response.submissionId,
         overallStatus: response.overallStatus,
+        inspectionStatus,
         createdIncidents: response.createdIncidents,
-        title: response.createdIncidents.length ? '已送出，需營運端確認' : '已送出，未偵測異常',
-        body: `提交編號 ${response.submissionId}，AI 狀態 ${response.overallStatus}。`
+        title: `已送出，${INSPECTION_LABELS[inspectionStatus]}`,
+        body: `提交編號 ${response.submissionId}，AI 結果：${INSPECTION_LABELS[inspectionStatus]}。${inspectionStatus === 'review_required' ? '部分照片未能完成分析，需由營運人員確認。' : ''}`
       });
       setSubmissionState('success');
       setShowSuccessModal(true);
@@ -775,8 +782,8 @@ const CustomerFlow: React.FC = () => {
 
                   {checked?.errorMessage && <p className={`m-0 text-xs font-bold ${checked.status === 'failed' ? 'text-irent-red' : 'text-[#8a5b00]'}`}>{checked.errorMessage}</p>}
                   {checked?.guidance && <p className="m-0 text-xs font-bold text-irent-muted">拍攝方向：{checked.guidance.view_sector ? SECTOR_LABELS[checked.guidance.view_sector] : '無法判定'}{checked.guidance.guidance_status === 'DEGRADED' ? '（粗略）' : ''}</p>}
-                  {checked?.damage && <p className={`m-0 text-xs font-bold ${checked.damage.damage_status === 'detected' ? 'text-irent-red' : 'text-irent-muted'}`}>
-                    車損辨識：{checked.damage.inference_status === 'failed' ? 'Qwen 覆核暫時不可用（不顯示未驗證候選）' : checked.damage.damage_status === 'detected' ? `Qwen 驗證通過 ${checked.damage.detections.filter(item => item.verification?.is_damage).length} 處` : '未偵測到經驗證的車損'}
+                  {checked?.status === 'passed' && <p role="status" className={`m-0 text-xs font-bold ${photoInspectionStatus(checked.damage) === 'processing' ? 'text-blue-700' : photoInspectionStatus(checked.damage) === 'clear' ? 'text-irent-green' : 'text-[#8a5b00]'}`}>
+                    車損辨識：{INSPECTION_LABELS[photoInspectionStatus(checked.damage)]}{photoInspectionStatus(checked.damage) === 'review_required' ? '（分析未完成，可送出供人工確認）' : ''}
                   </p>}
 
                   {/* Inline developer stats when Developer Mode is active */}
@@ -808,13 +815,10 @@ const CustomerFlow: React.FC = () => {
             <button
               type="button"
               onClick={submitPhotoFlow}
-              disabled={submissionLocked || (phase === 'return' && (!returnLocation.address.trim() || !returnLocation.parkingSlot.trim())) || !PHOTO_SLOTS.every(slot => {
-                const checked = checkedPhotos[slot.key];
-                return checked?.status === 'passed' && Boolean(checked.photoId) && checked.quality?.blur.passed;
-              })}
+              disabled={submissionLocked || !canSubmitPhotos || (phase === 'return' && (!returnLocation.address.trim() || !returnLocation.parkingSlot.trim()))}
               className="w-full min-h-[44px] rounded-2xl border border-irent-red bg-irent-red text-white font-extrabold text-sm hover:shadow-hover hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:pointer-events-none"
             >
-              {submitState === 'submitting' ? '送出中...' : '完成送出'}
+              {submitState === 'submitting' ? '送出中...' : hasPendingAnalysis ? 'AI 分析中，請稍候...' : '完成送出'}
             </button>
             {submitState === 'error' && submitError && <p role="alert" className="m-0 rounded-xl border border-[#fde5e5] bg-[#fff3f3] px-3 py-2 text-xs font-bold text-irent-red">{submitError}</p>}
           </div>
@@ -836,10 +840,10 @@ const CustomerFlow: React.FC = () => {
                     <p className="text-irent-muted text-[11px] m-0 break-all">ID: {lastSubmission.submissionId}</p>
                   </div>
                   <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-black ${
-                    lastSubmission.overallStatus === 'ok' ? 'bg-[#e9f4ea] text-irent-green' : 'bg-[#fff4d6] text-[#8a5b00]'
+                    lastSubmission.inspectionStatus === 'clear' ? 'bg-[#e9f4ea] text-irent-green' : 'bg-[#fff4d6] text-[#8a5b00]'
                   }`}>
-                    {lastSubmission.overallStatus === 'ok' ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
-                    {lastSubmission.overallStatus}
+                    {lastSubmission.inspectionStatus === 'clear' ? <CheckCircle2 size={12} /> : <AlertTriangle size={12} />}
+                    {INSPECTION_LABELS[lastSubmission.inspectionStatus]}
                   </span>
                 </div>
                 <p className="text-irent-ink text-sm leading-relaxed m-0 break-anywhere">{lastSubmission.body}</p>
@@ -867,9 +871,9 @@ const CustomerFlow: React.FC = () => {
       {showSuccessModal && lastSubmission && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/25 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="submission-success-title">
           <section className="w-full max-w-sm rounded-3xl border border-irent-line bg-white p-7 text-center shadow-2xl">
-            <span className="mx-auto grid h-14 w-14 place-items-center rounded-full bg-[#e9f4ea] text-irent-green"><CheckCircle2 size={34} strokeWidth={2.5} /></span>
-            <h2 id="submission-success-title" className="mb-2 mt-4 text-xl font-black text-irent-ink">{phase === 'pickup' ? '取車檢查成功' : '還車檢查成功'}</h2>
-            <p className="m-0 text-sm text-irent-muted">照片已成功送出</p>
+            <span className={`mx-auto grid h-14 w-14 place-items-center rounded-full ${lastSubmission.inspectionStatus === 'clear' ? 'bg-[#e9f4ea] text-irent-green' : 'bg-[#fff4d6] text-[#8a5b00]'}`}>{lastSubmission.inspectionStatus === 'clear' ? <CheckCircle2 size={34} strokeWidth={2.5} /> : <AlertTriangle size={34} strokeWidth={2.5} />}</span>
+            <h2 id="submission-success-title" className="mb-2 mt-4 text-xl font-black text-irent-ink">{phase === 'pickup' ? '取車照片已送出' : '還車照片已送出'}</h2>
+            <p className="m-0 text-sm text-irent-muted">{lastSubmission.title}</p>
             <p className="mt-4 rounded-xl bg-irent-bg px-3 py-2 font-mono text-xs font-bold text-irent-ink break-all">{lastSubmission.submissionId}</p>
             <button type="button" onClick={closeSuccessModal} className="mt-5 min-h-11 w-full rounded-xl bg-irent-red px-5 font-extrabold text-white transition-colors hover:bg-red-700">完成</button>
           </section>

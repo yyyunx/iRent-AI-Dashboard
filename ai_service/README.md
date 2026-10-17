@@ -61,10 +61,11 @@ JSON prompt/parser. Raw high-recall DamageNet
 candidates remain available for audit, but only `is_damage=true` candidates become
 final damage events. Timeout, malformed output, missing dependencies, disabled Qwen,
 or load/inference failure yields an explicit unavailable per-photo result and no
-final damage event. Submission's top-level `clear`/`ok` currently reflects the
-absence of an incident and may still appear when inference is unavailable; inspect
-`damageSummary` and the individual persisted `damage` results before interpreting
-a submission as having completed AI review.
+final damage event. Submission waits for terminal per-photo analysis results;
+missing or in-flight results return `409 ANALYSIS_PENDING`. Any unavailable photo
+makes the submission `review_required`, while confirmed damage in other photos
+still creates an incident. Inspect `damageSummary` and individual persisted
+`damage` results for details. Submitted photos cannot be re-analyzed.
 
 GPU deployment is recommended. The current Node-only Render/Docker service does not
 launch this Python service and its free CPU plan is unsuitable for a 3B VLM. Deploy
