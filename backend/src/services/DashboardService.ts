@@ -28,6 +28,7 @@ export class DashboardService {
   private uploadDir: string;
   private notifications: NotificationService;
   private aiAgent: AiAgentService;
+  private readonly pendingDamageChecks = new Set<string>();
 
   constructor(repo: DatabaseRepository, uploadDir: string) {
     this.repo = repo;
@@ -684,13 +685,27 @@ export class DashboardService {
     if (!photo.quality_passed || photo.is_blur || !photo.file_path) {
       const error: any = new Error('Photo has not passed quality validation'); error.status = 422; error.code = 'IMAGE_QUALITY_CHECK_FAILED'; throw error;
     }
+    if (photo.submission_id || this.pendingDamageChecks.has(photoId)) {
+      const error: any = new Error(photo.submission_id ? '照片已提交，無法重新分析' : '照片正在分析中，請稍候');
+      error.status = 409; error.code = photo.submission_id ? 'PHOTO_ALREADY_SUBMITTED' : 'ANALYSIS_PENDING'; throw error;
+    }
+    this.pendingDamageChecks.add(photoId);
+    try {
+      return await this.analyzeSavedPhotoCondition(photo, userId);
+    } finally {
+      this.pendingDamageChecks.delete(photoId);
+    }
+  }
+
+  private async analyzeSavedPhotoCondition(photo: any, userId: number) {
+    const photoId = photo.photo_id;
     const absolutePath = path.join(this.uploadDir, path.basename(photo.file_path));
-    const extension = path.extname(absolutePath).toLowerCase();
-    const mime = extension === '.png' ? 'png' : extension === '.webp' ? 'webp' : 'jpeg';
-    const imageData = `data:image/${mime};base64,${(await fs.promises.readFile(absolutePath)).toString('base64')}`;
     const checkedAt = new Date().toISOString();
     console.log(`[Damage] condition-check photoId=${photoId}`);
     try {
+      const extension = path.extname(absolutePath).toLowerCase();
+      const mime = extension === '.png' ? 'png' : extension === '.webp' ? 'webp' : 'jpeg';
+      const imageData = `data:image/${mime};base64,${(await fs.promises.readFile(absolutePath)).toString('base64')}`;
       const condition = await new StageMetrics(this.repo).measure('ai_damage', photoId, () => analyzeVehicleCondition(imageData));
       let savedGuidance: any = null;
       try { savedGuidance = JSON.parse(photo.ai_result_json || '{}').guidance; } catch { savedGuidance = null; }
@@ -936,19 +951,16 @@ export class DashboardService {
     };
 
     const damageResults: PersistedDamageResult[] = savedPhotos.map(photo => {
+      let saved: PersistedDamageResult | undefined;
       try {
-        const saved = JSON.parse(photo.ai_result_json || '{}').damage;
-        if (saved?.schema_version === 'irent.damage.v1' && saved.photoId === photo.photo_id) {
-          return { ...saved, vlm: saved.vlm || { status: saved.detections?.length ? 'unavailable' : 'skipped_no_candidates', model: null, failure_reason: saved.detections?.length ? 'LEGACY_RESULT_WITHOUT_QWEN' : null, verifications: [] } };
-        }
-      } catch { /* represented as unavailable below */ }
-      return {
-        schema_version: 'irent.damage.v1', photoId: photo.photo_id, damage_status: 'unavailable',
-        detection_count: 0, confidence: null, detections: [], inference_status: 'failed',
-        events: [],
-        vlm: { status: 'unavailable', model: null, failure_reason: 'INFERENCE_NOT_RUN', verifications: [] },
-        failure_reason: 'INFERENCE_NOT_RUN', checked_at: new Date().toISOString()
-      } as PersistedDamageResult;
+        saved = JSON.parse(photo.ai_result_json || '{}').damage;
+      } catch { /* Missing or invalid results must be analyzed before submission. */ }
+      if (this.pendingDamageChecks.has(photo.photo_id) || saved?.schema_version !== 'irent.damage.v1'
+        || saved.photoId !== photo.photo_id || !['success', 'failed'].includes(saved.inference_status)) {
+        const error: any = new Error('照片車損分析尚未完成，請等待分析結束後再送出。');
+        error.status = 409; error.code = 'ANALYSIS_PENDING'; throw error;
+      }
+      return { ...saved, vlm: saved.vlm || { status: saved.detections?.length ? 'unavailable' : 'skipped_no_candidates', model: null, failure_reason: saved.detections?.length ? 'LEGACY_RESULT_WITHOUT_QWEN' : null, verifications: [] } };
     });
     const aiResults = damageResults.map((damage, index) => {
       const candidate = damage.detections.find(item => item.verification?.is_damage === true);
@@ -979,11 +991,15 @@ export class DashboardService {
     const createdIncidents = this.createIncidentFromAiResult(submissionObj, aiResults, userId, submissionId);
     this.repo.recordStageMetric('incident_creation', submissionId, incidentStartedAt, Number(process.hrtime.bigint() - incidentStarted) / 1e6);
 
-    const overallStatus = createdIncidents.length > 0 ? "warning" : "ok";
-    const status = createdIncidents.length > 0 ? "incident_created" : "clear";
-    const aiSummary = createdIncidents.length > 0
+    const needsReview = damageResults.some(item => item.inference_status !== 'success' || item.damage_status === 'unavailable');
+    const overallStatus = needsReview ? 'review_required' : createdIncidents.length > 0 ? 'warning' : 'ok';
+    const status = createdIncidents.length > 0 ? 'incident_created' : needsReview ? 'review_required' : 'clear';
+    const incidentSummary = createdIncidents.length > 0
       ? `AI found issues in ${damageSummary.detected_photo_count} photo(s); one incident created: ${createdIncidents[0]}`
-      : "AI review found no new damage or cleanliness blocker.";
+      : '';
+    const aiSummary = needsReview
+      ? `${incidentSummary ? `${incidentSummary}. ` : ''}AI analysis is unavailable for ${damageSummary.unavailable_photo_count} photo(s); human review is required.`
+      : incidentSummary || 'AI damage analysis completed; no damage detected.';
 
     // Insert photo submission row
     const databaseStartedAt = Date.now();

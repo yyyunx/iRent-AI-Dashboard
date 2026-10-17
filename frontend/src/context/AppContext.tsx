@@ -56,6 +56,7 @@ export interface PhotoSubmission {
   status: string;
   overallStatus: string;
   aiSummary: string | null;
+  damageSummary?: { unavailable_photo_count?: number } | null;
   createdAt: string;
   returnLocation: {
     latitude: number | null; longitude: number | null; gpsAccuracy: number | null; gpsCapturedAt: string | null;

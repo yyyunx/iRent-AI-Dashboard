@@ -80,7 +80,7 @@ KptNetV1 可靠關鍵點對應 Altis 3D landmarks，再以 PnP 推算相機姿�
 
 `QWEN_VLM_ENABLED` 預設 `false`。展示「車損確認 → Incident」時，必須在 **Python process** 設定並成功載入 Qwen；GPU 較適合此流程。設定詳見 [AI service README](ai_service/README.md)。目前 `dirty.detected` 固定 `false`，不能據此宣稱已完成髒污辨識。
 
-照片品質通過即可提交，車況分析不可用不會阻止提交。目前 Submission 頂層 `clear`／`ok` 與摘要依「是否開案」決定，即使逐張分析 unavailable 也可能顯示 `clear`；**判讀 AI 是否完成時需查看 `damageSummary` 與逐張 `damage`，不能只看頂層狀態**。
+照片品質通過後仍需等待每張車損分析結束才可提交；前端停用送出按鈕，後端也會以 `409 ANALYSIS_PENDING` 拒絕未開始或仍在執行中的分析。分析成功且無異常時為 `ok`／無異常，確認異常時為 `warning`／有異常；任何照片分析失敗或不可用時，仍可送出，但整批顯示 `review_required`／待人工確認。部分照片已確認的異常仍會建立 Incident。詳情保存於 `damageSummary` 與逐張 `damage`，提交後不再接受重新分析該照片。
 
 ## 案件、派工與 LINE
 
@@ -431,7 +431,7 @@ pnpm --dir backend test:performance
 - 完整圖片流程依賴 repository 外的模型套件；clone 專案不等於已取得模型與可重現推論環境。
 - 車損模型介接已實作；Qwen 載入、延遲與資源需求需依實際硬體驗證。預設 CPU Compose 不涵蓋完整 Qwen 確認。
 - 引導以 Altis landmarks 與未校正內參為基礎，尚未驗證跨車型準確度；相機即時預覽的 `photoId` 介接仍待修正。
-- 髒污推論與旋轉分類尚未接入；不可用結果與 Submission 頂層摘要的一致性仍待改善。
+- 髒污推論與旋轉分類尚未接入；分析不可用的提交標記待人工確認，需由營運人員後續覆核。
 - 緊急加權、LINE 派工、未接單升級與 Agent SLA 提醒已有實作；完整 SLA 管理、實際預約連動及車輛可租狀態自動化仍待整合。部分營運欄位使用展示規則或預設值。
 - 完工 AI 複檢保留人工覆核；未設定 Gemini 或模型不可用時需人工確認。
 - SQLite、本機照片儲存與 process 內 login rate limiter 以單一 Backend instance 為前提，正式擴充需另行設計共享儲存與備援。
